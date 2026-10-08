@@ -1,0 +1,15 @@
+Port 22
+AddressFamily inet
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+AuthorizedKeysFile .ssh/authorized_keys
+UsePAM yes
+DisableForwarding yes
+PermitTunnel no
+X11Forwarding no
+PermitUserEnvironment no
+PrintMotd no
+Subsystem sftp internal-sftp

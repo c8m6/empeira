@@ -1,0 +1,6 @@
+/.bundle/
+/vendor/bundle/
+/pkg/
+/coverage/
+/lib/empeira/build.json
+*.gem

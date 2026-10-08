@@ -1,0 +1,6 @@
+#!/bin/sh
+# Initialize disposable node host keys, then hand control to sshd or systemd.
+set -eu
+mkdir -p /run/sshd
+ssh-keygen -A
+exec "$@"

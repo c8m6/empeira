@@ -1,0 +1,10 @@
+ARG EMPEIRA_BASE_UBUNTU=library/ubuntu@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78
+FROM ${EMPEIRA_BASE_UBUNTU}
+ENV DEBIAN_FRONTEND=noninteractive
+RUN ["apt-get", "-o", "APT::Update::Error-Mode=any", "update"]
+RUN ["apt-get", "install", "--yes", "--no-install-recommends", "ca-certificates"]
+RUN ["sed", "-i", "/Types: deb/a Snapshot: yes", "/etc/apt/sources.list.d/ubuntu.sources"]
+RUN ["apt-get", "--snapshot", "20261001T000000Z", "-o", "APT::Update::Error-Mode=any", "update"]
+RUN ["apt-get", "--snapshot", "20261001T000000Z", "install", "--yes", "--no-install-recommends", "squid=7.2-2ubuntu2.2"]
+RUN ["apt-get", "clean"]
+USER proxy

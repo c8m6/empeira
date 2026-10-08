@@ -1,0 +1,38 @@
+name: OpenVox end-to-end
+
+on:
+  pull_request:
+    branches: [main, initial]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openvox-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      EMPEIRA_INTEGRATION: '1'
+      EMPEIRA_REQUIRED_RUNTIMES: docker
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+      - name: Verify AMD64 Docker engine
+        run: |
+          test "$(docker info --format '{{.Architecture}}')" = x86_64
+          docker version
+      - name: Apply a real Hiera catalog and verify idempotence, PuppetDB and cleanup
+        run: >-
+          bundle exec rspec spec/integration/node_spec.rb
+          --example 'docker runs the default OpenVox node' --format documentation

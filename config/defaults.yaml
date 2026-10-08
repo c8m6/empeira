@@ -1,0 +1,220 @@
+version: 1
+mocks:
+  commands: {}
+requirements:
+  empeira: null
+runtime:
+  container_engine: podman
+modules:
+  path: modules
+server:
+  mounts: []
+  runtime:
+    startup:
+      entrypoint: /container-entrypoint.sh
+      arguments: [foreground]
+      eyaml_keys: direct
+    paths:
+      puppetdb_config: /etc/puppetlabs/puppet/puppetdb.conf
+    environment_keys:
+      certname: CERTNAME
+      dns_alt_names: DNS_ALT_NAMES
+      ca_hostname: CA_HOSTNAME
+      autosign: AUTOSIGN
+      server_hostname: OPENVOXSERVER_HOSTNAME
+      environment_timeout: OPENVOXSERVER_ENVIRONMENT_TIMEOUT
+      java_args: OPENVOXSERVER_JAVA_ARGS
+      max_active_instances: OPENVOXSERVER_MAX_ACTIVE_INSTANCES
+      puppetdb_enabled: USE_OPENVOXDB
+      storeconfigs: OPENVOX_STORECONFIGS
+      reports: OPENVOX_REPORTS
+      puppetdb_server_urls: OPENVOXDB_SERVER_URLS
+  environment: production
+  memory: 1536
+  cpus: 2
+  timeout: 240
+puppetdb:
+  enabled: true
+  memory: 768
+  runtime:
+    entrypoint: /usr/bin/java
+    user: '0'
+    java_arguments: [-Xms128m, -Xmx256m, -Dlogappender=STDOUT]
+    main_arguments: [clojure.main, -m, puppetlabs.puppetdb.cli.services]
+    paths:
+      jar: /opt/puppetlabs/server/apps/puppetdb/puppetdb.jar
+      config: /etc/puppetlabs/puppetdb/conf.d
+      bootstrap_config: /etc/puppetlabs/puppetdb/bootstrap.cfg
+      data: /opt/puppetlabs/server/data/puppetdb
+network:
+  egress: []
+proxy:
+  enabled: false
+  global: []
+  rules: []
+vm:
+  console:
+    root_password: empeira
+dns:
+  upstream:
+    mode: host
+    servers: []
+  additional_resolver: null
+node_defaults:
+  os: ubuntu
+  version: "24.04"
+  init: process
+  memory: 1024
+  cpus: 2
+hiera:
+  mounts: []
+eyaml:
+  enabled: false
+  private_key: null
+  public_key: null
+images:
+  registry: null
+  network_adapter_builder:
+    repository: library/golang
+    tag: 1.27.1-alpine3.24
+  server:
+    repository: ghcr.io/openvoxproject/openvoxserver
+    tag: "8.16.0"
+    digest: "sha256:17902772813778ed8dabb08b83eec2ddce09e799a993e2ec01a46b5cb7994bd8"
+  puppetdb:
+    repository: ghcr.io/openvoxproject/openvoxdb
+    tag: "8.15.0"
+    digest: "sha256:a5e1c400a23392ac772abf27f0312032052c0a296628a7785eb3c3904ef44b5d"
+  postgres:
+    repository: library/postgres
+    tag: "16.13-alpine"
+    digest: "sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50"
+  dns:
+    repository: coredns/coredns
+    tag: "1.14.7"
+  r10k:
+    build: modules/Containerfile
+  relay:
+    build: relay/Containerfile
+  proxy:
+    build: proxy/Containerfile
+  direct_egress:
+    build: gateway/Containerfile
+  nodes:
+    ubuntu:
+      "22.04":
+        repository: library/ubuntu
+        tag: "22.04"
+        build: nodes/debian/Containerfile
+        architectures: [amd64, arm64]
+      "24.04":
+        repository: library/ubuntu
+        tag: "24.04"
+        build: nodes/debian/Containerfile
+        architectures: [amd64, arm64]
+    rocky:
+      "8":
+        repository: rockylinux/rockylinux
+        tag: "8"
+        build: nodes/rpm/Containerfile
+        architectures: [amd64, arm64]
+      "9":
+        repository: rockylinux/rockylinux
+        tag: "9"
+        build: nodes/rpm/Containerfile
+        architectures: [amd64, arm64]
+    almalinux:
+      "8":
+        repository: library/almalinux
+        tag: "8"
+        build: nodes/rpm/Containerfile
+        architectures: [amd64, arm64]
+      "9":
+        repository: library/almalinux
+        tag: "9"
+        build: nodes/rpm/Containerfile
+        architectures: [amd64, arm64]
+    oraclelinux:
+      "8":
+        repository: library/oraclelinux
+        tag: "8"
+        build: nodes/rpm/Containerfile
+        architectures: [amd64, arm64]
+agent:
+  package: openvox-agent
+  version: "8.29.0"
+  install:
+    method: repository
+    repositories:
+      ubuntu22.04:
+        url: "https://apt.voxpupuli.org/openvox8-release-ubuntu22.04.deb"
+        destinations: [apt.voxpupuli.org]
+        sha256: "fb23fa5bcbea3608384ae40cf9a7f705485353c3d81c5dc69f6a4d6e2c94b389"
+        suffix: "-1+ubuntu22.04"
+      ubuntu24.04:
+        url: "https://apt.voxpupuli.org/openvox8-release-ubuntu24.04.deb"
+        destinations: [apt.voxpupuli.org]
+        sha256: "e32ac8de65339d6d3210c12a2def95b9252be4b7c8e4e66b465caf0c67499af6"
+        suffix: "-1+ubuntu24.04"
+      el8:
+        url: "https://yum.voxpupuli.org/openvox8-release-el-8.noarch.rpm"
+        destinations: [yum.voxpupuli.org]
+        sha256: "21ae739f60bdf9f3710ee3f894bf750140b85b3804110641a88561d2d2fdeff3"
+        suffix: "-1.el8"
+      el9:
+        url: "https://yum.voxpupuli.org/openvox8-release-el-9.noarch.rpm"
+        destinations: [yum.voxpupuli.org]
+        sha256: "ad1a18ce2634cb3a7a5bf3bc5cc3b0d0dbb8cb4411872f2f326d948004a1772b"
+        suffix: "-1.el9"
+    apt: {}
+    dnf: {}
+    packages: {}
+bootstrap:
+  enabled: false
+  scripts: []
+  packages:
+    install:
+      default: []
+      debian: []
+      redhat: []
+    remove:
+      default: []
+      debian: []
+      redhat: []
+  guests:
+    ubuntu:
+      "22.04":
+        agent_preinstalled: false
+        destinations: [archive.ubuntu.com, security.ubuntu.com, ports.ubuntu.com]
+      "24.04":
+        agent_preinstalled: false
+        destinations: [archive.ubuntu.com, security.ubuntu.com, ports.ubuntu.com]
+    rocky:
+      "8":
+        agent_preinstalled: false
+        destinations: [dl.rockylinux.org]
+        baseurl: "https://dl.rockylinux.org/pub/rocky/8"
+      "9":
+        agent_preinstalled: false
+        destinations: [dl.rockylinux.org]
+        baseurl: "https://dl.rockylinux.org/pub/rocky/9"
+    almalinux:
+      "8":
+        agent_preinstalled: false
+        destinations: [repo.almalinux.org]
+        baseurl: "https://repo.almalinux.org/almalinux/8"
+      "9":
+        agent_preinstalled: false
+        destinations: [repo.almalinux.org]
+        baseurl: "https://repo.almalinux.org/almalinux/9"
+    oraclelinux:
+      "8":
+        agent_preinstalled: false
+        destinations: [yum.oracle.com]
+browser:
+  start_url: "about:blank"
+  image:
+    repository: linuxserver/chromium
+    tag: "latest"
+containers:
+  additional: []

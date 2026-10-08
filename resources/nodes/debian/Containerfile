@@ -1,0 +1,10 @@
+ARG EMPEIRA_BASE_NODE=@BASE_IMAGE@
+FROM ${EMPEIRA_BASE_NODE}
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssh-server curl systemd systemd-sysv dbus iproute2 iputils-ping dnsutils procps sudo plocate
+COPY node-start /usr/local/libexec/empeira-node-start
+COPY node-connect /usr/local/libexec/empeira-ssh-connect.rb
+COPY sshd_config /etc/ssh/sshd_config
+RUN chmod 0755 /usr/local/libexec/empeira-node-start && rm -f /etc/ssh/ssh_host_* && systemctl enable ssh.service
+ENTRYPOINT ["/usr/local/libexec/empeira-node-start"]
+CMD ["/usr/sbin/sshd", "-D", "-e"]

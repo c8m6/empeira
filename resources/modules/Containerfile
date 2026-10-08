@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+ARG EMPEIRA_BASE_RUBY=library/ruby:3.4.11-alpine3.23
+FROM ${EMPEIRA_BASE_RUBY}
+RUN apk add --no-cache git ca-certificates
+WORKDIR /opt/empeira-modules
+COPY Gemfile Gemfile.lock ./
+RUN apk add --no-cache --virtual .build-deps build-base libffi-dev \
+    && gem install bundler -v 4.0.22 --no-document \
+    && bundle config set deployment true && bundle install --jobs 2 \
+    && apk del .build-deps
+COPY worker.rb ./
+RUN mkdir /work && chmod 1777 /work
+USER 65534:65534
+ENTRYPOINT ["ruby"]
+CMD ["-e", "sleep"]

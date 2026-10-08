@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main, initial]
+  pull_request:
+    branches: [main, initial]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ['3.4', '4.0']
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - run: bundle exec rspec --exclude-pattern 'spec/integration/**/*_spec.rb'
+      - if: matrix.ruby == '3.4'
+        run: bundle exec rubocop
+      - if: matrix.ruby == '3.4'
+        run: bundle exec bundler-audit check --update
+      - if: matrix.ruby == '3.4'
+        run: bundle exec bundler-audit check --gemfile-lock resources/modules/Gemfile.lock

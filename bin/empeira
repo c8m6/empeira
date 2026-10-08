@@ -1,0 +1,15 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative '../lib/empeira'
+require_relative '../lib/empeira/cli/main'
+
+begin
+  Empeira::CLI::Main.start(ARGV)
+rescue Empeira::Error => e
+  # CLI errors must remain visible even when Ruby warnings are disabled.
+  $stderr.write "Error: #{e.message}\n"
+  exit 1
+rescue Interrupt
+  exit 130
+end

@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+FROM scratch
+COPY probe /probe
+COPY adapter /adapter
+ENTRYPOINT ["/probe"]

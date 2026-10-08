@@ -1,0 +1,10 @@
+ARG EMPEIRA_BASE_NODE=@BASE_IMAGE@
+FROM ${EMPEIRA_BASE_NODE}
+RUN dnf install -y ca-certificates openssh-server systemd dbus iproute iputils bind-utils procps-ng sudo mlocate && dnf clean all
+RUN command -v curl || dnf install -y curl
+COPY node-start /usr/local/libexec/empeira-node-start
+COPY node-connect /usr/local/libexec/empeira-ssh-connect.rb
+COPY sshd_config /etc/ssh/sshd_config
+RUN chmod 0755 /usr/local/libexec/empeira-node-start && rm -f /etc/ssh/ssh_host_* && systemctl enable sshd.service
+ENTRYPOINT ["/usr/local/libexec/empeira-node-start"]
+CMD ["/usr/sbin/sshd", "-D", "-e"]

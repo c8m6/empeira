@@ -1,0 +1,210 @@
+# Networking
+
+Container and VM nodes share one isolated IPv4 peer network with logical DNS names
+and arbitrary internal TCP/UDP. They have no unrestricted host-network or Internet
+attachment. External traffic requires an explicit TCP grant or allowlisted proxy
+policy. IPv6 is disabled; external UDP grants are unsupported.
+
+```mermaid
+flowchart LR
+    subgraph Lab[Isolated Empeira workspace]
+        C[Container nodes] <--> V[VM nodes]
+        C --> D[CoreDNS]
+        V --> D
+        C --> S[OpenVox Server]
+        V --> S
+        S --> DB[OpenVoxDB relay and backend] --> PG[PostgreSQL]
+        B[Chromium / additional services] <--> C
+        B <--> V
+        C --> P[Normal / bootstrap proxy]
+        V --> P
+    end
+    D --> G[Workspace gateway: default DROP]
+    P --> G
+    C -. explicit TCP grant .-> G
+    V -. explicit TCP grant .-> G
+    G --> External[Permitted DNS / LAN / Internet destinations]
+```
+
+The workspace is a cooperative lab, not an adversarial tenant boundary. Privileged
+peers can spoof shared-network identities. Engine administrators can inspect
+containers and credentials. Use disposable test data and trusted guests.
+
+## Logical network and backend resources
+
+Docker uses an internal bridge with
+[isolated gateway mode](https://docs.docker.com/engine/network/port-publishing/#gateway-modes).
+Podman uses an internal Netavark bridge with isolation and runtime DNS disabled.
+Empeira verifies ownership, driver and isolation before reuse; unsupported or
+unverifiable capabilities fail closed.
+
+| CLI host/runtime | VM peer attachment |
+| --- | --- |
+| Linux/WSL2, rootless Podman | Nonpersistent TAP in the rootless Netavark namespace |
+| Linux/WSL2, Docker | Private QEMU Ethernet channel and owned bridge adapter |
+| macOS, Podman Machine | QEMU channel through machine SSH and rootless TAP |
+| macOS, Docker Desktop | QEMU channel through runtime exec and owned bridge adapter |
+
+One backend factory owns this selection. No host route to container IPs is assumed
+on macOS. KVM/HVF and platform-specific wiring require the corresponding
+[manual gates](development.md#vm-and-shared-network-prerequisites).
+Podman Machine needs one unambiguous active rootless connection and shared canonical
+state paths; Empeira never resets the machine or falls back to rootful execution.
+
+The static Go adapter is built from packaged source in an isolated, content-hashed
+context by the selected runtime. Go is not a host prerequisite. Packet channels
+use private directories/sockets outside the control repository. Adapter helpers
+have no control-code mount or credentials; identity, definition and checksum are
+verified. The VM management NIC has restricted loopback SSH only, separate from
+peer application traffic, DNS and Puppet.
+
+The CLI host and engine may have different filesystems. Control/Hiera directories,
+server mounts and state must be visible at their canonical paths. Mount probes
+inspect visibility without writing markers. Remote-engine path translation is not
+implemented. On WSL2, keep source checkouts on the Linux filesystem.
+
+### Address lifetime and recovery
+
+Under the workspace lock, Empeira selects an unused private /24 after checking
+host routes and runtime networks. Gateway/DNS/proxy addresses, VM/container leases
+and runtime infrastructure allocation use separate pools. There is no fixed global
+subnet or user IP/MAC setting. Unknown overlap or ownership fails closed.
+
+A node's IP, MAC and DNS record survive stop/start. Destroy releases its lease and
+removes its record, transport and credentials; recreating a name need not reuse its
+address. A later VPN route can require workspace recreation. Unsupported inventory
+or definition revisions fail closed without migration or automatic adoption.
+
+## One gateway, one direct-egress policy
+
+Every peer uses the owned gateway as its IPv4 default route. Only the gateway has
+an external uplink; DNS, proxies, server, database and nodes stay isolated.
+The fixed browser UI relay has a separate loopback access path with forwarding off.
+
+`network.egress` grants destination IPv4/TCP-port pairs:
+
+```yaml
+network:
+  egress:
+    - host: repository.example.net
+      ports: [443]
+    - ip: 203.0.113.10
+      ports: [443, 8443]
+```
+
+Entries have exactly one `host` or `ip`. Hostnames match exactly, without wildcards;
+`up` resolves every current A record and replaces the complete policy. IP selectors
+bypass DNS and may intentionally permit private LAN/VPN destinations. A different
+name sharing an allowed IP is reachable on that port: the firewall cannot distinguish
+HTTP Host or TLS SNI. DNS changes require another `up`.
+
+Reconciliation installs DROP before applying complete rules. Removed grants also
+revoke existing connections. DNS or firewall failure leaves egress blocked/stopped,
+never on unrestricted provider NAT. Policy edits preserve node/gateway identities;
+`status` checks actual rules and forwarding, and `up` repairs drift.
+
+CoreDNS alone receives TCP/UDP 53 to its selected resolvers. Proxies alone receive
+TCP 80/443 and enforce their destination allowlists/private-address restrictions.
+`proxy.global` does not grant direct egress. Applications choose DIRECT/proxy using
+their own settings and `NO_PROXY`; there is no fallback or DNS rewriting.
+See [proxy policy](proxy.md) for hostname rules and bootstrap destinations.
+
+During bootstrap, a node is excluded from direct egress and normal proxy bindings.
+A separate authenticated /32-source-bound proxy installs packages. Cleanup restores
+package configuration, removes temporary access/credentials and activates final
+runtime policy before enrollment and Puppet. Failed bootstrap stays incomplete.
+
+## Runtime attachment and privilege boundary
+
+Normal Empeira operation requires no interactive sudo/root. One-time runtime,
+TUN and accelerator setup can need administrator privileges.
+
+Containers receive managed routes through short-lived helpers in their owned
+network namespace and do not retain `NET_ADMIN`. Docker peer helpers have narrowly
+scoped `NET_ADMIN` and `/dev/net/tun`, read-only filesystems and no new privileges.
+
+Docker also requires a short-lived administrative helper in the engine Linux host
+network namespace. It has `NET_ADMIN`/`NET_RAW` and installs only two exact owned
+bridge/subnet rules: raw acceptance and same-bridge forwarding. It verifies network
+labels/ID, bridge name and subnet first, changes no host routes/default policies,
+never flushes firewall tables, and removes its exact rules before network deletion.
+It mounts no host files, engine socket or PID namespace. This is a real privilege
+boundary relying on Docker daemon authorization. Rootless Podman does not use it.
+Docker iptables-nft/legacy interfaces are supported; unknown/native nftables-only
+engines fail closed. Docker Desktop host-network helper restrictions require
+actual platform validation.
+
+Do not attach extra interfaces or restart gateways outside the managed lifecycle.
+Cross-workspace subnets, namespaces and bridge rules are distinct, but this shared
+network does not protect against a malicious privileged peer.
+
+The gateway recipe uses official Ruby/Alpine and distribution iproute2/iptables
+packages. Go/Ruby, image and package notices are preserved in built images; only
+project-owned source/recipes are shipped in Empeira. See
+[provenance](configuration.md#control-plane-images-and-provenance).
+
+## DNS and service communication
+
+CoreDNS owns `empeira.internal` service names and node hostnames. Unknown names in
+that internal zone never forward externally. Other names use host-derived resolvers:
+
+```yaml
+dns:
+  upstream:
+    mode: host
+    servers: []
+```
+
+Linux/WSL2 reads the host resolver configuration, including systemd-resolved's
+upstream file when needed. macOS reads `scutil --dns` and keeps per-domain routes.
+Unusable loopback/link-local resolvers fail with instructions for an explicit
+reachable IPv4 override. There is no public fallback resolver.
+
+```yaml
+dns:
+  upstream:
+    mode: explicit
+    servers: [10.20.30.53]
+  additional_resolver: resolver.empeira.internal
+```
+
+The optional additional resolver is queried first for non-Empeira names; NXDOMAIN
+or NODATA falls through to the existing upstream. It may be a DNS name or address
+and need not be an Empeira service. `up` activates it after additional services
+start. VPN/engine routing remains the host's responsibility; flat Linux resolver
+files cannot represent every split-DNS route. AAAA queries return NODATA.
+
+The server is `server.empeira.internal:8140`. PostgreSQL and OpenVoxDB are internal,
+with retained volumes and random private database credentials. Readiness verifies
+real SQL and database-backed PuppetDB queries.
+
+Puppet/OpenVox Server uses `https://puppetdb.empeira.internal:8081`; internal tools
+use `http://puppetdb.empeira.internal:8080`. Both fixed relay listeners forward to
+`puppetdb-backend.empeira.internal:8080`. The HTTPS relay has a workspace CA-issued
+certificate for terminus compatibility; it does not authenticate clients.
+**PuppetDB HTTP is deliberately unauthenticated within the isolated lab.** It is
+never host-published; this is not a production deployment recommendation.
+PostgreSQL transport TLS is not configured. Normal agent/server/CA TLS and disabled
+global autosigning remain intact.
+
+`down` retains CA/database volumes and generated credentials; `destroy` removes
+owned persistent data. Missing recorded storage or credentials fails closed.
+Preserve state and volumes together for recovery.
+
+## Internal browser and additional services
+
+After `up`, `browser` starts/reuses only Chromium and its fixed UI relay and prints
+`https://127.0.0.1:<dynamic-port>/`. It does not start stopped infrastructure.
+The relay carries TLS only to the observed browser's port 3001, accepts no arbitrary
+forwarding target and disables IP forwarding. Chromium stays isolated and has no
+Internet grant from enabling the node proxy; its profile is disposable.
+
+Additional services receive `<name>.empeira.internal` and publish no host ports.
+Use internal URLs in Chromium, for example
+`http://openvoxview.empeira.internal:5000` or `http://host1:8080`. VM/container peers
+are reachable directly at their logical names, with no application exposure matrix.
+The UI is accessible to local users who can reach its loopback endpoint.
+
+Image/module acquisition uses the separate [update plane](architecture.md#runtime-and-update-planes),
+with native runtime networking and user proxy/registry settings. Those helpers
+never join the workspace or start its DNS/proxy/services.

@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+ARG EMPEIRA_BASE_BUILDER=@BUILDER@
+FROM ${EMPEIRA_BASE_BUILDER} AS build
+WORKDIR /source
+COPY *.go go.mod ./
+ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOPROXY=off
+RUN go test ./... && go build -trimpath -buildvcs=false -ldflags='-s -w' -o /adapter .
+FROM scratch
+COPY --from=build /adapter /adapter
+COPY --from=build /usr/local/go/LICENSE /licenses/go-LICENSE
+COPY LICENSE /licenses/empeira-LICENSE
+ENTRYPOINT ["/adapter"]
+CMD ["hold"]

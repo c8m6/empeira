@@ -1,0 +1,145 @@
+name: Manual release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example v0.1.0-alpha.1)
+        type: string
+        required: true
+      channel:
+        description: Release channel matching the tag
+        type: choice
+        options: [alpha, beta, rc, stable]
+        default: alpha
+      dry_run:
+        description: Build and validate without creating a tag or release
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manual-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      EMPEIRA_BUILD_VERSION: ${{ inputs.tag }}
+      EMPEIRA_RELEASE_CHANNEL: ${{ inputs.channel }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate release inputs and source branch
+        run: ruby script/release.rb validate
+      - name: Refuse existing tag or release; fail closed on API errors
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$EMPEIRA_BUILD_VERSION" > "$RUNNER_TEMP/tag-refs.json"
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          ruby script/release.rb check-available "$RUNNER_TEMP/tag-refs.json" "$RUNNER_TEMP/releases.json"
+
+  quality:
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  openvox:
+    needs: validate
+    uses: ./.github/workflows/openvox.yml
+
+  build:
+    needs: [validate, quality, openvox]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      build_time: ${{ steps.build.outputs.build_time }}
+      checksum: ${{ steps.build.outputs.checksum }}
+    env:
+      EMPEIRA_BUILD_VERSION: ${{ inputs.tag }}
+      EMPEIRA_RELEASE_CHANNEL: ${{ inputs.channel }}
+      EMPEIRA_BUILD_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+      - name: Build and inspect the gem in a temporary staging directory
+        id: build
+        run: |
+          test "$(git rev-parse HEAD)" = "$EMPEIRA_BUILD_REVISION"
+          EMPEIRA_BUILD_TIME="$(ruby -rtime -e 'puts Time.now.utc.iso8601')"
+          export EMPEIRA_BUILD_TIME
+          bundle exec ruby script/release.rb build
+          echo "build_time=$EMPEIRA_BUILD_TIME" >> "$GITHUB_OUTPUT"
+          ruby -rdigest -e 'File.open(ENV.fetch("GITHUB_OUTPUT"), "a") { |f| f.puts "checksum=#{Digest::SHA256.file(Dir["pkg/*.gem"].fetch(0)).hexdigest}" }'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, MIT
+        with:
+          name: release-gem
+          path: pkg/*.gem
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EMPEIRA_BUILD_VERSION: ${{ inputs.tag }}
+      EMPEIRA_RELEASE_CHANNEL: ${{ inputs.channel }}
+      EMPEIRA_BUILD_REVISION: ${{ github.sha }}
+      EMPEIRA_BUILD_TIME: ${{ needs.build.outputs.build_time }}
+      EMPEIRA_ARTIFACT_SHA256: ${{ needs.build.outputs.checksum }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          ruby-version: '3.4'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0, MIT
+        with:
+          name: release-gem
+          path: pkg
+      - name: Verify the built artifact and unchanged main revision
+        run: |
+          ruby script/release.rb validate
+          ruby script/release.rb verify
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$EMPEIRA_BUILD_REVISION"
+      - name: Create the tested tag atomically
+        run: >-
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs"
+          -f "ref=refs/tags/$EMPEIRA_BUILD_VERSION" -f "sha=$EMPEIRA_BUILD_REVISION"
+      - name: Create draft with native release notes and the verified gem
+        run: |
+          flags=(--draft --verify-tag --target "$EMPEIRA_BUILD_REVISION" --title "$EMPEIRA_BUILD_VERSION" --generate-notes)
+          if [ "$EMPEIRA_RELEASE_CHANNEL" != stable ]; then
+            flags+=(--prerelease --latest=false)
+          fi
+          gh release create "$EMPEIRA_BUILD_VERSION" pkg/*.gem "${flags[@]}"
+      - name: Verify the complete draft before immutable publication
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$EMPEIRA_BUILD_VERSION" > "$RUNNER_TEMP/tag-ref.json"
+          ruby script/release.rb verify-draft "$RUNNER_TEMP/releases.json" "$RUNNER_TEMP/tag-ref.json"
+      - name: Publish the complete draft
+        run: gh release edit "$EMPEIRA_BUILD_VERSION" --draft=false
+      - name: Verify published release and uploaded asset; fail closed on API errors
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$EMPEIRA_BUILD_VERSION" > "$RUNNER_TEMP/tag-ref.json"
+          ruby script/release.rb verify-published "$RUNNER_TEMP/releases.json" "$RUNNER_TEMP/tag-ref.json"
