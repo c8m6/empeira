@@ -88,7 +88,7 @@ class ServiceRuntime
 
   def service_exec(_resource, arguments, **)
     calls << [:exec, arguments]
-    output = arguments.include?('DELETE') ? '204' : ''
+    output = arguments.include?('DELETE') ? "HTTP/1.1 204 No Content\r\n\r\n" : ''
     output = "[main]\ngpgcheck=1\n" if arguments == ['cat', '/etc/dnf/dnf.conf']
     Empeira::Execution::Result.new(stdout: output, stderr: '', exit_status: 0, timed_out: false)
   end

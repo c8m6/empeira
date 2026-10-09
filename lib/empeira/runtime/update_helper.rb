@@ -25,7 +25,7 @@ module Empeira
         result = runner.run(name, arguments: arguments, timeout: timeout)
         return result if result.success?
 
-        diagnostic = Execution::Diagnostics.clean("#{result.stderr}\n#{result.stdout}")
+        diagnostic = Execution::Diagnostics.safe_text("#{result.stderr}\n#{result.stdout}")
         guidance = if registry
                      registry_failure_hint(registry, diagnostic, timed_out: result.timed_out)
                    else
@@ -33,7 +33,9 @@ module Empeira
                    end
         raise Providers::ExecutionError, "#{name} update #{operation} failed " \
                                          "(#{result.timed_out ? 'timeout' : result.exit_status}). " \
-                                         "#{guidance}\n#{diagnostic}", cause: nil
+                                         "#{guidance}\n" \
+                                         "#{Execution::Diagnostics.native(result, operation: operation, tool: name)}",
+              cause: nil
       end
 
       private

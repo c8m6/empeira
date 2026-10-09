@@ -56,7 +56,10 @@ RSpec.describe Empeira::Node::PackageBootstrap do
     execute = ->(args) { args.first == 'apt-get' ? failure : success }
     bootstrap = described_class.new(config: config, os: 'ubuntu', execute: execute, copy: copy)
     expect { bootstrap.run(proxy_url: 'http://proxy.test:3128') }
-      .to raise_error(Empeira::Error, /remove failed.*exit=17.*\[REDACTED URL\].*Puppet was not run/)
+      .to raise_error(Empeira::Error) do |error|
+        expect(error.message).to include('remove failed', 'exit=17', 'http://proxy/', 'Puppet was not run')
+        expect(error.message).not_to include('secret@')
+      end
   end
 
   it 'reports bounded remove, metadata and install progress without package-manager output' do

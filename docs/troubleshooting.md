@@ -5,6 +5,41 @@ Status is read-only and reports unavailable engines or invalid inventory as
 unknown/diagnostic states. Its successful exit means a report was produced, not
 that infrastructure is healthy. `up` performs readiness checks.
 
+## HTTP and transport errors
+
+HTTP failures identify the operation, requested URL, actual status and server reason
+phrase, followed by the available response. For example:
+
+```text
+Operation: Download agent package
+URL: https://packages.example.org/apt/pool/agent.deb
+HTTP status: 404 Not Found
+Response:
+  Package is unavailable
+```
+
+URLs retain their host and path; user information, sensitive query values, known
+credentials, authorization headers and cookies are redacted. Multiline text and JSON
+remain readable. HTML, truncation and unavailable/empty bodies are labelled; binary
+bodies are omitted. Diagnostic output is limited to 8 KiB after redaction.
+
+DNS, connection, timeout, TLS and proxy failures are reported as transport failures.
+If no HTTP response was received, no status is invented. APT, DNF, Docker/Podman and
+Git/r10k retain their native details; unavailable URL/status/body fields are identified
+as unavailable separately. Empeira sends no extra requests for diagnosis. A 401 can
+offer one agent-repository login in a TTY; CI uses both `EMPEIRA_AGENT_REPO_USERNAME`
+and `EMPEIRA_AGENT_REPO_PASSWORD`. Rejected interactive and ENV logins are distinguished.
+HTTP 403 does not trigger login, and HTTP 407 identifies proxy authentication. Registry
+authentication continues to use native `docker login` / `podman login` and the reported
+registry host; Empeira does not log into registries automatically.
+
+APT helper credentials use literal `login` and `password` tokens in a temporary
+0600 file under `/etc/apt/auth.conf.d`. APT treats surrounding quotes and added
+backslashes as credential bytes, so Empeira does not add them. A successful login
+rewrites this file before retrying the same metadata command. The host-side package
+download reuses the credentials for the same HTTPS origin. APT's token format cannot
+represent whitespace inside a credential value.
+
 ## KVM and QEMU
 
 A present `/dev/kvm` is insufficient: the invoking user needs read/write access

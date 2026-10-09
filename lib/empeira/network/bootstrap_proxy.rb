@@ -131,7 +131,7 @@ module Empeira
 
       def readiness_probe
         's=TCPSocket.new(ARGV[0],3128);s.write("GET http://bootstrap.invalid/ HTTP/1.0\r\n\r\n");' \
-          'abort unless s.gets.to_s.match?(/HTTP\/1\.[01] 403 /)'
+          'line=s.gets.to_s;abort(line) unless line.match?(/HTTP\/1\.[01] 403 /)'
       end
 
       def wait_ready(state, address)
@@ -142,8 +142,12 @@ module Empeira
           result = @runtime.service_exec(server, [Node::Certificates::RUBY, '-rsocket', '-e',
                                                   readiness_probe, address], timeout: 3)
           return if result.success?
-          raise Error, 'Bootstrap proxy did not become reachable on the peer network' if
-            Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+
+          if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+            detail = Execution::Diagnostics.native(result, operation: 'Bootstrap proxy readiness', tool: 'ruby',
+                                                           url: 'http://bootstrap.invalid/')
+            raise Error, "Bootstrap proxy did not become reachable on the peer network\n#{detail}", cause: nil
+          end
 
           sleep 0.2
         end

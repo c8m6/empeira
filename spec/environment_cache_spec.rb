@@ -71,10 +71,14 @@ RSpec.describe Empeira::Server::EnvironmentCache do
   it 'invalidates a replaced server and never checkpoints a failed invalidation' do
     cache.refresh(server)
     previous = state.dig('control_plane', 'environment_cache').dup
-    failure = Empeira::Execution::Result.new(stdout: '403', stderr: 'synthetic secret', exit_status: 22,
+    failure = Empeira::Execution::Result.new(stdout: "HTTP/1.1 403 Forbidden\r\n\r\nAdmin access denied",
+                                             stderr: '', exit_status: 22,
                                              timed_out: false)
     allow(runtime).to receive(:service_exec).and_return(failure)
-    expect { cache.refresh('id' => 'replacement') }.to raise_error(Empeira::Error, /invalidation failed/)
+    expect { cache.refresh('id' => 'replacement') }.to raise_error(Empeira::Error) do |error|
+      expect(error.message).to include('invalidation failed', '403 Forbidden', 'Admin access denied',
+                                       '/environment-cache?environment=production')
+    end
     expect(state.dig('control_plane', 'environment_cache')).to eq(previous)
     expect(persist).to have_received(:call).once
     allow(runtime).to receive(:service_exec).and_call_original
@@ -82,7 +86,8 @@ RSpec.describe Empeira::Server::EnvironmentCache do
   end
 
   it 'rejects unexpected successful HTTP responses instead of trusting a proxy or login page' do
-    response = Empeira::Execution::Result.new(stdout: '200', stderr: '', exit_status: 0, timed_out: false)
+    response = Empeira::Execution::Result.new(stdout: "HTTP/1.1 200 OK\r\n\r\nLogin page",
+                                              stderr: '', exit_status: 0, timed_out: false)
     allow(runtime).to receive(:service_exec).and_return(response)
     expect { cache.refresh(server) }.to raise_error(Empeira::Error, /invalidation failed/)
     expect(state.fetch('control_plane')).not_to have_key('environment_cache')

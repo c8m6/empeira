@@ -6,7 +6,14 @@ require 'base64'
 
 module Empeira
   module Agent
-    class AuthenticationRequired < Error; end
+    class AuthenticationRequired < Error
+      attr_reader :url
+
+      def initialize(message = 'Agent repository requires authentication', url: nil)
+        super(message)
+        @url = url
+      end
+    end
 
     class Authentication
       def self.credentials
@@ -26,6 +33,7 @@ module Empeira
       def initialize(url:, progress: Progress.new, input: $stdin, output: $stderr)
         @origin = URI(url)
         @credentials = self.class.credentials
+        @credential_source = @credentials ? 'ENV' : 'interactive'
         @progress = progress
         @input = input
         @output = output
@@ -33,19 +41,18 @@ module Empeira
 
       def credentials(url = @origin.to_s)
         uri = URI(url)
-        @credentials if [uri.scheme, uri.host, uri.port] == [@origin.scheme, @origin.host, @origin.port]
+        @credentials if same_origin?(uri)
       end
 
       def attempt
         yield
-      rescue AuthenticationRequired
-        raise Error, failure_message if @credentials
-
-        login
+      rescue AuthenticationRequired => e
+        require_retry!(e)
+        login_after(e)
         begin
           yield
-        rescue AuthenticationRequired
-          raise Error, failure_message
+        rescue AuthenticationRequired => retry_error
+          raise Error, failure_message(retry_error), cause: nil
         end
       end
 
@@ -57,9 +64,28 @@ module Empeira
 
       private
 
-      def failure_message
-        'Agent repository authentication failed. Set both EMPEIRA_AGENT_REPO_USERNAME and ' \
-          'EMPEIRA_AGENT_REPO_PASSWORD; explicit credentials were not replaced'
+      def require_retry!(error)
+        if error.url && !same_origin?(URI(error.url))
+          raise Error, 'Agent authentication required at a different origin; source credentials were not forwarded.' \
+                       "\n#{error.message}",
+                cause: nil
+        end
+        raise Error, failure_message(error), cause: nil if @credentials
+      end
+
+      def login_after(error)
+        login
+      rescue Error => e
+        raise Error, "#{e.message}\n#{error.message}", cause: nil
+      end
+
+      def same_origin?(uri)
+        [uri.scheme, uri.host&.downcase, uri.port] == [@origin.scheme, @origin.host&.downcase, @origin.port]
+      end
+
+      def failure_message(error)
+        source = @credential_source == 'ENV' ? 'ENV credentials were not replaced' : 'interactive login was rejected'
+        "Agent repository authentication failed: #{source}.\n#{error.message}"
       end
 
       def login

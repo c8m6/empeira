@@ -104,6 +104,21 @@ containers, networks and volumes are absent. No global prune is used.
 The workflow reads all software pins from `config/defaults.yaml`; it needs no
 repository secrets and uses public artifacts only.
 
+The APT authentication regression uses a local HTTPS repository with synthetic Basic
+credentials and an ephemeral GPG signing key. It checks the helper's effective
+`auth.conf.d` configuration, private file mode and exact credential bytes, then
+verifies metadata returns 401 before one interactive login and 200 after the retry.
+The selected package download must reuse that login and pass its SHA-256 check.
+It requires host `gpg`/`gpgconf` and a locally reachable container engine; helper and
+host TLS verification remain enabled. Run it explicitly for either engine:
+
+```bash
+EMPEIRA_INTEGRATION=agent-auth EMPEIRA_REQUIRED_RUNTIMES=docker \
+  bundle exec rspec spec/integration/agent_repository_auth_spec.rb --example docker
+EMPEIRA_INTEGRATION=agent-auth EMPEIRA_REQUIRED_RUNTIMES=podman \
+  bundle exec rspec spec/integration/agent_repository_auth_spec.rb --example podman
+```
+
 Lightweight CI runs deterministic RSpec excluding `spec/integration`, RuboCop and
 both dependency audits. Both quality and PR smoke support `main` and `initial`
 during the transition; no branch migration is performed by a workflow.

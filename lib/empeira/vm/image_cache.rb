@@ -23,8 +23,8 @@ module Empeira
 
         cache_image(image, directory, destination)
         destination
-      rescue SystemCallError, IOError
-        raise Error, 'Cannot cache the verified VM image', cause: nil
+      rescue SystemCallError, IOError => e
+        raise Error, "Cannot cache the verified VM image (#{e.class.name})", cause: nil
       end
 
       private
@@ -48,18 +48,28 @@ module Empeira
       end
 
       def download(url, file)
+        received = nil
         uri = URI(url)
         raise Error, 'VM image source must use HTTPS' unless uri.is_a?(URI::HTTPS)
 
         Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 60) do |http|
           http.request(Net::HTTP::Get.new(uri.request_uri)) do |response|
-            raise Error, 'VM image download failed' unless response.is_a?(Net::HTTPSuccess)
-
+            received = response
+            validate_response!(response, url)
             response.read_body { |chunk| file.write(chunk) }
           end
         end
-      rescue SocketError, IOError, SystemCallError, Timeout::Error
-        raise Error, 'VM image download failed', cause: nil
+      rescue SocketError, OpenSSL::SSL::SSLError, IOError, SystemCallError, Timeout::Error, Net::ProtocolError => e
+        diagnostic = Execution::Diagnostics.transport(operation: 'Download VM base image', url: url, error: e,
+                                                      response: received)
+        raise Error, "VM image download failed\n#{diagnostic}", cause: nil
+      end
+
+      def validate_response!(response, url)
+        return if response.is_a?(Net::HTTPSuccess)
+
+        diagnostic = Execution::Diagnostics.http_response(response, operation: 'Download VM base image', url: url)
+        raise Error, "VM image download failed\n#{diagnostic}", cause: nil
       end
     end
   end

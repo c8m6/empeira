@@ -32,13 +32,13 @@ module Empeira
       def invalidate(server, environment)
         url = 'https://server.empeira.internal:8140/puppet-admin-api/v1/environment-cache?' \
               "#{URI.encode_www_form(environment: environment)}"
-        arguments = [*HTTP.tls_arguments, '--request', 'DELETE', '--output', '/dev/null', '--write-out',
-                     '%{http_code}', url] # rubocop:disable Style/FormatStringToken
+        arguments = [*HTTP.tls_arguments, '--include', '--request', 'DELETE', url]
         result = @runtime.service_exec(server, arguments, timeout: 15)
-        return if result.success? && result.stdout.strip == '204'
+        return if result.success? && HTTP.response(result)[:status] == '204'
 
         raise Error, 'Puppet environment cache invalidation failed; refusing a potentially stale catalog. ' \
-                     'Check server admin API access for its own certificate and retry.'
+                     "Check server admin API access for its own certificate and retry.\n" \
+                     "#{HTTP.failure(result, url: url, operation: 'Invalidate Puppet environment cache')}", cause: nil
       end
     end
   end

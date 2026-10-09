@@ -117,4 +117,17 @@ RSpec.describe Empeira::Network::BootstrapProxy do
     expect { proxy.cleanup(state) }.to raise_error(Empeira::Providers::ExecutionError, /removal failed/)
     expect(state).to have_key('bootstrap_proxy')
   end
+
+  it 'retains the last native HTTP response when the existing readiness deadline expires' do
+    allow(proxy).to receive(:wait_ready).and_call_original
+    allow(Process).to receive(:clock_gettime).with(Process::CLOCK_MONOTONIC).and_return(0, 31)
+    failed = Empeira::Execution::Result.new(stdout: '', stderr: 'HTTP/1.1 502 Synthetic proxy failure',
+                                            exit_status: 1, timed_out: false)
+    allow(runtime).to receive(:service_exec).and_return(failed)
+    expect { proxy.send(:wait_ready, state, '172.20.0.10') }
+      .to raise_error(Empeira::Error) do |error|
+        expect(error.message).to include('Operation: Bootstrap proxy readiness', 'http://bootstrap.invalid/',
+                                         'HTTP/1.1 502 Synthetic proxy failure')
+      end
+  end
 end

@@ -70,4 +70,16 @@ RSpec.describe Empeira::Node::Certificates do
     certificates.clean(record)
     expect(calls.last).to eq([described_class::CA, 'ca', 'clean', '--certname', 'test-node'])
   end
+
+  it 'retains native CA HTTP errors while removing private key material' do
+    text = "HTTP 503 Service Unavailable at https://server.example.org:8140/puppet-ca/v1/certificate_statuses\n" \
+           "CA temporarily unavailable\n-----BEGIN PRIVATE KEY-----\nsynthetic-private-key\n-----END PRIVATE KEY-----"
+    allow(runtime).to receive(:service_exec).and_return(result.with(exit_status: 1, stderr: text))
+    expect { certificates.clean(record) }.to raise_error(Empeira::Error) do |error|
+      expect(error.message).to include('Operation: CA inventory', 'HTTP 503 Service Unavailable',
+                                       'https://server.example.org:8140/puppet-ca/v1/certificate_statuses',
+                                       'CA temporarily unavailable')
+      expect(error.message).not_to include('synthetic-private-key', 'PRIVATE KEY')
+    end
+  end
 end

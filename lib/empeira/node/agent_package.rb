@@ -113,9 +113,10 @@ module Empeira
         result = @execute.call(arguments)
         return result if result.success?
 
-        diagnostic = Execution::Diagnostics.clean(PackageProxy.redact("#{result.stderr}\n#{result.stdout}", @proxy_url))
-        raise Error, "Agent #{operation} failed (exit=#{result.exit_status}): #{diagnostic}; " \
-                     'node retained and Puppet was not run', cause: nil
+        text = PackageProxy.redact("#{result.stderr}\n#{result.stdout}", @proxy_url)
+        diagnostic = Execution::Diagnostics.native(result.with(stderr: text, stdout: ''),
+                                                   operation: "Agent #{operation}", tool: arguments.first)
+        raise Error, "Agent #{operation} failed; node retained and Puppet was not run\n#{diagnostic}", cause: nil
       end
     end
   end

@@ -527,6 +527,12 @@ confirm login, enter the username and enter the password without echo. Progress
 is suspended during the prompt. There is one retry; cancellation or another
 failure stops provisioning. Without a TTY, the error names the two environment
 variables for CI. HTTP 403 and proxy HTTP 407 do not trigger repository login.
+ENV credentials take precedence. A rejected interactive login is identified as
+such and includes the last HTTP diagnosis. During acquisition, the login is reused
+for related metadata, signing-key and package requests to the same HTTPS origin
+(case-insensitive hostname and matching port). Credentials are not forwarded to
+other origins; a 401 there names the failing URL rather than asking for the source's
+login again.
 
 Credentials stay in memory or temporary 0600 helper files, never in YAML, cache
 keys, cache metadata, workspace inventory or process arguments. Host downloads

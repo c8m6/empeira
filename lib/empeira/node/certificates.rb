@@ -76,7 +76,11 @@ module Empeira
 
       def execute(resource, arguments, operation)
         result = @runtime.service_exec(resource, arguments, timeout: 60)
-        raise Error, "#{operation} failed; node state retained for diagnosis" unless result.success?
+        unless result.success?
+          diagnostic = Execution::Diagnostics.native(result, operation: operation,
+                                                             tool: File.basename(arguments.first))
+          raise Error, "#{operation} failed; node state retained for diagnosis\n#{diagnostic}", cause: nil
+        end
 
         result
       end

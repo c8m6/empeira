@@ -8,7 +8,8 @@ module Empeira
 
       def download_artifact(artifact, filename)
         path = File.join(@directory, filename)
-        @download.fetch(artifact.fetch('url'), path, sha256: artifact['sha256'])
+        operation = filename == 'signing-key' ? 'Download agent signing key' : 'Download agent release package'
+        @download.fetch(artifact.fetch('url'), path, sha256: artifact['sha256'], operation: operation)
         path
       end
 
@@ -18,14 +19,9 @@ module Empeira
 
         uri = URI(@source.fetch('url'))
         endpoint = "https://#{uri.host}#{":#{uri.port}" unless uri.port == 443}"
-        content = "machine #{endpoint}\nlogin #{quote_auth(credentials.first)}\n" \
-                  "password #{quote_auth(credentials.last)}\n"
+        # APT's netrc parser treats quotes and backslashes as literal credential bytes.
+        content = "machine #{endpoint}\nlogin #{credentials.first}\npassword #{credentials.last}\n"
         copy_text(content, self.class::AUTH_PATH, mode: '0600')
-      end
-
-      def quote_auth(value)
-        escaped = value.gsub(/["\\]/) { |character| "\\#{character}" }
-        "\"#{escaped}\""
       end
 
       def native!(arguments, operation)
@@ -40,15 +36,17 @@ module Empeira
         return result if result.success?
 
         text = @authentication.redact("#{result.stderr}\n#{result.stdout}")
+        diagnostic = Execution::Diagnostics.native(result.with(stderr: text, stdout: ''),
+                                                   operation: "Agent #{operation}", tool: arguments.first)
         case text
-        when /\b407\b|Proxy Authentication Required/i then raise Error,
-                                                                 'Host helper proxy authentication failed (HTTP 407)'
-        when /\b401\b|Unauthorized/i then raise Agent::AuthenticationRequired,
-                                                'Agent repository requires authentication'
-        when /\b403\b|Forbidden/i then raise Error, 'Agent repository access denied (HTTP 403)'
+        when /407\s+Proxy Authentication Required|(?:HTTP|Status code|HTTP code)\s*:?\s*407\b/i
+          raise Error, "Host helper proxy authentication failed\n#{diagnostic}", cause: nil
+        when /401\s+Unauthorized|(?:HTTP|Status code|HTTP code)\s*:?\s*401\b/i
+          raise Agent::AuthenticationRequired, diagnostic, cause: nil
+        when /403\s+Forbidden|(?:HTTP|Status code|HTTP code)\s*:?\s*403\b/i
+          raise Error, "Agent repository access denied\n#{diagnostic}", cause: nil
         end
-        diagnostic = Execution::Diagnostics.clean(text)
-        raise Error, "Agent #{operation} failed (exit=#{result.exit_status}): #{diagnostic}", cause: nil
+        raise Error, "Agent #{operation} failed\n#{diagnostic}", cause: nil
       end
 
       def copy_text(content, destination, mode:)
