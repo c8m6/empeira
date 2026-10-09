@@ -123,8 +123,11 @@ mirror after restart. This also covers Docker Hub base images used by local buil
 GHCR images keep their original source. Image references, configured digest pins,
 TLS verification and the complete smoke assertions remain unchanged. Cache hits
 avoid the shared runner's anonymous Docker Hub pull quota. Cache misses still use
-Docker Hub, and acquisition failures remain failures. Local engines and workspace
-DNS, gateway and isolation policy are unaffected by this CI-only setup.
+Docker Hub, and acquisition failures remain failures. The public-only smoke uses a
+private, empty `DOCKER_CONFIG` directory instead of inheriting runner registry
+credentials. Failures include bounded, sanitized Docker daemon diagnostics so a
+failed mirror and canonical-registry fallback remain visible. Local engines and
+workspace DNS, gateway and isolation policy are unaffected by this CI-only setup.
 
 The APT authentication regression uses a local HTTPS repository with synthetic Basic
 credentials and an ephemeral GPG signing key. It checks the helper's effective
