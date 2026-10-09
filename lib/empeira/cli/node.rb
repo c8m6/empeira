@@ -18,9 +18,9 @@ module Empeira
         end
       end
 
-      desc 'ssh HOSTNAME', 'Test guest SSH login with local user authentication'
-      option :user, type: :string, desc: 'Remote login user (default: current local user)'
-      option :identity, type: :string, desc: 'Additional SSH identity file'
+      desc 'ssh HOSTNAME', 'Open guest SSH (VM: managed login; container: local user authentication)'
+      option :user, type: :string, desc: 'Remote login user (VM default: empeira; container default: local user)'
+      option :identity, type: :string, desc: 'SSH identity file (VM default: managed key)'
       def ssh(hostname)
         result = application.nodes.ssh(name: hostname, user: options[:user], identity: options[:identity])
         raise SystemExit, result.exit_status unless result.success?

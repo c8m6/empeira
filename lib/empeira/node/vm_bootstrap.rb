@@ -9,18 +9,26 @@ module Empeira
       end
 
       def verify(record:, bootstrap:)
-        bootstrap.files.each do |file|
-          next if valid_file?(record, file)
-
-          raise Error, "Cannot verify required Empeira VM bootstrap file #{file.path}; Puppet was not run"
-        end
+        bootstrap.files.each { |file| verify_file!(record, file) }
       end
 
       private
 
-      def valid_file?(record, file)
+      def verify_file!(record, file)
         content = @ssh.run(record, ['cat', file.path])
         mode = @ssh.run(record, ['stat', '-c', '%a', file.path])
+        return if valid_file?(content, mode, file)
+
+        details = [file_diagnostic(content, file, 'content', 'cat'), file_diagnostic(mode, file, 'mode', 'stat')]
+        raise Error, "Cannot verify required Empeira VM bootstrap file #{file.path}; Puppet was not run\n" \
+                     "#{details.join("\n")}", cause: nil
+      end
+
+      def file_diagnostic(result, file, field, tool)
+        Execution::Diagnostics.command(result, operation: "Bootstrap file #{file.path}: #{field}", tool: tool)
+      end
+
+      def valid_file?(content, mode, file)
         content.success? && content.stdout == file.content && mode.success? && mode.stdout.strip.to_i(8) == file.mode
       end
     end

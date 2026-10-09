@@ -2,8 +2,9 @@
 
 # Feed real interactive clients a short session while keeping central process execution.
 module LiveNodeAccess
-  def verify_ssh_session(app, name:, user:, identity:)
-    status, output, error = access_session(app, name: name, operation: :ssh, identity: identity.to_s)
+  def verify_ssh_session(app, name:, user:, identity: nil, override_user: nil)
+    options = { identity: identity&.to_s, user: override_user }.compact
+    status, output, error = access_session(app, name: name, operation: :ssh, **options)
     expect(status.exit_status).to eq(7), error
     expect(output).to match(%r{^/dev/pts/\d+\r?$})
     expect(output).to match(/^#{user}\r?$/)

@@ -290,6 +290,58 @@ RSpec.describe Empeira::Node::VM do
     expect(provider.destroy(name: 'vm-host').changed).to be(true)
   end
 
+  it 'releases the workspace lock during console access and protects its VM instance until detach' do
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+    provider.run(request)
+    qemu = provider.instance_variable_get(:@qemu)
+    expect(qemu).to receive(:console) do
+      expect { store.with_lock { nil } }.not_to raise_error
+      expect(provider.list.first['state']).to eq('running')
+      expect { provider.stop(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::Locked)
+      expect { provider.destroy(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::Locked)
+      Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
+    end
+    expect(provider.shell(name: 'vm-host')).to be_success
+    expect(provider.stop(name: 'vm-host').changed).to be(true)
+  end
+
+  it 'allows parallel SSH access to an incomplete running VM using managed defaults' do
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+    allow(provider.instance_variable_get(:@agent)).to receive(:ensure_installed).and_raise(Empeira::Error,
+                                                                                           'bootstrap failed')
+    expect { provider.run(request) }.to raise_error(Empeira::Error, /bootstrap failed/)
+    result = Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
+    client = instance_double(Empeira::Node::UserSSH)
+    expect(Empeira::Node::UserSSH).to receive(:new).with(
+      runner: app.runner, credentials: an_instance_of(Empeira::Node::SSHCredentials), proxy_command: nil,
+      default_user: 'empeira', managed_identity: true
+    ).twice.and_return(client)
+    calls = 0
+    allow(client).to receive(:session) do |record, **|
+      calls += 1
+      expect(record['provisioned']).to be(false)
+      expect { store.with_lock { nil } }.not_to raise_error
+      provider.ssh(name: 'vm-host', user: 'deploy', identity: '/some/key') if calls == 1
+      result
+    end
+    expect(provider.ssh(name: 'vm-host')).to be_success
+    expect(calls).to eq(2)
+    expect(provider.destroy(name: 'vm-host').changed).to be(true)
+  end
+
+  [Interrupt, IOError].each do |error|
+    it "releases the VM session guard after console #{error}" do
+      engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+      provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+      provider.run(request)
+      allow(provider.instance_variable_get(:@qemu)).to receive(:console).and_raise(error)
+      expect { provider.shell(name: 'vm-host') }.to raise_error(error)
+      expect(provider.stop(name: 'vm-host').changed).to be(true)
+    end
+  end
+
   it 'does not install the agent or run Puppet when cloud-init missed the VM fact' do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)

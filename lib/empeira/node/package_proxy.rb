@@ -50,9 +50,12 @@ module Empeira
       end
 
       def cleanup
-        return if @execute.call(['rm', '-f', '--', path]).success?
+        result = @execute.call(['rm', '-f', '--', path])
+        return if result.success?
 
-        raise Error, 'Cannot remove temporary package proxy configuration; Puppet was not run'
+        diagnostic = Execution::Diagnostics.command(result, operation: 'Temporary package proxy cleanup', tool: 'rm')
+        raise Error, "Cannot remove temporary package proxy configuration; Puppet was not run\n#{diagnostic}",
+              cause: nil
       end
 
       private
@@ -87,7 +90,10 @@ module Empeira
 
       def original_dnf_lines
         result = @execute.call(['cat', '/etc/dnf/dnf.conf'])
-        raise Error, 'Cannot read original DNF configuration; Puppet was not run' unless result.success?
+        unless result.success?
+          diagnostic = Execution::Diagnostics.command(result, operation: 'Original DNF configuration', tool: 'cat')
+          raise Error, "Cannot read original DNF configuration; Puppet was not run\n#{diagnostic}", cause: nil
+        end
 
         result.stdout.lines
       end

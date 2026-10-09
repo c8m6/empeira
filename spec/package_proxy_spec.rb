@@ -54,9 +54,20 @@ RSpec.describe 'Private native package proxy configuration' do
   end
 
   it 'reports unverifiable cleanup instead of allowing a successful bootstrap result' do
-    execute = ->(args) { args.first == 'rm' ? success.with(exit_status: 1) : success }
+    failure = success.with(exit_status: 1, stderr: 'rm: Permission denied')
+    execute = ->(args) { args.first == 'rm' ? failure : success }
     bootstrap = Empeira::Node::PackageBootstrap.new(config: config, os: 'ubuntu', execute: execute, copy: copy)
-    expect { bootstrap.run(proxy_url: url) }.to raise_error(Empeira::Error, /Cannot remove.*Puppet was not run/)
+    expect { bootstrap.run(proxy_url: url) }
+      .to raise_error(Empeira::Error, /Cannot remove.*Puppet was not run.*Exit code: 1.*rm: Permission denied/m)
+  end
+
+  it 'reports a failed original DNF configuration read before installing packages' do
+    failure = success.with(exit_status: 1, stderr: 'cat: Permission denied')
+    execute = ->(args) { args.first == 'cat' ? failure : success }
+    bootstrap = Empeira::Node::PackageBootstrap.new(config: config, os: 'rocky', execute: execute, copy: copy)
+    expect { bootstrap.run(proxy_url: url) }
+      .to raise_error(Empeira::Error, /Cannot read.*Exit code: 1.*cat: Permission denied/m)
+    expect(captured).to be_empty
   end
 
   %w[bootstrap agent].product(%w[proxy repository]).each do |installer, origin|

@@ -4,26 +4,41 @@ require 'etc'
 
 module Empeira
   module Node
-    # Authentication belongs to the developer and guest; only transport is managed.
+    # Provider defaults select authentication; endpoint and host-key policy remain managed.
     class UserSSH
-      def initialize(runner:, credentials:, proxy_command: nil)
+      def initialize(runner:, credentials:, proxy_command: nil, default_user: nil, managed_identity: false)
         @runner = runner
         @credentials = credentials
         @proxy_command = proxy_command
+        @default_user = default_user
+        @managed_identity = managed_identity
       end
 
       def session(record, user: nil, identity: nil)
         @credentials.prepare_hosts
-        username = user || Etc.getpwuid(Process.uid).name
+        username = username_for(user)
+        transport = SSHClient.new(runner: @runner, credentials: @credentials, user: username,
+                                  proxy_command: @proxy_command)
+        arguments = ['-tt', '-l', username, *options(record, transport), *authentication_options(identity)]
+        @runner.stream('ssh', arguments: [*arguments, record.fetch('hostname')])
+      end
+
+      def username_for(user)
+        username = user || @default_user || Etc.getpwuid(Process.uid).name
         unless username.is_a?(String) && username.match?(/\A[a-zA-Z0-9_.@-]+\z/)
           raise ConfigurationError, 'SSH user must be a valid login name'
         end
 
-        transport = SSHClient.new(runner: @runner, credentials: @credentials, user: username,
-                                  proxy_command: @proxy_command)
-        arguments = ['-tt', '-l', username, *options(record, transport)]
-        arguments.push('-i', File.expand_path(identity)) if identity
-        @runner.stream('ssh', arguments: [*arguments, record.fetch('hostname')])
+        username
+      end
+
+      def authentication_options(identity)
+        return identity ? ['-i', File.expand_path(identity)] : [] unless @managed_identity
+
+        @credentials.verify! unless identity
+        key = identity ? File.expand_path(identity) : @credentials.key_path.to_s
+        ['-i', key, '-o', 'IdentitiesOnly=yes', '-o', 'PasswordAuthentication=no',
+         '-o', 'KbdInteractiveAuthentication=no', '-o', 'ForwardAgent=no']
       end
 
       def options(record, transport)

@@ -18,10 +18,8 @@ module Empeira
                                                    version: record.fetch('version'),
                                                    architecture: record.fetch('architecture'))
         unless requirements.required?
-          return if @ssh.run(record, [PUPPET, '--version']).success?
-
-          raise Error,
-                'No usable agent was found and managed bootstrap is unavailable; check bootstrap.guests metadata'
+          verify_existing_agent!(record)
+          return
         end
         raise Error, 'Managed agent installation requires the bootstrap proxy' unless proxy_url
 
@@ -35,6 +33,16 @@ module Empeira
       private
 
       attr_reader :proxy_url
+
+      def verify_existing_agent!(record)
+        result = @ssh.run(record, [PUPPET, '--version'])
+        return if result.success?
+
+        details = Execution::Diagnostics.command(result, operation: 'Existing VM Puppet agent verification',
+                                                         tool: 'puppet')
+        raise Error, 'No usable agent was found and managed bootstrap is unavailable; ' \
+                     "check bootstrap.guests metadata\n#{details}", cause: nil
+      end
 
       def install_selected_agent(record, requirements)
         execute = ->(arguments) { @ssh.run(record, arguments, timeout: 300) }
@@ -50,8 +58,8 @@ module Empeira
         result = @ssh.run(record, arguments, timeout: 300)
         return if result.success?
 
-        raise Error,
-              "#{operation} failed (exit=#{result.exit_status}, timeout=#{result.timed_out}); VM retained for diagnosis"
+        details = Execution::Diagnostics.command(result, operation: operation, tool: arguments.first)
+        raise Error, "#{operation} failed; VM retained for diagnosis\n#{details}", cause: nil
       end
     end
   end

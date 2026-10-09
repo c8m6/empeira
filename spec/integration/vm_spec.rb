@@ -52,7 +52,9 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     expect { app.run_node(hostname: 'vm-node', provider: 'container') }
       .to raise_error(Empeira::Providers::AlreadyExists)
     expect([0, 2]).to include(app.nodes.puppet(name: 'vm-node').exit_status)
-    verify_ssh_session(app, name: 'vm-node', user: @login.username, identity: @login.identity)
+    verify_ssh_session(app, name: 'vm-node', user: 'empeira')
+    verify_ssh_session(app, name: 'vm-node', user: @login.username, identity: @login.identity,
+                            override_user: @login.username)
     verify_final_isolation
     management = management_ssh
     record = Empeira::Infrastructure::Store.new(context: app.context).load.fetch('nodes').fetch('vm-node')
@@ -66,6 +68,49 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     expect(management.run(record, %w[passwd -S root]).stdout).to match(/^root L /)
     app.nodes.destroy(name: 'vm-node')
     expect(app.nodes.list).to be_empty
+  end
+
+  it 'keeps failed APT cleanup diagnosable through managed SSH and unlocked console access' do
+    app.infrastructure.up
+    allow(Empeira::VM::SSH).to receive(:new).and_wrap_original do |constructor, **options|
+      constructor.call(**options).tap do |ssh|
+        allow(ssh).to receive(:run).and_wrap_original do |original, record, arguments, **arguments_options|
+          if arguments == ['rm', '--force', '--', Empeira::Node::AptConfiguration::BACKUP]
+            arguments = ['sh', '-c', 'printf "synthetic permanent cleanup failure\\n" >&2; exit 1']
+          end
+          original.call(record, arguments, **arguments_options)
+        end
+      end
+    end
+    expect { app.run_node(hostname: 'incomplete-vm', provider: 'vm') }
+      .to raise_error(Empeira::Error, /Cannot remove.*Exit code: 1.*synthetic permanent cleanup failure/m)
+    store = Empeira::Infrastructure::Store.new(context: app.context)
+    state = store.load
+    record = state.fetch('nodes').fetch('incomplete-vm')
+    expect(record['provisioned']).to be(false)
+    expect(record['network_phase']).to eq('bootstrap')
+    expect(record['last_puppet_exit']).to be_nil
+    expect(state).not_to have_key('bootstrap_proxy')
+    expect(management_ssh.run(record, ['tar', '--compare', '--file', Empeira::Node::AptConfiguration::BACKUP,
+                                       '--directory', '/'])).to be_success
+    verify_ssh_session(app, name: 'incomplete-vm', user: 'empeira')
+    allow(app.runner).to receive(:console).and_wrap_original do |original, path, **options|
+      expect { store.with_lock { nil } }.not_to raise_error
+      expect(app.nodes.list).to include(hash_including('hostname' => 'incomplete-vm', 'state' => 'incomplete'))
+      expect { app.nodes.stop(name: 'incomplete-vm') }.to raise_error(Empeira::Infrastructure::Locked)
+      input = Tempfile.new('console-detach')
+      input.write("\x1d")
+      input.rewind
+      output = Tempfile.new('console-output')
+      original.call(path, **options, input: input, output: output)
+    ensure
+      input&.close!
+      output&.close!
+    end
+    expect(app.nodes.shell(name: 'incomplete-vm')).to be_success
+    allow(app.runner).to receive(:console).and_call_original
+    expect { app.nodes.puppet(name: 'incomplete-vm') }.to raise_error(Empeira::Error, /bootstrap is incomplete/)
+    app.nodes.destroy(name: 'incomplete-vm')
   end
 
   def management_ssh

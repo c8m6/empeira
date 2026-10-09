@@ -62,8 +62,10 @@ new seed build. ARM64 also needs the firmware reported by preflight.
 
 ## SSH login failures
 
-`node ssh` defaults to the local user's name and normal OpenSSH keys/agent/config.
-It does not inject a key or provision that user. Verify your Puppet-created account,
+For a VM, `node ssh` defaults to `empeira` and the existing managed private key,
+including when bootstrap is incomplete. For containers, it uses the local user's
+name and normal OpenSSH keys/agent/config. Neither path injects a replacement key
+or provisions a login user. Verify your Puppet-created account,
 authorized keys, home permissions, daemon, PAM and login profile. Use `--user` and
 `--identity` independently when appropriate:
 
@@ -73,9 +75,9 @@ empeira node shell host1
 ```
 
 If SSH reports `Too many authentication failures`, your agent may offer too many
-keys before the intended one. Select the identity in your normal OpenSSH `Host`
-configuration and set `IdentitiesOnly yes` there when needed. Empeira deliberately
-preserves the client's ordinary authentication behavior.
+keys before the intended one. For containers, select the identity in your normal
+OpenSSH `Host` configuration and set `IdentitiesOnly yes` there when needed. VM
+access selects its managed or explicit identity and disables password authentication.
 
 For a container, shell is runtime exec. For a VM, it is the serial console and
 works with SSH stopped. Press Enter, then use the current console credentials.
@@ -83,6 +85,11 @@ The initial default is `root` / `empeira`, unless disabled/overridden or changed
 Puppet. **Ctrl-] detaches**. Empeira does not reset credentials to repair a failed login.
 Stopped nodes need `node start`. Investigate changed SSH host keys instead of
 turning off checking. Destroy/recreate removes a disposable node's private known-hosts entry.
+
+VM sessions release the workspace mutation lock. Status and independent workspace
+operations remain available, and multiple VM SSH sessions may coexist. Stop, destroy
+or restart of that same VM conflicts with the shared instance guard: detach with
+**Ctrl-]** for console sessions, or exit SSH, then retry. Do not delete lock files.
 
 ## Proxy destination denied
 
@@ -137,10 +144,20 @@ A failed bootstrap retains the container or VM and hostname for diagnosis:
 
 ```console
 empeira node logs vm1
+empeira node ssh vm1
 empeira node shell vm1
 empeira node destroy vm1
 empeira node run vm1 --provider vm
 ```
+
+APT cleanup errors now identify the failed archive or removal operation, exit code,
+timeout and sanitized native output. A guest failure is distinct from an SSH
+transport failure with unknown completion. A readable backup that can be removed
+manually does not establish the earlier SSH outcome. The already verified backup
+removal is retried once only for recognizable transient SSH connection errors.
+Permission, host-key and authentication errors, command timeouts and persistent failures
+remain fatal. Successful manual cleanup alone does not mark an incomplete node as
+provisioned or permit Puppet; correct the reported cause and recreate the node.
 
 Incomplete nodes remain available for diagnostics but cannot start or run Puppet.
 Destroy and recreate them after correcting the source of the failure. Missing or corrupt

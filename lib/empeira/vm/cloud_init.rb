@@ -36,7 +36,10 @@ module Empeira
           "/var/lib/cloud/instance/#{name}"
         end
         result = ssh.run(record, ['rm', '-f', *paths])
-        raise Error, 'Cannot remove temporary guest cloud-init credentials' unless result.success?
+        return if result.success?
+
+        details = Execution::Diagnostics.command(result, operation: 'Guest cloud-init credential cleanup', tool: 'rm')
+        raise Error, "Cannot remove temporary guest cloud-init credentials\n#{details}", cause: nil
       end
 
       def key_path(hostname)
