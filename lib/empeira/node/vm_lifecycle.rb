@@ -13,15 +13,14 @@ module Empeira
             raise Error, 'VM bootstrap is incomplete; inspect logs, then destroy and recreate the node'
           end
 
+          validate_interfaces(record)
           refresh_environment_cache
-          if @qemu.running?(record)
-            return lifecycle_result(name.downcase, :running, changed: reconcile_command_mocks(record))
-          end
+          return lifecycle_result(name.downcase, :running, changed: reconcile_guest(record)) if @qemu.running?(record)
 
           @progress.stage(1, 'Checking VM control-plane readiness...')
           @engine.preflight!(progress: @progress, seeds: false)
           boot_existing(record)
-          reconcile_command_mocks(record)
+          reconcile_guest(record)
           lifecycle_result(record.fetch('hostname'), :running, changed: true)
         end
       end

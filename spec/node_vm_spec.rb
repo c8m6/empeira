@@ -2,6 +2,7 @@
 
 require_relative 'support/service_runtime'
 require_relative 'support/command_mock_guest'
+require_relative 'support/vm_network_guest'
 
 class VMRuntimeFixture < ServiceRuntime
   def check_available!; end
@@ -73,6 +74,86 @@ RSpec.describe Empeira::Node::VM do
     runtime.services.fetch('server')['labels']['io.empeira.definition'] = 'stale'
     expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
     expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Error, /not ready/)
+  end
+
+  context 'with VM interface rules' do
+    let(:devices) { { 'ens192' => { 'network' => '192.0.2.10/32', 'vlan_id' => 123 } } }
+    let(:network_guest) { VMNetworkGuest.new }
+    let(:engine) { instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img') }
+    let(:app) do
+      write_vm_interfaces(devices)
+      super()
+    end
+    let(:provider) { described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime) }
+
+    def write_vm_interfaces(definitions)
+      rules = definitions.empty? ? [] : [{ 'hosts' => ['VM-*'], 'devices' => definitions }]
+      File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('vm' => { 'interfaces' => rules }))
+    end
+
+    before do
+      ssh = provider.instance_variable_get(:@ssh)
+      arguments = satisfy do |list|
+        %w[ip modprobe].include?(list.first) || list.first == '/opt/puppetlabs/bin/facter' ||
+          list.first(2) == %w[test -d]
+      end
+      allow(ssh).to receive(:run).with(anything, arguments) { |record, list| network_guest.run(record, list) }
+    end
+
+    it 'verifies interfaces after agent installation and before enrollment and the first catalog' do
+      agent = provider.instance_variable_get(:@agent)
+      expect(agent).to receive(:ensure_installed) { expect(network_guest.links).not_to have_key('ens192') }
+      expect(provider.instance_variable_get(:@ssh)).to receive(:stream) do
+        expect(network_guest.links.dig('ens192', 'linkinfo', 'info_data', 'id')).to eq(123)
+        expect(network_guest.commands).to include(['/opt/puppetlabs/bin/facter', 'networking', '--json'])
+        network_guest.result('')
+      end
+      expect(provider.run(request).changed).to be(true)
+      expect(store.load.dig('nodes', 'vm-host', 'network_interfaces', 'devices', 'ens192',
+                            'definition')).to eq(devices['ens192'])
+    end
+
+    it 'restores after start, reconciles running nodes through the node service, and removes changed rules' do
+      provider.run(request)
+      provider.stop(name: 'vm-host')
+      %w[ens192 empeira-vlan].each do |name|
+        network_guest.links.delete(name)
+        network_guest.addresses.delete(name)
+        network_guest.routes.reject! { |route| route['dev'] == name }
+      end
+      provider.start(name: 'vm-host')
+      expect(network_guest.links).to have_key('ens192')
+      write_vm_interfaces('dummy1' => { 'network' => '198.51.100.10/24' })
+      context = app.context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
+      service = Empeira::Node::Service.new(context: context, runner: app.runner)
+      expect(service.reconcile(state: store.load)).to be(true)
+      expect(network_guest.links).to have_key('dummy1')
+      expect(network_guest.links).not_to have_key('ens192')
+      expect(service.reconcile(state: store.load)).to be(false)
+      write_vm_interfaces({})
+      context = context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
+      expect(Empeira::Node::Service.new(context: context, runner: app.runner).reconcile(state: store.load)).to be(true)
+      expect(network_guest.links).not_to have_key('dummy1')
+    end
+
+    it 'retains an incomplete first boot and blocks the first Puppet run after a Facter failure' do
+      network_guest.facter_output = '{}'
+      expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
+      expect { provider.run(request) }.to raise_error(Empeira::Error, /Facter.*retained/m)
+      expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(false)
+    end
+
+    it 'rejects conflicting rules before downloads, reservation or launch' do
+      conflicting = [{ 'hosts' => ['*'], 'devices' => devices },
+                     { 'hosts' => ['vm-*'], 'devices' => { 'ens192' => { 'network' => '192.0.2.11/32' } } }]
+      config = Empeira::Configuration::Merge.call(app.context.configuration,
+                                                  { 'vm' => { 'interfaces' => conflicting } })
+      provider.instance_variable_set(:@context, app.context.with(configuration: config))
+      expect(provider.instance_variable_get(:@cache)).not_to receive(:fetch)
+      expect(provider.instance_variable_get(:@qemu)).not_to receive(:launch)
+      expect { provider.run(request) }.to raise_error(Empeira::ConfigurationError, /interface ens192.*conflicts/)
+      expect(store.load.fetch('nodes', {})).to eq({})
+    end
   end
 
   context 'with global bootstrap packages' do

@@ -67,6 +67,7 @@ module Empeira
       def finish_vm(record, server, packages)
         @progress.stage(70, 'Installing/configuring Puppet agent...')
         prepare_agent(record, packages)
+        reconcile_interfaces(record)
         @progress.stage(85, 'Signing VM certificate...')
         certificate_runtime = ::Empeira::VM::CertificateRuntime.new(runtime: @runtime, ssh: @ssh, record: record)
         Certificates.new(runtime: certificate_runtime, server: server).enroll({ 'vm' => true }, record) { save }
@@ -131,7 +132,7 @@ module Empeira
 
       def puppet_run(record)
         refresh_environment_cache
-        reconcile_command_mocks(record)
+        reconcile_guest(record)
         result = @progress.streaming do
           @ssh.stream(record, PuppetCommand.arguments)
         end

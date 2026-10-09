@@ -35,9 +35,13 @@ module Empeira
         @config = config
       end
 
+      def self.matches?(pattern, hostname)
+        File.fnmatch?(pattern.downcase, hostname.downcase)
+      end
+
       def matching(hostname)
         @config.fetch('rules').select do |rule|
-          rule.fetch('hosts').any? { |pattern| File.fnmatch?(pattern, hostname.downcase) }
+          rule.fetch('hosts').any? { |pattern| self.class.matches?(pattern, hostname) }
         end
       end
 

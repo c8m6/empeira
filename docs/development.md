@@ -77,7 +77,7 @@ EMPEIRA_TEST_SCOPE=services EMPEIRA_REQUIRED_RUNTIMES=podman \
 | `modules` | Synthetic Git/r10k synchronization, live mounts and offline reuse |
 | `update-plane` | Disposable helpers, artifact refresh and public Forge acquisition without infrastructure |
 | `browser` | Real Chromium UI, internal reachability and isolation |
-| `vm` | Accelerated VM lifecycle and proxy policy |
+| `vm` | Accelerated VM lifecycle, proxy policy and dummy/VLAN interface reconciliation |
 | `redirect-nodes` | TCP redirects from existing container/accelerated VM nodes and Puppet server; preserved HTTP bytes, target recreation, connection revocation and external canary |
 | `dns-nodes` | DNS rewrite reload/removal with real container and accelerated VM nodes |
 | `shared-network` | Production container/VM TCP/UDP peer lifecycle |
@@ -155,6 +155,14 @@ any required firmware. Preflight runs before image/cache or runtime mutation.
 Rootless Podman also needs writable TUN/KVM inside its namespace. See
 [VM installation](installation.md#vm-prerequisites) and
 [networking](networking.md#runtime-attachment-and-privilege-boundary).
+
+The VM scope also includes `spec/integration/vm_interfaces_spec.rb`. It observes real
+Linux dummy/VLAN types, VLAN IDs, addresses and activation, checks Facter JSON, and
+reads a file written by the first catalog from the ordinary network bindings. It
+then tests idempotent `up`, stop/start restoration, address/VLAN edits and removal,
+with managed SSH, DNS, proxy, gateway redirects and Puppet TLS checks. This gate
+requires the same capable disposable host; deterministic guest models do not prove
+real kernel or Facter compatibility.
 
 The real VM lifecycle regression verifies the default managed SSH login and explicit
 overrides, then exercises retained disk and console recovery. A second case injects

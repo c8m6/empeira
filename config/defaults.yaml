@@ -54,6 +54,7 @@ proxy:
   global: []
   rules: []
 vm:
+  interfaces: []
   console:
     root_password: empeira
 dns:

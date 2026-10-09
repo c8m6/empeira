@@ -23,14 +23,25 @@ module Empeira
       def reconcile_all(state:)
         load_state(state)
         vm_records.values.map do |record|
-          next false if context.configuration.dig('mocks', 'commands').empty? &&
-                        record.fetch('command_mocks', {}).empty?
-
-          record['provisioned'] && @qemu.running?(record) ? reconcile_command_mocks(record) : false
+          record['provisioned'] && @qemu.running?(record) ? reconcile_guest(record) : false
         end.any?
       end
 
       private
+
+      def validate_interfaces(record)
+        ::Empeira::VM::Interfaces.validate_static!(context, record.fetch('hostname'), @state)
+      end
+
+      def reconcile_interfaces(record)
+        ::Empeira::VM::Interfaces.new(context: context, record: record, state: @state, ssh: @ssh,
+                                      persist: method(:save)).reconcile
+      end
+
+      def reconcile_guest(record)
+        interfaces_changed = reconcile_interfaces(record)
+        reconcile_command_mocks(record) || interfaces_changed
+      end
 
       def reconcile_command_mocks(record)
         CommandMocks.new(context: context, record: record, persist: method(:save),
