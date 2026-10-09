@@ -19,15 +19,13 @@ module Empeira
         @temporary = temporary
       end
 
-      def with_artifact(request, enabled:, acquire:, authorize:, pin: nil, &use)
+      def with_artifact(request, enabled:, acquire:, pin: nil, &use)
         return temporary(request, pin, acquire, &use) unless enabled
 
         prepare
         key = fingerprint(request)
         lock(key) do
-          artifact = load(key, request, pin)
-          authorize.call(artifact.metadata) if artifact
-          artifact ||= acquire_cached(key, request, pin, acquire)
+          artifact = load(key, request, pin) || acquire_cached(key, request, pin, acquire)
           use.call(artifact)
         end
       rescue SystemCallError, IOError

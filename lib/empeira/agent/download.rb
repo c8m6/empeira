@@ -16,7 +16,7 @@ module Empeira
       def fetch(url, path, sha256: nil)
         @authentication.attempt do
           File.open(path, 'wb', 0o600) do |file|
-            request(url, Net::HTTP::Get) do |response|
+            request(url) do |response|
               write_response(file, response)
             end
             file.flush
@@ -30,10 +30,6 @@ module Empeira
         raise
       end
 
-      def authorize(url)
-        @authentication.attempt { request(url, Net::HTTP::Head) { nil } }
-      end
-
       private
 
       def write_response(file, response)
@@ -42,10 +38,10 @@ module Empeira
         raise Error, 'Agent artifact download is incomplete' if length && file.size != Integer(length)
       end
 
-      def request(url, method)
+      def request(url)
         uri = URI(url)
         Configuration::AgentSchema.https_url!(url, 'agent artifact URL')
-        request = http_request(uri, method)
+        request = http_request(uri)
         Timeout.timeout(180) do
           Net::HTTP.start(uri.host, uri.port, use_ssl: true, verify_mode: OpenSSL::SSL::VERIFY_PEER,
                                               open_timeout: 10, read_timeout: 30, write_timeout: 30) do |http|
@@ -60,8 +56,8 @@ module Empeira
         raise Error, 'Agent HTTPS download failed or timed out; check host network access', cause: nil
       end
 
-      def http_request(uri, method)
-        request = method.new(uri.request_uri)
+      def http_request(uri)
+        request = Net::HTTP::Get.new(uri.request_uri)
         request['Accept-Encoding'] = 'identity'
         credentials = @authentication.credentials(uri.to_s)
         request.basic_auth(*credentials) if credentials

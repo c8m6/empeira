@@ -17,10 +17,6 @@ module Empeira
       PACKAGE_PATH = '/var/tmp/empeira-agent-package.deb'
       attr_reader :public_keys
 
-      def self.credentials
-        Agent::Authentication.credentials
-      end
-
       # rubocop:disable-next Metrics/ParameterLists -- The helper receives explicit transport and target dependencies.
       def initialize(source:, package:, version:, target:, execute:, copy:, download:, authentication:, directory:)
         @source = source

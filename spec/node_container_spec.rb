@@ -107,6 +107,12 @@ RSpec.describe Empeira::Node::Container do
       super()
     end
 
+    it 'leaves credential handling to agent acquisition' do
+      ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'incomplete-user'
+      provider.run(request)
+      expect(store.load.dig('nodes', 'test-node', 'provisioned')).to be(true)
+    end
+
     it 'installs base packages, then the agent, then configures and runs Puppet' do
       events = []
       installer = instance_double(Empeira::Node::AgentInstallation)

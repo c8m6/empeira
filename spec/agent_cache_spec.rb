@@ -9,12 +9,10 @@ RSpec.describe Empeira::Agent::Cache do
       'format' => 'deb', 'source' => 'source1' }
   end
   let(:downloads) { [] }
-  let(:authorizations) { [] }
 
   def acquire(enabled: true, identity: request, pin: nil, failure: nil)
     fetch = ->(directory) { downloaded(directory, identity, failure) }
-    cache.with_artifact(identity, enabled: enabled, pin: pin, acquire: fetch,
-                                  authorize: ->(metadata) { authorizations << metadata }) do |artifact|
+    cache.with_artifact(identity, enabled: enabled, pin: pin, acquire: fetch) do |artifact|
       expect(artifact.path).to be_file
       yield(artifact) if block_given?
       artifact.path
@@ -30,7 +28,7 @@ RSpec.describe Empeira::Agent::Cache do
 
     metadata = { 'schema' => 1, 'request' => identity, 'version' => '1.2.3-1',
                  'size' => content.bytesize, 'sha256' => Digest::SHA256.hexdigest(content),
-                 'authenticated' => false, 'verify_signatures' => true, 'public_keys' => [],
+                 'verify_signatures' => true, 'public_keys' => [],
                  'architecture' => native_architecture(identity), 'url' => 'https://packages.example.org/agent.deb' }
     Empeira::Agent::Artifact.new(path: path, metadata: metadata)
   end
@@ -43,8 +41,7 @@ RSpec.describe Empeira::Agent::Cache do
   it 'downloads once and shares the validated native artifact across independent cache clients' do
     first = acquire
     other = described_class.new(root: root)
-    other.with_artifact(request, enabled: true, acquire: ->(_) { raise 'unexpected second download' },
-                                 authorize: ->(_) {}) do |artifact|
+    other.with_artifact(request, enabled: true, acquire: ->(_) { raise 'unexpected second download' }) do |artifact|
       expect(artifact.path).to eq(first)
       expect(artifact.metadata.fetch('version')).to eq('1.2.3-1')
     end
@@ -78,6 +75,15 @@ RSpec.describe Empeira::Agent::Cache do
     expect(downloads.size).to eq(2)
   end
 
+  it 'bypasses an unusable persistent cache completely when disabled' do
+    FileUtils.mkdir_p(root.parent)
+    root.write('not a cache directory')
+    temporary = acquire(enabled: false)
+    expect(temporary).not_to exist
+    expect(root.read).to eq('not a cache directory')
+    expect(downloads.size).to eq(1)
+  end
+
   %w[source architecture release requested_version].each do |field|
     it "separates #{field} identities" do
       acquire
@@ -88,13 +94,14 @@ RSpec.describe Empeira::Agent::Cache do
     end
   end
 
-  it 'requires authorization before returning an authenticated cache hit' do
-    acquire
-    reject = ->(_) { raise Empeira::Error, 'access denied' }
-    expect do
-      cache.with_artifact(request, enabled: true, acquire: ->(_) { raise 'unexpected download' },
-                                   authorize: reject) { raise 'must not expose cached package' }
-    end.to raise_error(Empeira::Error, /access denied/)
+  it 'reuses previously authenticated entries using only local integrity checks' do
+    stored = acquire
+    metadata = root.glob('entries/*/metadata.json').first
+    metadata.write(JSON.generate(JSON.parse(metadata.read).merge('authenticated' => true)))
+    expect(Net::HTTP).not_to receive(:start)
+    cache.with_artifact(request, enabled: true, acquire: ->(_) { raise 'unexpected download' }) do |artifact|
+      expect(artifact.path).to eq(stored)
+    end
     expect(downloads.size).to eq(1)
   end
 

@@ -44,11 +44,12 @@ OpenVox is the default software. `images.server`, `images.puppetdb` and
 names. Agent selection is independent of those images. Container recipes add base
 tools. A shared agent acquisition component resolves native source metadata in an
 owned, short-lived runtime helper, validates the package and publishes it atomically
-in the user cache. Cache identity includes the native version, target and source;
-authenticated hits require current artifact authorization. Both node providers
-upload the same host artifact and install it locally through native guest package
-managers. Bootstrap verifies cleanup and enrolls certificates before Puppet runs.
-Cloud-Init is a VM delivery mechanism only.
+in the user cache. Cache identity includes the native version, target and source.
+Valid hits use local integrity and configured checksum checks and work offline,
+including artifacts from authenticated sources. HTTP authentication and login occur
+only during acquisition. Both node providers upload the same host artifact and
+install it locally through native guest package managers. Bootstrap verifies cleanup
+and enrolls certificates before Puppet runs. Cloud-Init is a VM delivery mechanism only.
 
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle

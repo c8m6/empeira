@@ -18,7 +18,7 @@ module Empeira
       def valid_transport?
         uri = URI(metadata['url'])
         Configuration::AgentSchema.https_endpoint?(uri) &&
-          %w[authenticated verify_signatures].all? { |key| [true, false].include?(metadata[key]) }
+          [true, false].include?(metadata['verify_signatures'])
       rescue URI::InvalidURIError, TypeError, ArgumentError
         false
       end

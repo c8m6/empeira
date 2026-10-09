@@ -15,7 +15,7 @@ module Empeira
         request = identity
         acquire = ->(directory) { fetch(directory, request) }
         cache.with_artifact(request, enabled: @context.configuration.dig('agent', 'cache', 'enabled'),
-                                     acquire: acquire, pin: package_pin, authorize: method(:authorize)) do |artifact|
+                                     acquire: acquire, pin: package_pin) do |artifact|
           @progress.heartbeat('Installing the resolved local agent package...')
           yield artifact
         end
@@ -40,8 +40,6 @@ module Empeira
         @requirements = requirements
         @target = requirements.target
         @source = requirements.repository
-        @authentication = Authentication.new(url: @source.fetch('url'), progress: @progress)
-        @download = Download.new(authentication: @authentication)
       end
 
       def identity
@@ -59,14 +57,9 @@ module Empeira
         nil
       end
 
-      def authorize(metadata)
-        return unless metadata.fetch('authenticated') || @authentication.authenticated?
-
-        # Cached authenticated artifacts require current permission for the exact artifact, for every caller.
-        @download.authorize(metadata.fetch('url'))
-      end
-
       def fetch(directory, request)
+        @authentication = Authentication.new(url: @source.fetch('url'), progress: @progress)
+        @download = Download.new(authentication: @authentication)
         @progress.heartbeat('Resolving and acquiring the agent package...')
         image = helper_image
         @runtime.with_agent_helper(image: image.reference) do |resource|
@@ -94,7 +87,7 @@ module Empeira
       def describe(path, metadata, selected, resolver, request)
         details = { 'schema' => 1, 'request' => request, 'url' => selected.fetch('url'),
                     'sha256' => Digest::SHA256.file(path).hexdigest, 'size' => path.size,
-                    'authenticated' => @authentication.authenticated?, 'public_keys' => resolver.public_keys,
+                    'public_keys' => resolver.public_keys,
                     'verify_signatures' => @source.fetch('verify_signatures', true) }
         Artifact.new(path: path, metadata: metadata.merge(details))
       end

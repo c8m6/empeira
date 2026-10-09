@@ -19,7 +19,7 @@ module Empeira
         @distribution_required = distribution_required || @agent_required
         return unless @agent_required || @distribution_required
 
-        load_agent(config, os, version) if @agent_required
+        load_agent(config) if @agent_required
       rescue KeyError
         raise ConfigurationError,
               'No reviewed agent source exists for this guest'
@@ -59,10 +59,9 @@ module Empeira
         destinations - irrelevant
       end
 
-      def load_agent(config, _os, _version)
+      def load_agent(config)
         @agent = config.fetch('agent')
         install = @agent.fetch('install')
-        Node::AgentRepository.credentials
         @repository = target.source(install)
       end
     end

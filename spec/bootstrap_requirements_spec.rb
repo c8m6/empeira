@@ -64,12 +64,9 @@ RSpec.describe Empeira::VM::BootstrapRequirements do
     expect(plan.destinations).to contain_exactly('ports.ubuntu.com')
   end
 
-  it 'rejects an incomplete credential pair before installation' do
-    previous = ENV.fetch('EMPEIRA_AGENT_REPO_USERNAME', nil)
+  it 'plans agent installation without validating download credentials' do
     ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'fixture-user'
-    expect { requirements }.to raise_error(Empeira::ConfigurationError, /both nonempty/)
-  ensure
-    previous.nil? ? ENV.delete('EMPEIRA_AGENT_REPO_USERNAME') : ENV['EMPEIRA_AGENT_REPO_USERNAME'] = previous
+    expect(requirements).to be_required
   end
 
   it 'does not need agent egress when the guest declares a preinstalled agent' do

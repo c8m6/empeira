@@ -510,13 +510,17 @@ Only packages and necessary nonsecret metadata, including public signing keys,
 are retained. Identity includes package name, full native version, OS family,
 distribution/release, target architecture, format and source/verification policy.
 Private directories, per-request filesystem locks, temporary downloads and atomic
-publication protect concurrent callers. Hits validate metadata and package hashes;
-damaged owned entries are reacquired. Foreign, symlinked or insecure entries fail
-closed. `agent.cache.enabled: false` uses temporary host storage with the same
-acquisition path, removes it after use and leaves existing cache entries intact.
-There is no cache-cleanup command.
+publication protect concurrent callers. Hits validate local metadata, package hashes
+and any configured package SHA-256 pin. A valid hit is fully usable offline, including
+packages acquired from private APT/DNF repositories or direct authenticated HTTPS
+downloads: no HTTP request, credential validation or login is needed for reuse.
+Damaged owned entries are reacquired. Foreign, symlinked or insecure entries fail
+closed. `agent.cache.enabled: false` bypasses the persistent cache entirely, uses
+temporary host storage with the same acquisition path, removes it after use and
+leaves existing cache entries intact. There is no cache-cleanup command.
 
-HTTP authentication uses `EMPEIRA_AGENT_REPO_USERNAME` and
+HTTP authentication occurs only when acquisition is necessary, such as a cache miss,
+a damaged artifact or disabled caching. It uses `EMPEIRA_AGENT_REPO_USERNAME` and
 `EMPEIRA_AGENT_REPO_PASSWORD` when both are set. Invalid explicit credentials fail
 without an interactive fallback. Otherwise an HTTP 401 can prompt in a TTY:
 confirm login, enter the username and enter the password without echo. Progress
@@ -527,8 +531,6 @@ variables for CI. HTTP 403 and proxy HTTP 407 do not trigger repository login.
 Credentials stay in memory or temporary 0600 helper files, never in YAML, cache
 keys, cache metadata, workspace inventory or process arguments. Host downloads
 do not follow redirects, and credentials are scoped to the source HTTPS origin.
-Authenticated cache hits require current authorization for the exact package URL
-using an HTTPS HEAD request before reuse; an inaccessible endpoint fails closed.
 Registry authentication continues to use native `docker login` / `podman login`.
 
 After configured bootstrap packages are handled using the guest's base sources,

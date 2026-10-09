@@ -28,7 +28,6 @@ module Empeira
         mutate do
           @progress.stage(10, 'Checking control plane and reserving hostname...')
           server = ready_server
-          AgentRepository.credentials
           record, definition, image = reserve(request)
           prepare_image(image, record)
           resource = create_node(definition, record)

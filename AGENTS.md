@@ -119,16 +119,19 @@ Native source signatures stay enabled by default. Custom sources and direct HTTP
 artifacts permit optional SHA-256 pins and explicit scoped signature exceptions;
 never remove built-in pins or disable base-source/TLS verification. Calculated cache
 hashes establish integrity, not provenance. Keep the shared user agent cache private,
-version/source/target-specific, locked and atomically published; authenticate access
-to protected artifacts before cache reuse. Disabled caching uses the same temporary
-acquisition path and does not remove persistent entries. Cache only packages and
-necessary nonsecret metadata/public keys, never credentials.
+version/source/target-specific, locked and atomically published. Valid cache hits
+use only local integrity checks and configured SHA-256 pins, without network access
+or authentication, including protected sources. Disabled caching bypasses persistent
+entries, uses the same temporary acquisition path and does not remove persistent
+entries. Cache only packages and necessary nonsecret metadata/public keys, never
+credentials.
 
-Agent HTTP credentials come from both EMPEIRA_AGENT_REPO_USERNAME/PASSWORD variables
-or a one-retry TTY login after HTTP 401. Explicit invalid credentials, HTTP 403 and
-proxy HTTP 407 never trigger replacement login. Suspend progress and hide password
-input. Scope credentials to their HTTPS origin; never forward them through foreign
-redirects or put them in argv. Helper auth files use 0600 permissions. Release
+Agent HTTP authentication is needed only during acquisition. Credentials come from
+both EMPEIRA_AGENT_REPO_USERNAME/PASSWORD variables or a one-retry TTY login after
+HTTP 401. Explicit invalid credentials, HTTP 403 and proxy HTTP 407 never trigger
+replacement login. Suspend progress and hide password input. Scope credentials to
+their HTTPS origin; never forward them through foreign redirects or put them in
+argv. Helper auth files use 0600 permissions. Release
 packages exist only in helpers: reject preexisting records and remove only packages
 introduced by the current transaction. Guest signing-key cleanup likewise preserves
 preexisting keys. Do not reject combinations by comparing software major versions.

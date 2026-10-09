@@ -3,30 +3,39 @@
 RSpec.describe Empeira::Agent::Acquisition do
   let(:locations) { Empeira::Platform::Locations.new(home: File.join(@directory, 'shared-home'), environment: {}) }
   let(:app) { Empeira::Application.new(project_path: @directory, locations: locations) }
+  let(:os) { 'ubuntu' }
+  let(:release) { '24.04' }
+  let(:target) { Empeira::Agent::Target.new(os: os, release: release, architecture: 'amd64') }
+  let(:repository_class) do
+    target.family == 'debian' ? Empeira::Node::AgentRepository : Empeira::Node::DnfAgentRepository
+  end
+  let(:url) { "https://packages.example.org/agent.#{target.format}" }
   let(:runtime) do
     instance_double(Empeira::Runtime::Docker, check_available!: nil, architecture: 'amd64',
                                               ensure_image: nil, image_architecture: 'amd64')
   end
   let(:requirements) do
-    Empeira::VM::BootstrapRequirements.new(context: app.context, os: 'ubuntu', version: '24.04', architecture: 'amd64')
+    Empeira::VM::BootstrapRequirements.new(context: app.context, os: os, version: release, architecture: 'amd64')
   end
   let(:resolver) do
-    instance_double(Empeira::Node::AgentRepository, prepare_keys: nil, public_keys: [],
-                                                    resolve: { 'url' => 'https://packages.example.org/agent.deb',
-                                                               'version' => '1.2.3-1noble' },
-                                                    inspect_package: { 'version' => '1.2.3-1noble',
-                                                                       'architecture' => 'amd64' })
+    instance_double(repository_class, prepare_keys: nil, public_keys: [],
+                                      resolve: { 'url' => url, 'version' => '1.2.3-1' },
+                                      inspect_package: { 'version' => '1.2.3-1',
+                                                         'architecture' => target.native_architecture })
   end
-  let(:download) { instance_double(Empeira::Agent::Download, authorize: nil) }
-  let(:content) { "!<arch>\nsynthetic-agent-package" }
+  let(:download) { instance_double(Empeira::Agent::Download) }
+  let(:content) do
+    target.format == 'deb' ? "!<arch>\nsynthetic-agent-package" : "\xed\xab\xee\xdbsynthetic-agent-package".b
+  end
   let(:acquisition) { described_class.new(context: app.context, runtime: runtime) }
 
   def configure(method: 'repository', cache: true)
     install = { 'method' => method }
     if method == 'repository'
-      install['apt'] = { 'default' => { 'url' => 'https://packages.example.org/apt' } }
+      manager = target.family == 'debian' ? 'apt' : 'dnf'
+      install[manager] = { 'default' => { 'url' => "https://packages.example.org/#{manager}" } }
     else
-      install['packages'] = { 'ubuntu24.04' => { 'amd64' => { 'url' => 'https://packages.example.org/agent.deb' } } }
+      install['packages'] = { target.key => { 'amd64' => { 'url' => url } } }
     end
     File.write(File.join(@directory, '.empeira.yaml'),
                YAML.dump('agent' => { 'package' => 'synthetic-agent', 'version' => '1.2.3',
@@ -36,7 +45,7 @@ RSpec.describe Empeira::Agent::Acquisition do
   before do
     configure
     allow(runtime).to receive(:with_agent_helper).and_yield({ 'id' => 'owned-helper' })
-    allow(Empeira::Node::AgentRepository).to receive(:new).and_return(resolver)
+    allow(repository_class).to receive(:new).and_return(resolver)
     allow(Empeira::Agent::Download).to receive(:new).and_return(download)
     allow(download).to receive(:fetch) { |_, path, **| File.binwrite(path, content, perm: 0o600) }
   end
@@ -71,17 +80,65 @@ RSpec.describe Empeira::Agent::Acquisition do
     end
   end
 
-  it 'requires current artifact access for authenticated cache reuse and never persists credentials' do
-    ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'synthetic-username'
-    ENV['EMPEIRA_AGENT_REPO_PASSWORD'] = 'synthetic-password'
-    acquisition.with_package(requirements) { nil }
-    acquisition.with_package(requirements) { nil }
-    expect(download).to have_received(:authorize).with('https://packages.example.org/agent.deb').once
-    records = locations.cache.join('agents').glob('**/*').select(&:file?).map(&:binread).join
-    expect(records).not_to include('synthetic-username', 'synthetic-password', 'Authorization')
-    allow(download).to receive(:authorize).and_raise(Empeira::Error, 'access denied')
+  { 'APT' => ['ubuntu', '24.04'], 'DNF' => %w[rocky 9] }.each do |manager, (os, release)|
+    context "with private #{manager} sources" do
+      let(:os) { os }
+      let(:release) { release }
+
+      %w[repository package].each do |method|
+        it "reuses #{method} packages offline without requiring or validating credentials" do
+          configure(method: method)
+          ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'synthetic-username'
+          ENV['EMPEIRA_AGENT_REPO_PASSWORD'] = 'synthetic-password'
+          stored = acquisition.with_package(requirements, &:path)
+          records = locations.cache.join('agents').glob('**/*').select(&:file?).map(&:binread).join
+          expect(records).not_to include('synthetic-username', 'synthetic-password', 'Authorization', 'authenticated')
+          expect(Empeira::Agent::Authentication).not_to receive(:new)
+          expect(Net::HTTP).not_to receive(:start)
+          allow(runtime).to receive(:with_agent_helper).and_raise('offline helper must not run')
+
+          [[nil, nil], ['incomplete-user', nil], ['invalid:user', 'password']].each do |username, password|
+            ENV['EMPEIRA_AGENT_REPO_USERNAME'] = username
+            ENV['EMPEIRA_AGENT_REPO_PASSWORD'] = password
+            offline = Empeira::VM::BootstrapRequirements.new(context: app.context, os: os, version: release,
+                                                             architecture: 'amd64')
+            client = described_class.new(context: app.context, runtime: runtime)
+            expect(client.with_package(offline, &:path)).to eq(stored)
+          end
+          expect(download).to have_received(:fetch).once
+        end
+      end
+    end
+  end
+
+  it 'validates credentials on a cache miss before acquiring the package' do
+    ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'incomplete-user'
     expect { acquisition.with_package(requirements) { raise 'must not install' } }
-      .to raise_error(Empeira::Error, /access denied/)
+      .to raise_error(Empeira::ConfigurationError, /both nonempty/)
+    expect(runtime).not_to have_received(:with_agent_helper)
+    expect(download).not_to have_received(:fetch)
+  end
+
+  it 'requires acquisition again when a cached package is corrupted' do
+    stored = acquisition.with_package(requirements, &:path)
+    stored.binwrite('damaged package')
+    ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'incomplete-user'
+    expect { acquisition.with_package(requirements) { raise 'must not install' } }
+      .to raise_error(Empeira::ConfigurationError, /both nonempty/)
+    expect(download).to have_received(:fetch).once
+  end
+
+  it 'requires download credentials when caching is disabled even if a persistent artifact exists' do
+    stored = acquisition.with_package(requirements, &:path)
+    configure(cache: false)
+    uncached = Empeira::Application.new(project_path: @directory, locations: locations)
+    plan = Empeira::VM::BootstrapRequirements.new(context: uncached.context, os: os, version: release,
+                                                  architecture: 'amd64')
+    ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'incomplete-user'
+    client = described_class.new(context: uncached.context, runtime: runtime)
+    expect { client.with_package(plan) { raise 'must not install' } }
+      .to raise_error(Empeira::ConfigurationError, /both nonempty/)
+    expect(stored).to exist
     expect(download).to have_received(:fetch).once
   end
 

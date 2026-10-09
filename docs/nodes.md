@@ -89,9 +89,10 @@ the base image's sources first. A disposable host-side helper resolves the selec
 agent source using the target OS and architecture. The agent artifact is acquired
 and normally reused from the shared user cache, then uploaded through the existing
 container or VM transport and installed locally with APT/DNF. Agent repositories
-and repository credentials never need to be installed on the node. Missing
-dependencies may still use its unchanged base repositories through the short-lived
-bootstrap proxy; cached artifacts do not guarantee offline installation.
+and repository credentials never need to be installed on the node. Valid cached
+artifacts are reused offline without HTTP authentication or login, including private
+sources. Missing dependencies may still use the node's unchanged base repositories
+through the short-lived bootstrap proxy, so installation can still need network access.
 
 Empeira archives `/etc/apt` for Ubuntu or `/etc/yum.repos.d` and `/etc/dnf` for RPM
 guests. Uploaded packages, temporary signing keys and proxy configuration are

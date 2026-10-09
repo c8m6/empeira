@@ -36,10 +36,6 @@ module Empeira
         @credentials if [uri.scheme, uri.host, uri.port] == [@origin.scheme, @origin.host, @origin.port]
       end
 
-      def authenticated?
-        !@credentials.nil?
-      end
-
       def attempt
         yield
       rescue AuthenticationRequired
