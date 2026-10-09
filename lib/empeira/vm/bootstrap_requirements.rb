@@ -6,11 +6,12 @@ module Empeira
   module VM
     # Reviewed image metadata determines installation needs before any download.
     class BootstrapRequirements
-      attr_reader :repository, :agent, :guest
+      attr_reader :repository, :agent, :guest, :target
 
       def initialize(context:, os:, version:, agent_required: nil, distribution_required: false,
                      architecture: context.platform.architecture)
         config = context.configuration
+        @target = ::Empeira::Agent::Target.new(os: os, release: version, architecture: architecture.to_s)
         @os = os
         @architecture = architecture.to_s
         @guest = config.fetch('bootstrap').fetch('guests').fetch(os).fetch(version)
@@ -30,7 +31,7 @@ module Empeira
 
       def destinations
         distribution_destinations = @distribution_required ? guest_destinations : []
-        [*agent_destinations, *distribution_destinations].uniq
+        distribution_destinations.uniq
       end
 
       def report
@@ -50,14 +51,6 @@ module Empeira
 
       private
 
-      def agent_destinations
-        return [] unless repository
-
-        urls = [repository.fetch('url'), repository.dig('release', 'url'), repository.dig('key', 'url')].compact
-        extras = repository.fetch('destinations', [])
-        [*urls.map { |url| URI(url).host }, *extras]
-      end
-
       def guest_destinations
         destinations = guest.fetch('destinations')
         return destinations unless @os == 'ubuntu'
@@ -66,20 +59,11 @@ module Empeira
         destinations - irrelevant
       end
 
-      def load_agent(config, os, version)
+      def load_agent(config, _os, _version)
         @agent = config.fetch('agent')
         install = @agent.fetch('install')
         Node::AgentRepository.credentials
-        family = Node::PackageBootstrap::FAMILIES.fetch(os)
-        key = family == 'debian' ? "#{os}#{version}" : "el#{version}"
-        if install.fetch('method') == 'package'
-          @repository = install.fetch('packages').fetch(key).fetch(@architecture)
-        else
-          manager = family == 'debian' ? 'apt' : 'dnf'
-          @repository = install.fetch(manager).fetch(key) do
-            install.fetch('repositories').fetch(key)
-          end
-        end
+        @repository = target.source(install)
       end
     end
   end

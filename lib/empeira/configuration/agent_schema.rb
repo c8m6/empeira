@@ -4,9 +4,16 @@ require 'uri'
 
 module Empeira
   module Configuration
-    # Validates the independent agent package and its acquisition sources.
-    # rubocop:disable-next Metrics/ModuleLength -- One public agent namespace owns its source formats.
+    # Fragment validation allows partial OS overrides; effective validation checks the resolved source.
+    # rubocop:disable-next Metrics/ModuleLength -- Keep fragment and effective validation of this source contract together.
     module AgentSchema
+      extend AgentValues
+
+      SOURCE_VALIDATORS = { 'url' => :template_url!, 'sha256' => :digest!, 'suffix' => :suffix!,
+                            'suite' => :token!, 'component' => :token!, 'key' => :artifact!,
+                            'release' => :artifact!, 'verify_signatures' => :boolean!,
+                            'destinations' => :destinations! }.freeze
+
       module_function
 
       def mapping!(value, path)
@@ -29,26 +36,46 @@ module Empeira
         data.each do |key, value|
           field = "#{path}.#{key}"
           case key
-          when 'package', 'version' then token!(value, field)
+          when 'package' then package_token!(value, field)
+          when 'version' then token!(value, field)
+          when 'cache' then cache!(value, field)
           when 'install' then install!(value, field)
           else raise ConfigurationError, "#{field} is unsupported"
           end
         end
       end
 
+      def cache!(data, path)
+        mapping!(data, path)
+        data.each do |key, value|
+          raise ConfigurationError, "#{path}.#{key} is unsupported" unless key == 'enabled'
+
+          boolean!(value, "#{path}.enabled")
+        end
+      end
+
       def effective!(data)
-        required!(data, %w[package version install], 'agent')
+        required!(data, %w[package version cache install], 'agent')
+        required!(data.fetch('cache'), ['enabled'], 'agent.cache')
         install = data.fetch('install')
         required!(install, %w[method repositories apt dnf packages], 'agent.install')
         install.fetch('repositories').each do |key, source|
-          required!(source, %w[url sha256 suffix destinations], "agent.install.repositories.#{key}")
+          required!(source, ['url'], "agent.install.repositories.#{key}")
         end
+        %w[apt dnf].each { |manager| effective_sources!(install.fetch(manager), "agent.install.#{manager}") }
         return unless install.fetch('method') == 'package' && install.fetch('packages').empty?
 
         raise ConfigurationError, 'agent.install.packages must define at least one distribution and architecture'
       end
 
-      # rubocop:disable-next Metrics/CyclomaticComplexity -- Each supported install source has its own validator.
+      def effective_sources!(sources, path)
+        sources.each do |key, source|
+          resolved = Merge.call(sources.fetch('default', {}), source, path: [*path.split('.'), key])
+          required!(resolved, ['url'], "#{path}.#{key}")
+          source!(resolved, "#{path}.#{key}", manager: path.split('.').last)
+        end
+      end
+
       def install!(data, path)
         mapping!(data, path)
         data.each do |key, value|
@@ -57,9 +84,10 @@ module Empeira
           when 'method'
             raise ConfigurationError, "#{field} must be repository or package" unless %w[repository
                                                                                          package].include?(value)
-          when 'repositories' then catalog!(value, field) { |source, source_path| release_source!(source, source_path) }
-          when 'apt' then catalog!(value, field) { |source, source_path| apt_source!(source, source_path) }
-          when 'dnf' then catalog!(value, field) { |source, source_path| dnf_source!(source, source_path) }
+          when 'repositories' then catalog!(value, field) { |source, source_path| source!(source, source_path) }
+          when 'apt', 'dnf' then catalog!(value, field) do |source, source_path|
+            source!(source, source_path, manager: key)
+          end
           when 'packages' then package_sources!(value, field)
           else raise ConfigurationError, "#{field} is unsupported"
           end
@@ -72,7 +100,7 @@ module Empeira
             raise ConfigurationError, "#{artifact_path} has unsupported architecture" unless
               %w[amd64 arm64].include?(artifact_path.split('.').last)
 
-            artifact!(artifact, artifact_path)
+            artifact!(artifact, artifact_path, package: true)
             family = os_path.delete_prefix("#{path}.")
             extension = family.start_with?('ubuntu', 'debian') ? '.deb' : '.rpm'
             unless URI(artifact.fetch('url')).path.end_with?(extension)
@@ -82,93 +110,53 @@ module Empeira
         end
       end
 
-      def artifact!(data, path)
+      def artifact!(data, path, package: false)
         mapping!(data, path)
-        raise ConfigurationError, "#{path} requires url and sha256" unless data.keys.sort == %w[sha256 url]
+        allowed = package ? %w[url sha256 verify_signatures key] : %w[url sha256]
+        fields!(data, allowed, path)
 
+        required!(data, ['url'], path)
         https_url!(data.fetch('url'), "#{path}.url")
-        digest!(data.fetch('sha256'), "#{path}.sha256")
+        digest!(data['sha256'], "#{path}.sha256") if data.key?('sha256')
+        boolean!(data['verify_signatures'], "#{path}.verify_signatures") if data.key?('verify_signatures')
+        artifact!(data['key'], "#{path}.key") if data.key?('key')
       end
 
-      def release_source!(data, path)
+      def source!(data, path, manager: nil)
         mapping!(data, path)
-        data.each do |key, value|
-          field = "#{path}.#{key}"
-          case key
-          when 'url' then https_url!(value, field)
-          when 'sha256' then digest!(value, field)
-          when 'suffix' then suffix!(value, field)
-          when 'destinations'
-            raise ConfigurationError, "#{field} must contain valid proxy destination domains" unless
-              BootstrapGuests.destinations?(value)
-          else raise ConfigurationError, "#{field} is unsupported"
-          end
+        allowed = %w[url sha256 suffix destinations verify_signatures]
+        allowed += %w[suite component release key] if manager == 'apt'
+        allowed += ['key'] if manager == 'dnf'
+        fields!(data, allowed, path)
+        data.each { |key, value| public_send(SOURCE_VALIDATORS.fetch(key), value, "#{path}.#{key}") }
+        return unless data.key?('release') && data.key?('key')
+
+        raise ConfigurationError, "#{path} cannot specify both release and key"
+      end
+
+      def destinations!(value, path)
+        raise ConfigurationError, "#{path} must contain valid proxy destination domains" unless
+          BootstrapGuests.destinations?(value)
+      end
+
+      def fields!(data, allowed, path)
+        key = (data.keys - allowed).first
+        raise ConfigurationError, "#{path}.#{key} is unsupported" if key
+      end
+
+      def template_url!(value, path)
+        raise ConfigurationError, "#{path} must be a credential-free HTTPS URL" unless value.is_a?(String)
+
+        expanded = value.gsub(/\$(?:\{([^}]+)\}|([a-zA-Z_][a-zA-Z_0-9]*))/) do
+          name = Regexp.last_match(1) || Regexp.last_match(2)
+          raise ConfigurationError, "#{path} has unknown placeholder #{name}" unless %w[suite releasever
+                                                                                        basearch].include?(name)
+
+          'target'
         end
-      end
+        raise ConfigurationError, "#{path} has an invalid placeholder" if expanded.include?('$')
 
-      # rubocop:disable-next Metrics/AbcSize -- Validate the signed APT source as one atomic mapping.
-      def apt_source!(data, path)
-        mapping!(data, path)
-        allowed = %w[url suite component suffix release key]
-        raise ConfigurationError, "#{path} has unsupported fields" unless (data.keys - allowed).empty?
-
-        required!(data, %w[url suite component suffix], path)
-        https_url!(data['url'], "#{path}.url")
-        %w[suite component].each { |key| token!(data[key], "#{path}.#{key}") }
-        suffix!(data['suffix'], "#{path}.suffix")
-        unless data.key?('release') ^ data.key?('key')
-          raise ConfigurationError, "#{path} requires exactly one of release or key"
-        end
-
-        artifact!(data.fetch(data.key?('release') ? 'release' : 'key'),
-                  "#{path}.#{data.key?('release') ? 'release' : 'key'}")
-      end
-
-      # rubocop:disable-next Metrics/AbcSize -- Validate the signed DNF source as one atomic mapping.
-      def dnf_source!(data, path)
-        mapping!(data, path)
-        raise ConfigurationError, "#{path} requires url, suffix and key" unless data.keys.sort == %w[key suffix url]
-
-        url = data['url']
-        https_url!(url.gsub('$basearch', 'x86_64'), "#{path}.url") if url.is_a?(String)
-        unless url.is_a?(String) && url.match?(%r{\Ahttps://[a-zA-Z0-9.-]+(?::[0-9]+)?/[a-zA-Z0-9_./$-]+\z}) &&
-               !url.include?('..') && !url.gsub('$basearch', '').include?('$')
-          raise ConfigurationError, "#{path}.url must be a credential-free HTTPS DNF base URL"
-        end
-
-        suffix!(data['suffix'], "#{path}.suffix")
-        artifact!(data['key'], "#{path}.key")
-      end
-
-      def required!(data, keys, path)
-        keys.each { |key| raise ConfigurationError, "#{path}.#{key} is required" unless data.key?(key) }
-      end
-
-      def token!(value, path)
-        return if value.is_a?(String) && value.match?(/\A[a-zA-Z0-9][a-zA-Z0-9_.+-]*\z/)
-
-        raise ConfigurationError, "#{path} must be a package/version token"
-      end
-
-      def suffix!(value, path)
-        return if value.is_a?(String) && value.match?(/\A[-+a-zA-Z0-9.]+\z/)
-
-        raise ConfigurationError, "#{path} is invalid"
-      end
-
-      def digest!(value, path)
-        return if value.is_a?(String) && value.match?(/\A[a-f0-9]{64}\z/)
-
-        raise ConfigurationError, "#{path} must be a SHA-256 digest"
-      end
-
-      def https_url!(value, path)
-        uri = URI(value)
-        return if uri.is_a?(URI::HTTPS) && uri.host && uri.userinfo.nil? && uri.query.nil? && uri.fragment.nil?
-
-        raise ConfigurationError, "#{path} must be a credential-free HTTPS URL"
-      rescue URI::InvalidURIError, TypeError
-        raise ConfigurationError, "#{path} must be a credential-free HTTPS URL"
+        https_url!(expanded, path)
       end
     end
   end

@@ -1,220 +1,163 @@
 # frozen_string_literal: true
 
 require 'uri'
+require 'digest'
+require 'base64'
 
 module Empeira
   module Node
-    # Shared guest file delivery and diagnostics; the base installer uses signed APT.
-    # The DNF subclass retains the same installation and credential semantics.
-    # rubocop:disable-next Metrics/ClassLength -- One temporary APT transaction owns source, auth and diagnosis.
+    # Native source setup and package inspection run only in an owned disposable helper.
+    # rubocop:disable-next Metrics/ClassLength -- APT metadata resolution and package inspection share one isolated source.
     class AgentRepository
+      include Agent::NativeCommands
+
       AUTH_PATH = '/etc/apt/auth.conf.d/00-empeira-agent.conf'
-      APT_PROXY_PATH = PackageProxy::APT_PATH
-      CURL_CONFIG_PATH = '/var/tmp/empeira-agent-curl.conf'
-      SOURCE_PATH = '/etc/apt/sources.list.d/empeira-agent.list'
-      KEY_PATH = '/etc/apt/keyrings/empeira-agent.gpg'
+      SOURCE_PATH = '/var/tmp/empeira-agent-sources/agent.list'
+      KEY_PATH = '/var/tmp/empeira-agent-key.gpg'
+      PACKAGE_PATH = '/var/tmp/empeira-agent-package.deb'
+      attr_reader :public_keys
 
       def self.credentials
-        username = ENV.fetch('EMPEIRA_AGENT_REPO_USERNAME', nil)
-        password = ENV.fetch('EMPEIRA_AGENT_REPO_PASSWORD', nil)
-        return if username.nil? && password.nil?
-
-        values = [username, password]
-        return values if values.all? { |value| value.is_a?(String) && value.match?(/\A[^\s#]+\z/) }
-
-        raise ConfigurationError, 'Set both nonempty EMPEIRA_AGENT_REPO_USERNAME and ' \
-                                  'EMPEIRA_AGENT_REPO_PASSWORD for agent repository authentication'
+        Agent::Authentication.credentials
       end
 
-      def initialize(source:, package:, version:, execute:, copy:)
+      # rubocop:disable-next Metrics/ParameterLists -- The helper receives explicit transport and target dependencies.
+      def initialize(source:, package:, version:, target:, execute:, copy:, download:, authentication:, directory:)
         @source = source
         @package = package
         @version = version
+        @target = target
         @execute = execute
         @copy = copy
+        @download = download
+        @authentication = authentication
+        @directory = directory
+        @public_keys = []
       end
 
-      def install(proxy_url:)
+      def resolve
         @release_package = nil
-        credentials = self.class.credentials
-        prepared = true
-        install_proxy(proxy_url)
         install_source
-        install_auth(credentials) if credentials
-        apt!('update')
-        apt!('install', "#{@package}=#{@version}#{@source.fetch('suffix')}")
-        verify_version!
+        native!(['apt-get', *apt_options, 'update'], 'APT metadata acquisition')
+        result = native!(['apt-cache', *apt_options, 'show', '--', @package], 'APT package resolution')
+        candidates = result.stdout.split(/\n\s*\n/).filter_map { |stanza| apt_candidate(stanza) }
+        Agent::Versions.select(candidates, @version, suffix: @source['suffix'])
       ensure
-        begin
-          remove_release_package if @release_package
-        ensure
-          cleanup_temporary_files(credentials) if prepared
-        end
+        remove_release_package if @release_package
+      end
+
+      def inspect_package(path)
+        @copy.call(path, PACKAGE_PATH, '0600')
+        result = execute!(['dpkg-deb', '--show', '--showformat=${Package}|${Version}|${Architecture}', PACKAGE_PATH],
+                          'DEB package inspection')
+        name, version, architecture = result.stdout.strip.split('|')
+        validate_metadata(name, version, architecture)
+      end
+
+      def prepare_keys
+        return unless @source['key']
+
+        path = download_artifact(@source.fetch('key'), 'signing-key')
+        @public_keys << Base64.strict_encode64(File.binread(path))
+        key = File.binread(path).start_with?('-----BEGIN PGP PUBLIC KEY BLOCK-----') ? "#{KEY_PATH}.asc" : KEY_PATH
+        @copy.call(path, key, '0644')
+        key
       end
 
       private
 
       def install_source
-        if (release = @source['release'] || (@source if @source.key?('sha256')))
-          install_release(release)
+        execute!(['mkdir', '-p', File.dirname(SOURCE_PATH), '/var/tmp/empeira-agent-lists/partial'],
+                 'source preparation')
+        if @source['release'] || !@source.key?('suite')
+          install_release(@source['release'] || @source)
+          collect_release_sources
         else
-          execute!(['mkdir', '-p', '/etc/apt/keyrings'], 'keyring directory preparation')
-          download_verified(@source.fetch('key'), KEY_PATH)
-          source = "deb [signed-by=#{KEY_PATH}] #{@source.fetch('url')} #{@source.fetch('suite')} " \
-                   "#{@source.fetch('component')}\n"
-          copy_text(source, SOURCE_PATH, mode: '0644')
+          install_repository
         end
       end
 
-      def install_release(release)
-        path = '/var/tmp/empeira-agent-release.deb'
-        download_verified(release, path)
-        metadata = @execute.call(['dpkg-deb', '--field', path, 'Package'])
-        name = metadata.stdout.strip
-        unless metadata.success? && name.match?(/\A[a-zA-Z0-9][a-zA-Z0-9+.-]*\z/)
-          raise Error, 'Agent release package has invalid package metadata'
-        end
+      def install_repository
+        key = prepare_keys
+        options = []
+        options << "signed-by=#{key}" if key
+        options << 'trusted=yes' if @source['verify_signatures'] == false
+        line = "deb [#{options.join(' ')}] #{@source.fetch('url')} #{@source.fetch('suite')} " \
+               "#{@source.fetch('component')}\n"
+        copy_text(line.sub('[] ', ''), SOURCE_PATH, mode: '0644')
+      end
 
+      def install_release(artifact)
+        path = download_artifact(artifact, 'release.deb')
+        destination = '/var/tmp/empeira-agent-release.deb'
+        @copy.call(path, destination, '0600')
+        name = execute!(['dpkg-deb', '--field', destination, 'Package'], 'release metadata').stdout.strip
         require_absent_release!(name)
         @release_package = name
-        execute!(['dpkg', '-i', path], 'release package installation')
-      ensure
-        execute!(['rm', '-f', path], 'release package cleanup') if path
+        execute!(['dpkg', '-i', destination], 'release package installation')
       end
 
-      def remove_release_package
-        return unless installed_release_packages.include?(@release_package)
-
-        execute!(release_removal_arguments, 'release package cleanup')
-      end
-
-      def require_absent_release!(name)
-        return unless installed_release_packages.include?(name)
-
-        raise Error, 'Agent release package already exists; refusing to replace or remove it. Puppet was not run'
-      end
-
-      def installed_release_packages
-        result = @execute.call(release_inventory_arguments)
-        unless result.success?
-          raise Error, 'Cannot verify release-package ownership; node retained and Puppet was not run'
+      def collect_release_sources
+        files = execute!(['dpkg-query', '-L', @release_package], 'release source discovery').stdout.lines.map(&:strip)
+        files = files.select do |file|
+          file.start_with?('/etc/apt/sources.list.d/') && file.match?(/\.(?:list|sources)\z/)
         end
+        raise Error, 'Agent release package provides no native APT source' if files.empty?
 
-        result.stdout.lines.map(&:strip)
-      end
-
-      def release_inventory_arguments
-        ['dpkg-query', '-W', '-f=${Package}\n']
-      end
-
-      def release_removal_arguments
-        ['dpkg', '--purge', '--', @release_package]
-      end
-
-      def download_verified(artifact, path)
-        configure_download(artifact)
-        execute!(['curl', '--fail', '--silent', '--show-error', '--proto', '=https', '--max-redirs', '0',
-                  '--connect-timeout', '10', '--max-time', '120', '--config', CURL_CONFIG_PATH,
-                  '--output', path, artifact.fetch('url')], 'repository artifact download')
-        result = @execute.call(['sha256sum', path])
-        raise Error, 'Agent repository artifact checksum mismatch' unless
-          result.success? && result.stdout.split.first == artifact.fetch('sha256')
-      end
-
-      def configure_download(artifact)
-        credentials = self.class.credentials
-        content = "proxy = #{@proxy_url.dump}\n"
-        if credentials && URI(artifact.fetch('url')).host == URI(@source.fetch('url')).host
-          content += "user = #{"#{credentials.first}:#{credentials.last}".dump}\n"
-        end
-        copy_text(content, CURL_CONFIG_PATH, mode: '0600')
-      end
-
-      def install_auth(credentials)
-        uri = URI(@source.fetch('url'))
-        path = @source.key?('sha256') ? '/' : uri.path
-        path = "#{path}/" unless path.empty? || path.end_with?('/')
-        endpoint = "https://#{uri.host}#{":#{uri.port}" unless uri.port == 443}#{path}"
-        content = "machine #{endpoint}\nlogin #{credentials.first}\npassword #{credentials.last}\n"
-        copy_text(content, auth_path, mode: '0600')
-      end
-
-      def auth_path
-        AUTH_PATH
-      end
-
-      def install_proxy(url)
-        @proxy_url = url
-        @package_proxy = PackageProxy.new(family: proxy_family, execute: @execute, copy: @copy)
-        @package_proxy.prepare(url)
-      end
-
-      def proxy_family
-        'debian'
-      end
-
-      def copy_text(content, destination, mode:)
-        PackageProxy.copy_text(@copy, content, destination, mode: mode)
-      end
-
-      def cleanup_temporary_files(credentials)
-        paths = [APT_PROXY_PATH, CURL_CONFIG_PATH, SOURCE_PATH, KEY_PATH]
-        paths.unshift(auth_path) if credentials
-        execute!(['rm', '-f', '--', *paths], 'agent repository credential cleanup')
-      end
-
-      def apt!(operation, package = nil)
-        options = ['-o', 'Acquire::http::AllowRedirect=false', '-o', 'Acquire::https::AllowRedirect=false',
-                   '-o', 'APT::Update::Error-Mode=any']
-        arguments = ['apt-get', *@package_proxy.arguments, *options, operation, '-y']
-        arguments.push('--', package) if package
-        execute!(arguments, "APT #{operation}")
-      end
-
-      def verify_version!
-        result = @execute.call(['dpkg-query', '-W', '-f=${Version}', @package])
-        expected = "#{@version}#{@source.fetch('suffix')}"
-        return if result.success? && result.stdout.strip == expected
-
-        raise Error, 'Installed agent version differs from the requested package version'
-      end
-
-      def execute!(arguments, operation)
-        result = @execute.call(arguments)
-        return result if result.success?
-
-        diagnostic = redacted_diagnostic(result)
-        guidance = failure_guidance("#{result.stderr}\n#{result.stdout}", operation)
-        raise Error, "#{guidance} (exit=#{result.exit_status}). #{diagnostic}; node retained and Puppet was not run"
-      end
-
-      def redacted_diagnostic(result)
-        diagnostic = PackageProxy.redact("#{result.stderr}\n#{result.stdout}", @proxy_url)
-        Execution::Diagnostics.clean(diagnostic)
-      end
-
-      def failure_guidance(diagnostic, operation)
-        case diagnostic
-        when /\b(?:403|407)\b.*from proxy|Proxy Authentication Required/i
-          'Bootstrap proxy access denied; check managed bootstrap authentication and destination policy.'
-        when /\b401\b|Unauthorized/i
-          'Agent repository authentication failed. Set both EMPEIRA_AGENT_REPO_USERNAME and ' \
-          'EMPEIRA_AGENT_REPO_PASSWORD.'
-        when /\b403\b|Forbidden/i then 'Agent repository access denied; check permissions.'
-        when /NO_PUBKEY|signatures couldn.t be verified|not signed|GPG check FAILED|public key.*not installed/i
-          'Agent repository signature verification failed; check its signing key.'
-        when /Version .* was not found|No match for argument|Unable to find a match/i then unavailable_versions
-        when /\b404\b|Not Found/i then 'Agent repository or package version is unavailable.'
-        else "Agent #{operation} failed"
+        files.each_with_index do |file, index|
+          copy_release_source(file, index)
         end
       end
 
-      def unavailable_versions
-        versions = @execute.call(['apt-cache', 'madison', @package])
-        available = versions.stdout.lines.first(20).filter_map { |line| line.split('|')[1]&.strip }
-                            .grep(/\A[0-9][a-zA-Z0-9.+:~-]*\z/).uniq.first(8)
-        listing = available.empty? ? 'none reported' : available.join(', ')
-        "Requested agent package version is unavailable. Available versions: #{listing}"
+      def copy_release_source(file, index)
+        content = execute!(['cat', file], 'release source configuration').stdout
+        content = Agent::ReleaseSources.apt(content, format: File.extname(file), source: @source)
+        copy_text(content, "/var/tmp/empeira-agent-sources/#{index}#{File.extname(file)}", mode: '0644')
+      end
+
+      def apt_options
+        ['-o', 'Dir::Etc::sourcelist=/dev/null', '-o', 'Dir::Etc::sourceparts=/var/tmp/empeira-agent-sources',
+         '-o', 'Dir::State::lists=/var/tmp/empeira-agent-lists', '-o', 'Dir::State::status=/dev/null',
+         '-o', 'Acquire::http::AllowRedirect=false', '-o', 'Acquire::https::AllowRedirect=false',
+         '-o', 'APT::Update::Error-Mode=any']
+      end
+
+      def apt_candidate(stanza)
+        fields = apt_fields(stanza)
+        return unless apt_identity?(fields) && %w[Filename Version SHA256].all? { |key| fields[key] }
+
+        return unless Agent::Versions.match?(fields.fetch('Version'), @version, suffix: @source['suffix'])
+
+        { 'version' => fields.fetch('Version'), 'architecture' => fields.fetch('Architecture'),
+          'url' => package_url(fields.fetch('Version')), 'sha256' => fields.fetch('SHA256') }
+      end
+
+      def apt_fields(stanza)
+        stanza.lines.filter_map do |line|
+          line.split(': ', 2) if line.match?(/\A\w[^:]*: /)
+        end.to_h.transform_values(&:strip)
+      end
+
+      def apt_identity?(fields)
+        fields['Package'] == @package && [@target.native_architecture, 'all'].include?(fields['Architecture'])
+      end
+
+      def package_url(version)
+        result = native!(['apt-get', *apt_options, '--print-uris', 'download', "#{@package}=#{version}"],
+                         'APT artifact location')
+        urls = result.stdout.lines.filter_map { |line| line[%r{\A'(https://[^']+)'}, 1] }.uniq
+        raise Error, 'Selected agent source did not provide one HTTPS package location' unless urls.size == 1
+
+        urls.first
+      end
+
+      def validate_metadata(name, version, architecture)
+        unless name == @package && [@target.native_architecture, 'all'].include?(architecture) &&
+               Agent::Versions.match?(version.to_s, @version, suffix: @source['suffix'])
+          raise Error, 'Agent package name, native version or architecture differs from the requested target'
+        end
+
+        { 'version' => version, 'architecture' => architecture }
       end
     end
   end

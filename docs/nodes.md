@@ -84,16 +84,23 @@ use `/etc/apt/sources.list`. VM Cloud-Init leaves the base image's APT configura
 untouched. It does not generate archive, security, ports, or internal repository
 entries.
 
-For either agent installation method, Empeira installs `bootstrap.packages`
-against the base image's sources before adding the configured agent source. It
-then installs the selected agent from a signed APT or DNF source, or from a
-direct SHA-256-verified artifact for `method: package`. Temporary downloads and
-authentication are removed. Empeira archives the complete `/etc/apt` tree for
-Ubuntu or `/etc/yum.repos.d` and `/etc/dnf` for RPM guests. Agent installation
-and `bootstrap.packages` use the short-lived bootstrap proxy. Empeira restores
-and verifies the archived configuration before proxy removal, certificate
-enrollment and the first Puppet catalog. A restoration failure retains the node
-and backup, removes bootstrap access during cleanup and prevents Puppet.
+For either agent installation method, Empeira handles `bootstrap.packages` against
+the base image's sources first. A disposable host-side helper resolves the selected
+agent source using the target OS and architecture. The agent artifact is acquired
+and normally reused from the shared user cache, then uploaded through the existing
+container or VM transport and installed locally with APT/DNF. Agent repositories
+and repository credentials never need to be installed on the node. Missing
+dependencies may still use its unchanged base repositories through the short-lived
+bootstrap proxy; cached artifacts do not guarantee offline installation.
+
+Empeira archives `/etc/apt` for Ubuntu or `/etc/yum.repos.d` and `/etc/dnf` for RPM
+guests. Uploaded packages, temporary signing keys and proxy configuration are
+removed, and the archive is restored and verified before bootstrap access is
+removed, certificate enrollment completes and the first catalog runs. A failure
+retains the incomplete node for diagnostics and prevents Puppet. Already
+provisioned nodes are not bootstrapped again by `up` or `node start`. See
+[agent sources and caching](configuration.md#agent-sources-and-shared-package-cache)
+for generic sources, version resolution, optional verification and HTTP login.
 
 After restoration and before the first catalog, both node providers perform the same
 read-only check for active Ubuntu/Debian distribution APT sources. Legacy `.list`
@@ -105,7 +112,8 @@ the control repository must fix that classification. Check both source locations
 an empty `sources.list.d` alone does not prove that APT has no sources.
 
 Source configuration does not grant egress. Managed VM agent installation uses the
-temporary authenticated bootstrap proxy with reviewed package destinations. After
+temporary authenticated bootstrap proxy with reviewed base-distribution destinations.
+Agent acquisition uses host/helper access, outside the isolated node network. After
 bootstrap, normal access depends on the workspace proxy. Interactive `apt-get update`
 or package resources need an enabled proxy and an explicit destination policy as described in
 [networking](networking.md). Empeira never grants unrestricted Internet access to

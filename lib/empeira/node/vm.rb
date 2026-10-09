@@ -47,7 +47,7 @@ module Empeira
         @qemu = ::Empeira::VM::QemuRuntime.new(engine: backend, runner: runner, context: context)
         @cloud = ::Empeira::VM::CloudInit.new(context: context, runner: runner)
         @ssh = ::Empeira::VM::SSH.new(context: context, runner: runner, cloud_init: @cloud)
-        @agent = ::Empeira::VM::Agent.new(context: context, ssh: @ssh)
+        @agent = ::Empeira::VM::Agent.new(context: context, ssh: @ssh, runtime: runtime, progress: @progress)
       end
     end
   end

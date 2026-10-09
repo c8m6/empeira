@@ -88,6 +88,46 @@ RSpec.describe Empeira::Runtime::UpdateHelper do
         expect(@created).to be(false)
       end
 
+      it 'runs native agent tooling in an owned helper without host bind mounts or isolated workspace access' do
+        runtime.with_agent_helper(image: 'synthetic-agent-tooling:1') do |resource|
+          expect(resource.fetch('id')).to eq('owned-helper')
+        end
+        create = calls.first
+        expect(create.each_cons(2).to_a).to include(['--network', engine == 'docker' ? 'bridge' : 'podman'])
+        expect(create).not_to include('--mount', '--volume', '--privileged', '--publish', '--dns')
+        expect(calls.last).to eq(['rm', '--force', '--volumes', 'owned-helper'])
+        expect(@created).to be(false)
+      end
+
+      it 'verifies agent-helper networking before acquisition and cleans after a lost creation response' do
+        allow(runtime).to receive(:verify_helper_network!).and_wrap_original do |method, *args|
+          @resource['networks'] = { "empeira-#{context.workspace.id}-network" => {} }
+          method.call(*args)
+        end
+        expect { runtime.with_agent_helper(image: 'fixture:1') { raise 'must not acquire' } }
+          .to raise_error(Empeira::Providers::OwnershipError, /network/)
+        expect(@created).to be(false)
+        @resource = nil
+        allow(runtime).to receive(:update_command).and_wrap_original do |method, arguments, **options|
+          result = method.call(arguments, **options)
+          raise Empeira::Providers::ExecutionError, 'creation response lost' if arguments.first == 'create'
+
+          result
+        end
+        expect { runtime.with_agent_helper(image: 'fixture:1') { nil } }
+          .to raise_error(Empeira::Providers::ExecutionError, /response lost/)
+        expect(@created).to be(false)
+      end
+
+      it 'cleans agent helpers after acquisition failure or interruption' do
+        [Empeira::Error, Interrupt].each do |error|
+          @resource = nil
+          expect { runtime.with_agent_helper(image: 'fixture:1') { raise error, 'download interrupted' } }
+            .to raise_error(error, /download interrupted/)
+          expect(@created).to be(false)
+        end
+      end
+
       it 'retains network guidance for other image build failures' do
         allow(runner).to receive(:run).and_return(
           Empeira::Execution::Result.new(stdout: '', stderr: 'connection refused',

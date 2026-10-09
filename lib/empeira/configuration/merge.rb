@@ -6,9 +6,32 @@ module Empeira
       module_function
 
       def call(lower, higher, path: [])
+        lower = agent_override_base(lower, higher, path)
         lower = ImageSchema.override_base(lower, higher) if path.first == 'images' && path.size == 2
         copy(lower).merge(copy(higher)) do |key, old, replacement|
           old.is_a?(Hash) && replacement.is_a?(Hash) ? call(old, replacement, path: path + [key]) : replacement
+        end
+      end
+
+      def agent_override_base(lower, higher, path)
+        return lower unless path.first == 'agent'
+
+        base = copy(lower)
+        if path == %w[agent install]
+          override_agent_defaults!(base, higher)
+        elsif higher.key?('url') && higher['url'] != base['url'] && !higher.key?('sha256')
+          base.delete('sha256')
+        end
+        base
+      end
+
+      def override_agent_defaults!(base, higher)
+        %w[apt dnf].each do |manager|
+          next unless higher.dig(manager, 'default', 'url')
+
+          prefix = manager == 'apt' ? /\A(?:ubuntu|debian)/ : /\Ael/
+          base.fetch('repositories', {}).delete_if { |key, _| key.match?(prefix) }
+          base.fetch(manager, {}).clear
         end
       end
 

@@ -42,8 +42,13 @@ OpenVox is the default software. `images.server`, `images.puppetdb` and
 `images.postgres` select OCI images independently. `server.runtime` and
 `puppetdb.runtime` describe compatible startup contracts without classifying image
 names. Agent selection is independent of those images. Container recipes add base
-tools; managed bootstrap installs the agent, verifies cleanup and enrolls its
-certificate before Puppet runs. Cloud-Init is a VM delivery mechanism only.
+tools. A shared agent acquisition component resolves native source metadata in an
+owned, short-lived runtime helper, validates the package and publishes it atomically
+in the user cache. Cache identity includes the native version, target and source;
+authenticated hits require current artifact authorization. Both node providers
+upload the same host artifact and install it locally through native guest package
+managers. Bootstrap verifies cleanup and enrolls certificates before Puppet runs.
+Cloud-Init is a VM delivery mechanism only.
 
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle

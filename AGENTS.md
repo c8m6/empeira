@@ -107,13 +107,31 @@ private material, repository/registry/proxy credentials or other secrets in logs
 arguments, inventories, fingerprints or image layers. Keep private files outside
 control code with appropriate modes. EYAML keys are server-only read-only mounts.
 
-Agent installation uses a reviewed signed APT/DNF repository or HTTPS package
-artifact with mandatory SHA-256. Credentials use only
-`EMPEIRA_AGENT_REPO_USERNAME` and `EMPEIRA_AGENT_REPO_PASSWORD`. APT, DNF and curl
-read credentials from temporary 0600 files, never argv. Reject preexisting release
-packages before mutation and remove only packages introduced by that transaction.
-Authenticated DNF release-RPM sources are unsupported; use a scoped signed custom
-DNF repository. Do not reject software combinations by comparing major versions.
+Agent source resolution and acquisition are shared by both providers and install
+methods. Use owned disposable runtime helpers for native APT/DNF metadata, never
+require those managers on the host or install an agent there. Nodes install the
+uploaded package locally; dependencies use only their original base sources and
+existing bootstrap grants. Generic manager defaults override built-in OS sources;
+partial OS overrides deep-merge. Match exact requested/native versions, target
+architectures and selected sources; reject ambiguous candidates.
+
+Native source signatures stay enabled by default. Custom sources and direct HTTPS
+artifacts permit optional SHA-256 pins and explicit scoped signature exceptions;
+never remove built-in pins or disable base-source/TLS verification. Calculated cache
+hashes establish integrity, not provenance. Keep the shared user agent cache private,
+version/source/target-specific, locked and atomically published; authenticate access
+to protected artifacts before cache reuse. Disabled caching uses the same temporary
+acquisition path and does not remove persistent entries. Cache only packages and
+necessary nonsecret metadata/public keys, never credentials.
+
+Agent HTTP credentials come from both EMPEIRA_AGENT_REPO_USERNAME/PASSWORD variables
+or a one-retry TTY login after HTTP 401. Explicit invalid credentials, HTTP 403 and
+proxy HTTP 407 never trigger replacement login. Suspend progress and hide password
+input. Scope credentials to their HTTPS origin; never forward them through foreign
+redirects or put them in argv. Helper auth files use 0600 permissions. Release
+packages exist only in helpers: reject preexisting records and remove only packages
+introduced by the current transaction. Guest signing-key cleanup likewise preserves
+preexisting keys. Do not reject combinations by comparing software major versions.
 
 Restore and verify original package-manager configuration and remove bootstrap
 access and temporary credentials after success/failure, before enrollment/Puppet.

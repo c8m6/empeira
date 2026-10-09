@@ -6,9 +6,11 @@ module Empeira
     class Agent
       PUPPET = Node::Certificates::PUPPET
 
-      def initialize(context:, ssh:)
+      def initialize(context:, ssh:, runtime: nil, progress: Progress.new)
         @context = context
         @ssh = ssh
+        @runtime = runtime
+        @progress = progress
       end
 
       def ensure_installed(record, requirements: nil, proxy_url: nil)
@@ -37,8 +39,9 @@ module Empeira
       def install_selected_agent(record, requirements)
         execute = ->(arguments) { @ssh.run(record, arguments, timeout: 300) }
         copy = ->(source, destination, mode) { @ssh.copy_to(record, source, destination, mode: mode) }
-        installer = Node::AgentInstaller.build(config: @context.configuration, requirements: requirements,
-                                               os: record.fetch('os'), execute: execute, copy: copy)
+        @runtime ||= Runtime.registry.build(@context.container_engine, context: @context, runner: Execution::Runner.new)
+        installer = Node::AgentInstaller.build(context: @context, runtime: @runtime, requirements: requirements,
+                                               execute: execute, copy: copy, progress: @progress)
         installer.install(proxy_url: proxy_url)
         execute!(record, [PUPPET, '--version'], 'VM Puppet agent verification')
       end

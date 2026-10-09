@@ -14,8 +14,7 @@ RSpec.describe Empeira::VM::BootstrapRequirements do
     expect(plan.agent.fetch('package')).to eq(defaults.dig('agent', 'package'))
     source = defaults.dig('agent', 'install', 'repositories', 'ubuntu24.04')
     expect(plan.repository).to eq(source)
-    expect(plan.destinations).to contain_exactly(*source.fetch('destinations'),
-                                                 'archive.ubuntu.com', 'security.ubuntu.com')
+    expect(plan.destinations).to contain_exactly('archive.ubuntu.com', 'security.ubuntu.com')
   end
 
   it 'selects the OpenVox RPM release and reviewed Rocky mirror' do
@@ -23,7 +22,7 @@ RSpec.describe Empeira::VM::BootstrapRequirements do
     source = Empeira::Configuration::Loader.new(project_path: @directory).load_defaults
                                            .dig('agent', 'install', 'repositories', 'el9')
     expect(plan.repository).to eq(source)
-    expect(plan.destinations).to contain_exactly(*source.fetch('destinations'), 'dl.rockylinux.org')
+    expect(plan.destinations).to contain_exactly('dl.rockylinux.org')
     expect(plan.rpm_options).to include('--setopt=baseos.baseurl=https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/')
   end
 
@@ -43,7 +42,7 @@ RSpec.describe Empeira::VM::BootstrapRequirements do
                                        'install' => { 'apt' => { 'ubuntu24.04' => source } } } })
     expect(plan.agent.fetch('package')).to eq('puppet-agent')
     expect(plan.repository).to eq(source)
-    expect(plan.destinations).to include('packages.example.net', 'keys.example.net')
+    expect(plan.destinations).to contain_exactly('archive.ubuntu.com', 'security.ubuntu.com')
   end
 
   it 'selects a signed custom DNF source independently of the server image' do
@@ -52,8 +51,8 @@ RSpec.describe Empeira::VM::BootstrapRequirements do
     plan = requirements({ 'agent' => { 'package' => 'puppet-agent',
                                        'install' => { 'dnf' => { 'el9' => source } } } },
                         os: 'almalinux', version: '9')
-    expect(plan.repository).to eq(source)
-    expect(plan.destinations).to include('packages.example.net', 'keys.example.net', 'repo.almalinux.org')
+    expect(plan.repository).to eq(source.merge('url' => source.fetch('url').sub('$basearch', 'x86_64')))
+    expect(plan.destinations).to contain_exactly('repo.almalinux.org')
   end
 
   it 'selects a direct package by distribution and architecture' do
@@ -62,7 +61,7 @@ RSpec.describe Empeira::VM::BootstrapRequirements do
                                                       'packages' => { 'ubuntu24.04' => { 'arm64' => package } } } } },
                         architecture: 'arm64')
     expect(plan.repository).to eq(package)
-    expect(plan.destinations).to contain_exactly('packages.example.net', 'ports.ubuntu.com')
+    expect(plan.destinations).to contain_exactly('ports.ubuntu.com')
   end
 
   it 'rejects an incomplete credential pair before installation' do

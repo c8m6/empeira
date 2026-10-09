@@ -99,8 +99,9 @@ release version. A partial project mapping may omit it and inherit the default.
 | `agent.package`, `agent.version` | Defined in [built-in defaults](../config/defaults.yaml); independent of server images |
 | `agent.install.method` | `repository` (default) or `package` |
 | `agent.install.repositories.KEY` | Pinned OpenVox release packages and reviewed destinations by default |
-| `agent.install.apt.KEY`, `agent.install.dnf.KEY` | Optional signed custom APT/DNF sources, selected ahead of release-package sources |
-| `agent.install.packages.KEY.ARCH` | Direct HTTPS `.deb`/`.rpm` URL and mandatory SHA-256 by distribution and architecture |
+| `agent.install.apt.KEY`, `agent.install.dnf.KEY` | Native sources with a generic `default` and partial OS overrides |
+| `agent.install.packages.KEY.ARCH` | Direct HTTPS `.deb`/`.rpm` URL, optional SHA-256 and signature policy |
+| `agent.cache.enabled` | Shared host package cache, enabled by default |
 | `server.environment` | Puppet environment name, `production` |
 | `server.memory`, `server.cpus` | Positive integers, `1536` MiB and `2` CPUs |
 | `server.timeout` | Positive readiness timeout in seconds per component, `240` |
@@ -417,101 +418,129 @@ image. For the reviewed Ubuntu images, amd64 permits archive/security domains an
 permits the ports domain. Do not mark stock cloud images as agent-preinstalled.
 See [node images](nodes.md#node-images-and-fidelity) for fidelity and licensing.
 
-The default `agent.install.method: repository` installs OpenVox Agent through
-a SHA-256-pinned release package for the selected distribution. The release
-package sets up its signed native repository. For another package, configure
-its package name, requested version and an appropriate signed source explicitly;
-Empeira does not infer a source or change the server/PuppetDB images.
+### Agent sources and shared package cache
 
-A custom signed APT source can use a reviewed key:
+With an empty project marker, the pinned OpenVox release packages, agent version,
+server and database images remain the defaults. Release packages configure the
+signed source inside a disposable host-side helper, never on the test node.
+The helper uses the selected runtime's default bridge and target OS image; APT/DNF
+need not be installed on the host. No agent is installed on the host or helper.
+
+A generic source can serve all supported releases of its package-manager family:
 
 ```yaml
 agent:
   package: puppet-agent
   version: "8.20.0"
+  cache:
+    enabled: true
   install:
+    method: repository
     apt:
-      ubuntu24.04:
-        url: https://packages.example.net/agent
-        suite: noble
+      default:
+        url: https://packages.example.org/apt
         component: main
-        suffix: "-1noble"
-        key:
-          url: https://packages.example.net/signing.gpg
-          sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      ubuntu24.04:
+        suite: noble-special
+    dnf:
+      default:
+        url: https://packages.example.org/yum/$releasever/$basearch
 ```
 
-A custom DNF source uses a key and exact release suffix:
+Configure only the manager you use. A project `apt.default` or `dnf.default`
+supersedes the built-in release sources for that family. OS-specific entries
+merge over the generic default; existing complete source definitions and `suffix`
+overrides remain supported. APT suites default to `jammy` for Ubuntu 22.04 and
+`noble` for Ubuntu 24.04. RPM keys remain `el8`/`el9` for Rocky, AlmaLinux and
+Oracle Linux's existing supported releases. Architecture comes from the target
+node: `amd64`/`arm64` for DEB and `x86_64`/`aarch64` for RPM. Only `$suite`,
+`$releasever` and `$basearch` URL placeholders are expanded; arbitrary environment
+interpolation is rejected.
+
+Native source metadata resolves the exact software version to a complete native
+version. No newest-version fallback is used, and ambiguous releases require an
+explicit native version or `suffix`. Resolution excludes unrelated repositories.
+The downloaded package's name, version and architecture must match the target.
+
+Direct HTTPS artifacts use the same acquisition and installation path:
 
 ```yaml
 agent:
   package: puppet-agent
   version: "8.20.0"
-  install:
-    dnf:
-      el9:
-        url: https://packages.example.net/agent/el/9/$basearch
-        suffix: "-1.el9"
-        key:
-          url: https://packages.example.net/signing.gpg
-          sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-```
-
-For a direct artifact, `package` downloads one HTTPS file and checks its
-mandatory SHA-256 before passing it to APT or DNF. `agent.version` must match
-the complete installed package version, including its distribution release.
-APT uses the checksum because local DEB files do not carry the repository
-signature chain; DNF additionally enforces local RPM signature checking.
-Dependencies must already exist or be available in the unchanged base-image
-repositories. An RPM signing key must already be trusted by the base image;
-Empeira does not import one for a direct package. The artifact and temporary
-download credentials are removed
-before the first Puppet run.
-
-```yaml
-agent:
-  package: puppet-agent
-  version: "8.20.0-1noble"
   install:
     method: package
     packages:
       ubuntu24.04:
         amd64:
-          url: https://packages.example.net/puppet-agent.deb
+          url: https://packages.example.org/puppet-agent.deb
+          # Optional; if present, the pin is mandatory on downloads and cache hits.
           sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 ```
 
-The distribution keys are `ubuntu22.04`, `ubuntu24.04`, `el8` and `el9` for
-the built-in images; architecture keys are `amd64` and `arm64`. Configure each
-combination that you use. Empeira neither selects a compatible software
-version nor falls back to another package. The user owns compatibility of
-selected server, database and agent software.
+Direct files remain explicit by distribution and architecture; Empeira does not
+invent download URLs. A software version is accepted when package metadata
+matches it exactly; a complete native version pins the release as well.
 
-Optional source authentication uses both `EMPEIRA_AGENT_REPO_USERNAME` and
-`EMPEIRA_AGENT_REPO_PASSWORD` in the Empeira process environment. Leave both
-unset for public sources. Partial or empty values fail before installation.
-Credentials never belong in YAML, image builds or workspace state. Empeira
-writes temporary 0600 guest files, disables authenticated download redirects,
-and removes those files after success or failure. APT and DNF source settings
-are restored and verified before certificate enrollment. Bootstrap egress is
-limited to the configured source and base distribution destinations; registry
-login remains a separate Docker/Podman operation.
+`sha256` is optional for custom release/key artifacts and direct packages.
+Built-in OpenVox release checksums remain pinned. A configured pin is always
+verified. Changing a source or key URL clears its inherited checksum unless
+the override supplies a new pin. Signed APT metadata supplies package checksums;
+RPM signatures are checked natively. Local DEBs have no repository signature chain: HTTPS and an
+optional independent checksum pin are their verification mechanisms.
+The cache's calculated checksum detects corruption, not publisher provenance.
 
-A release package must be absent from the native package database before bootstrap,
-including any retained dpkg configuration record. Empeira rejects existing release
-packages before changing them and removes only packages introduced by the current
-transaction. Unreadable package state or failed removal stops provisioning.
-Authenticated DNF release-RPM sources are rejected: use a signed `agent.install.dnf`
-source so credentials can be scoped to its temporary repository instead.
+Native signature checks stay enabled. Existing trusted keys may be used; an
+optional `key: {url: https://..., sha256: ...}` supplies an additional public key.
+An APT source can also retain its existing `release` artifact. Set
+`verify_signatures: false` on an APT/DNF source or direct package only when you
+intend to use an unsigned source. Empeira emits one warning during that node's
+bootstrap. The exception is scoped to that source or local RPM; base-source
+signature checks and HTTPS verification remain active. Temporarily imported RPM
+keys are removed after installation without removing preexisting keys.
 
-APT, DNF and curl read proxy credentials from temporary 0600 configuration files;
-authenticated proxy URLs never appear in command arguments. The temporary DNF
-configuration preserves unrelated original main settings and disables native file
-logging. DNF uses its native `proxy_username`, `proxy_password` and Basic
-authentication options in that private file; it does not depend on a proxy issuing
-an authentication challenge. SCP staging files are removed after success, failure and timeout, and
-removal must succeed. If the guest becomes unreachable, cleanup cannot be verified
-and provisioning remains incomplete.
+Packages are shared across workspaces under the current user's cache:
+
+| Host | Agent cache |
+| --- | --- |
+| Linux / WSL2 | `$XDG_CACHE_HOME/empeira/agents` or `~/.cache/empeira/agents` |
+| macOS | `~/Library/Caches/empeira/agents` |
+
+Only packages and necessary nonsecret metadata, including public signing keys,
+are retained. Identity includes package name, full native version, OS family,
+distribution/release, target architecture, format and source/verification policy.
+Private directories, per-request filesystem locks, temporary downloads and atomic
+publication protect concurrent callers. Hits validate metadata and package hashes;
+damaged owned entries are reacquired. Foreign, symlinked or insecure entries fail
+closed. `agent.cache.enabled: false` uses temporary host storage with the same
+acquisition path, removes it after use and leaves existing cache entries intact.
+There is no cache-cleanup command.
+
+HTTP authentication uses `EMPEIRA_AGENT_REPO_USERNAME` and
+`EMPEIRA_AGENT_REPO_PASSWORD` when both are set. Invalid explicit credentials fail
+without an interactive fallback. Otherwise an HTTP 401 can prompt in a TTY:
+confirm login, enter the username and enter the password without echo. Progress
+is suspended during the prompt. There is one retry; cancellation or another
+failure stops provisioning. Without a TTY, the error names the two environment
+variables for CI. HTTP 403 and proxy HTTP 407 do not trigger repository login.
+
+Credentials stay in memory or temporary 0600 helper files, never in YAML, cache
+keys, cache metadata, workspace inventory or process arguments. Host downloads
+do not follow redirects, and credentials are scoped to the source HTTPS origin.
+Authenticated cache hits require current authorization for the exact package URL
+using an HTTPS HEAD request before reuse; an inaccessible endpoint fails closed.
+Registry authentication continues to use native `docker login` / `podman login`.
+
+After configured bootstrap packages are handled using the guest's base sources,
+the host artifact is uploaded through existing container/VM file transport and
+installed locally by APT/DNF. The agent repository is not added to the node.
+Dependencies can still require the unchanged guest base repositories and existing
+bootstrap-proxy grants: this is an agent-artifact cache, not an offline package
+mirror. No additional node egress is granted. Dependency failure blocks the first
+catalog. Uploaded artifacts, temporary keys and proxy files are removed, and the
+original package-manager configuration is restored and verified before bootstrap
+access is removed, enrollment completes and Puppet runs. Unverifiable cleanup
+leaves the node incomplete for diagnostics.
 
 APT loads the private proxy file explicitly after the guest's normal configuration
 so existing proxy fragments cannot override the controlled bootstrap endpoint.

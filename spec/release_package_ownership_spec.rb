@@ -1,131 +1,94 @@
 # frozen_string_literal: true
 
-RSpec.describe 'Agent release-package transaction ownership' do
+RSpec.describe 'Agent helper release-package ownership' do
   let(:success) { Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false) }
-  let(:source) { { 'url' => 'https://packages.example.net/release', 'sha256' => 'a' * 64, 'suffix' => '-1' } }
   let(:installed) { [] }
   let(:calls) { [] }
-  let(:files) { {} }
   let(:failure) { nil }
-  let(:copy) { ->(path, destination, mode) { files[destination] = [File.read(path), mode] } }
+  let(:download) { instance_double(Empeira::Agent::Download) }
+  let(:copy) { ->(_path, _destination, _mode) {} }
   let(:execute) do
-    lambda do |args|
-      calls << args
-      if args.include?('-qa') || args.include?('-f=${Package}\n')
+    lambda do |arguments|
+      calls << arguments
+      if arguments.include?('-qa') || arguments.include?('-f=${Package}\n')
         failure == :query ? success.with(exit_status: 2) : success.with(stdout: installed.join("\n"))
-      elsif args.include?('-i')
+      elsif arguments.include?('-i')
         installed << 'agent-release'
         failure == :install ? success.with(exit_status: 1, stderr: 'error: installation failed') : success
-      elsif args.include?('--purge') || args.include?('-e')
+      elsif arguments.include?('--purge') || arguments.include?('-e')
         next success.with(exit_status: 1, stderr: 'error: cleanup failed') if failure == :cleanup
 
         installed.delete('agent-release')
         success
-      elsif args.first == 'rm'
-        args.each { |path| files.delete(path) }
-        success
+      elsif arguments.include?('-qp') || arguments.include?('--field')
+        success.with(stdout: 'agent-release')
       else
-        output = case args.first
-                 when 'cat' then "[main]\ngpgcheck=1\n"
-                 when 'sha256sum' then "#{source.fetch('sha256')}  artifact\n"
-                 when 'dpkg-deb' then 'agent-release'
-                 when 'rpm' then args.include?('-qp') ? 'agent-release' : '1.2.3-1'
-                 when 'dpkg-query' then '1.2.3-1'
-                 else ''
-                 end
-        success.with(stdout: output)
+        success
       end
     end
-  end
-
-  around do |example|
-    previous = ENV.to_h
-    ENV.delete('EMPEIRA_AGENT_REPO_USERNAME')
-    ENV.delete('EMPEIRA_AGENT_REPO_PASSWORD')
-    example.run
-  ensure
-    ENV.replace(previous)
   end
 
   [Empeira::Node::AgentRepository, Empeira::Node::DnfAgentRepository].each do |klass|
     context klass.name do
-      let(:installer) do
-        klass.new(source: source, package: 'synthetic-agent', version: '1.2.3', execute: execute, copy: copy)
+      let(:source) { { 'url' => "https://packages.example.org/release.#{klass == Empeira::Node::AgentRepository ? 'deb' : 'rpm'}", 'suffix' => '-1' } }
+      let(:target) { Empeira::Agent::Target.new(os: klass == Empeira::Node::AgentRepository ? 'ubuntu' : 'rocky', release: '9', architecture: 'amd64') }
+      let(:resolver) do
+        klass.new(source: source, package: 'synthetic-agent', version: '1.2.3', target: target,
+                  execute: execute, copy: copy, download: download,
+                  authentication: Empeira::Agent::Authentication.new(url: source.fetch('url')), directory: @directory)
       end
 
-      it 'removes only its introduced release package after success' do
-        installed << 'unrelated-release'
-        installer.install(proxy_url: 'http://bootstrap:temporary@proxy.test:3128')
-        expect(installed).to eq(['unrelated-release'])
-        expect(calls.flatten.join(' ')).not_to include('temporary')
-        expect(files).to be_empty
+      before do
+        allow(download).to receive(:fetch) { |_, path, **| File.write(path, 'synthetic') }
+        allow(resolver).to receive(:collect_release_sources)
       end
 
-      it 'rejects preexisting installed or configuration-only package records without installation or removal' do
+      it 'removes only the release package introduced into its disposable helper' do
+        installed << 'unrelated-package'
+        expect { resolver.resolve }.to raise_error(Empeira::Error, /unavailable/)
+        expect(installed).to eq(['unrelated-package'])
+      end
+
+      it 'rejects preexisting release records without replacing or deleting them' do
         installed << 'agent-release'
-        expect do
-          installer.install(proxy_url: 'http://proxy.test:3128')
-        end.to raise_error(Empeira::Error, /already exists/)
-        expect(calls).not_to include(array_including('-i'))
-        expect(calls).not_to include(array_including('--purge'))
-        expect(calls).not_to include(array_including('-e'))
+        expect { resolver.resolve }.to raise_error(Empeira::Error, /already exists/)
+        expect(calls).not_to include(array_including('-i'), array_including('-e'), array_including('--purge'))
         expect(installed).to eq(['agent-release'])
-        expect(files).to be_empty
       end
 
-      it 'does not retain package ownership from an earlier completed transaction' do
-        installer.install(proxy_url: 'http://proxy.test:3128')
+      it 'does not reuse package ownership from an earlier transaction' do
+        expect { resolver.resolve }.to raise_error(Empeira::Error, /unavailable/)
+        installed << 'agent-release'
         calls.clear
-        installed << 'agent-release'
-        expect do
-          installer.install(proxy_url: 'http://proxy.test:3128')
-        end.to raise_error(Empeira::Error, /already exists/)
-        expect(calls).not_to include(array_including('--purge'), array_including('-e'))
+        expect { resolver.resolve }.to raise_error(Empeira::Error, /already exists/)
         expect(installed).to eq(['agent-release'])
       end
 
-      context 'when the original package database cannot be queried' do
+      context 'with unreadable original package state' do
         let(:failure) { :query }
 
-        it 'fails before installation or destructive cleanup' do
-          expect { installer.install(proxy_url: 'http://proxy.test:3128') }.to raise_error(Empeira::Error, /ownership/)
+        it 'fails before native package mutation' do
+          expect { resolver.resolve }.to raise_error(Empeira::Error, /ownership/)
           expect(calls).not_to include(array_including('-i'))
-          expect(installed).to be_empty
         end
       end
 
-      context 'when installation fails after introducing partial package state' do
+      context 'with a partial release install' do
         let(:failure) { :install }
 
-        it 'cleans up the introduced package and private configuration' do
-          expect do
-            installer.install(proxy_url: 'http://proxy.test:3128')
-          end.to raise_error(Empeira::Error, /installation failed/)
+        it 'removes only the newly introduced package even after failure' do
+          expect { resolver.resolve }.to raise_error(Empeira::Error, /installation failed/)
           expect(installed).to be_empty
-          expect(files).to be_empty
         end
       end
 
-      context 'when native package cleanup fails' do
+      context 'with failed release cleanup' do
         let(:failure) { :cleanup }
 
-        it 'reports failure and still removes private proxy and download files' do
-          expect { installer.install(proxy_url: 'http://proxy.test:3128') }.to raise_error(Empeira::Error, /cleanup/)
-          expect(installed).to eq(['agent-release'])
-          expect(files).to be_empty
+        it 'fails the acquisition instead of reporting a usable artifact' do
+          expect { resolver.resolve }.to raise_error(Empeira::Error, /cleanup/)
         end
       end
     end
-  end
-
-  it 'rejects authenticated DNF release RPMs before guest mutation, directing users to scoped sources' do
-    ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'synthetic-user'
-    ENV['EMPEIRA_AGENT_REPO_PASSWORD'] = 'synthetic-password'
-    installer = Empeira::Node::DnfAgentRepository.new(source: source, package: 'synthetic-agent', version: '1.2.3',
-                                                      execute: execute, copy: copy)
-    expect { installer.install(proxy_url: 'http://proxy.test:3128') }
-      .to raise_error(Empeira::ConfigurationError, /Authenticated DNF.*agent.install.dnf/)
-    expect(calls).to be_empty
-    expect(files).to be_empty
   end
 end

@@ -21,6 +21,7 @@ module Empeira
         @requirements = ::Empeira::VM::BootstrapRequirements.new(context: context, os: request.os,
                                                                  version: request.version,
                                                                  distribution_required: packages.required?)
+        ::Empeira::Agent::Acquisition.new(context: context, runtime: @runtime).preflight!(@requirements)
         @peer.preflight(@state)
         @bootstrap_proxy.preflight!(@state) if @requirements.destinations.any?
         @progress.heartbeat(@requirements.report)
