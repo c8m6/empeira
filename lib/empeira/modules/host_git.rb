@@ -42,8 +42,7 @@ module Empeira
       end
 
       def fail_acquisition(name, result)
-        diagnostic = Execution::Diagnostics.clean("#{result.stderr}\n#{result.stdout}")
-        diagnostic = 'Check repository access and your normal Git/SSH configuration.' if diagnostic.empty?
+        diagnostic = Execution::Diagnostics.native(result, operation: "Acquire Git source for #{name}", tool: 'git/ssh')
         raise Error, "Module: #{name}\nError: Git source acquisition failed" \
                      "#{' (timed out)' if result.timed_out}\n\ngit/ssh output:\n#{diagnostic}", cause: nil
       end

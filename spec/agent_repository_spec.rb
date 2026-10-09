@@ -60,7 +60,7 @@ RSpec.describe 'Native agent package acquisition' do
     resolver.resolve
     content, mode = files.fetch(Empeira::Node::AgentRepository::AUTH_PATH)
     expect(content.force_encoding(Encoding::UTF_8)).to include(
-      'machine https://packages.example.org', 'login "synthetic-user"', 'password "synthetic-ü-password"'
+      'machine https://packages.example.org', 'login synthetic-user', 'password synthetic-ü-password'
     )
     expect(mode).to eq('0600')
     expect(calls.flatten.join(' ')).not_to include('synthetic-user', 'synthetic-ü-password')

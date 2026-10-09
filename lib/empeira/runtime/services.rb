@@ -106,7 +106,8 @@ module Empeira
         return result if result.success?
 
         raise Providers::ExecutionError,
-              "#{name} #{operation} failed (#{result.timed_out ? 'timeout' : result.exit_status}); run empeira status"
+              "#{name} #{operation} failed; run empeira status\n" \
+              "#{Execution::Diagnostics.native(result, operation: operation, tool: name)}", cause: nil
       end
 
       def create_service_arguments(definition)

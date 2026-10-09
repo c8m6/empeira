@@ -72,6 +72,22 @@ RSpec.describe Empeira::CLI::ProgressRenderer do
     expect(io.string).to end_with("\r\e[2K\e[1A\r\e[2K")
   end
 
+  it 'preserves multiline HTTP diagnostics after ending the progress display' do
+    io = StringIO.new
+    renderer = described_class.new(io: io, interactive: true)
+    progress = Empeira::Progress.new(listener: renderer)
+    message = Empeira::Execution::Diagnostics.http(operation: 'Download agent package',
+                                                   url: 'https://packages.example.org/agent.deb', status: '404',
+                                                   reason: 'Not Found', body: "First explanation\nSecond explanation")
+    begin
+      renderer.during { progress.run('Downloading') { raise Empeira::Error, message } }
+    rescue Empeira::Error => e
+      io.puts("Error: #{e.message}")
+    end
+    expect(visible(io.string)).to eq("Error: #{message}")
+    expect(visible(io.string)).not_to include("\e", 'Downloading')
+  end
+
   it 'uses the current terminal width and constrains long Unicode messages without wrapping' do
     io = StringIO.new
     columns = 42

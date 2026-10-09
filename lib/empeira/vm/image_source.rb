@@ -69,12 +69,22 @@ module Empeira
         response = Net::HTTP.start(uri.host, uri.port, use_ssl: true, open_timeout: 10, read_timeout: 30) do |http|
           http.get(uri.request_uri)
         end
-        raise Error, 'Cannot retrieve upstream VM image checksum' unless response.is_a?(Net::HTTPSuccess)
+        validate_text!(response, url)
+      rescue SocketError, OpenSSL::SSL::SSLError, IOError, SystemCallError, Timeout::Error, Net::ProtocolError => e
+        diagnostic = Execution::Diagnostics.transport(operation: 'Retrieve VM image checksum', url: url, error: e)
+        raise Error, "Cannot retrieve upstream VM image checksum\n#{diagnostic}", cause: nil
+      end
+
+      def validate_text!(response, url)
+        unless response.is_a?(Net::HTTPSuccess)
+          diagnostic = Execution::Diagnostics.http(operation: 'Retrieve VM image checksum', url: url,
+                                                   status: response.code, reason: response.message,
+                                                   body: response.body, content_type: response['Content-Type'])
+          raise Error, "Cannot retrieve upstream VM image checksum\n#{diagnostic}", cause: nil
+        end
         raise Error, 'Upstream VM image checksum is too large' if response.body.bytesize > 100_000
 
         response.body
-      rescue SocketError, IOError, SystemCallError, Timeout::Error
-        raise Error, 'Cannot retrieve upstream VM image checksum', cause: nil
       end
     end
   end

@@ -89,12 +89,12 @@ module Empeira
 
       def raise_failure(action, result)
         manager = family == 'debian' ? 'apt-get' : 'dnf'
-        diagnostic = PackageProxy.redact("#{result.stderr}\n#{result.stdout}", @proxy_url)
-        diagnostic = Execution::Diagnostics.clean(diagnostic)
-        detail = diagnostic.empty? ? '' : ": #{diagnostic}"
+        text = PackageProxy.redact("#{result.stderr}\n#{result.stdout}", @proxy_url)
+        detail = Execution::Diagnostics.native(result.with(stderr: text, stdout: ''),
+                                               operation: "Package bootstrap #{action}", tool: manager)
         raise Error, "Package bootstrap #{action} failed with #{manager} " \
-                     "(exit=#{result.exit_status}, timeout=#{result.timed_out})#{detail}; " \
-                     'node retained and Puppet was not run'
+                     "(exit=#{result.exit_status}, timeout=#{result.timed_out}); " \
+                     "node retained and Puppet was not run\n#{detail}", cause: nil
       end
 
       def progress_message(action, count)

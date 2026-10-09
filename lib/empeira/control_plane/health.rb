@@ -16,7 +16,8 @@ module Empeira
           return if ready?(key, resources)
           if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
             raise Error,
-                  "#{key} did not become ready within server.timeout; inspect empeira status and owned service logs"
+                  "#{key} did not become ready within server.timeout; inspect empeira status and owned service logs\n" \
+                  "#{@failure}"
           end
 
           sleep 2
@@ -60,10 +61,28 @@ module Empeira
 
       def check(resource, arguments, expected = nil)
         return false unless resource
+        return check_http?(resource, arguments, expected) if http_probe?(arguments)
 
         result = @runtime.service_exec(resource, arguments)
-        result.success? && (expected.nil? || result.stdout.strip == expected)
+        return true if result.success? && (expected.nil? || result.stdout.strip == expected)
+
+        @failure = Execution::Diagnostics.native(result, operation: 'Probe control-plane readiness',
+                                                         tool: arguments.first)
+        false
       rescue Empeira::ExecutionError
+        false
+      end
+
+      def http_probe?(arguments)
+        arguments.first == 'curl' && !arguments.include?('--write-out')
+      end
+
+      def check_http?(resource, arguments, expected)
+        result = @runtime.service_exec(resource, [*arguments[0...-1], '--include', arguments.last])
+        body = Server::HTTP.response(result)[:body]
+        return true if result.success? && (expected.nil? || body.strip == expected)
+
+        @failure = Server::HTTP.failure(result, url: arguments.last, operation: 'Probe control-plane readiness')
         false
       end
 

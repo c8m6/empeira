@@ -36,11 +36,7 @@ module Empeira
         result = @runtime.service_exec(@resource, command, timeout: 600, on_stdout: @events.method(:observe))
         return if result.success?
 
-        diagnostic = Execution::Diagnostics.clean("#{result.stderr}\n#{result.stdout}")
-        if diagnostic.empty?
-          diagnostic = 'Check Puppetfile syntax, module names, refs/versions ' \
-                       'and your normal host/container network access.'
-        end
+        diagnostic = Execution::Diagnostics.native(result, operation: "Puppetfile #{mode}", tool: 'r10k')
         raise Error, "Puppetfile synchronization failed#{' (timed out)' if result.timed_out}:\n" \
                      "#{"Module: #{@events.name}\n" if @events.name}#{diagnostic}", cause: nil
       end

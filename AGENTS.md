@@ -46,6 +46,9 @@ executable, arguments, environment, directory, timeout and streaming/capture mod
 Shell semantics require an explicit need. Timeouts and interrupts reap owned
 process groups. Redact secrets before logging or truncating diagnostics. Interactive
 output suspends progress rendering and restores terminal state.
+HTTP diagnostics use the existing execution diagnostic boundary: retain the actual
+URL, status/reason and bounded, sanitized response when available. Preserve native
+tool details and identify missing fields without guessing or additional requests.
 
 ## Architecture and software
 
@@ -131,8 +134,10 @@ both EMPEIRA_AGENT_REPO_USERNAME/PASSWORD variables or a one-retry TTY login aft
 HTTP 401. Explicit invalid credentials, HTTP 403 and proxy HTTP 407 never trigger
 replacement login. Suspend progress and hide password input. Scope credentials to
 their HTTPS origin; never forward them through foreign redirects or put them in
-argv. Helper auth files use 0600 permissions. Release
-packages exist only in helpers: reject preexisting records and remove only packages
+argv. Helper auth files use 0600 permissions. Agent login failures distinguish ENV
+credentials from interactive credentials; reuse a login for related requests to the
+same case-insensitive hostname and port. Release packages exist only in helpers:
+reject preexisting records and remove only packages
 introduced by the current transaction. Guest signing-key cleanup likewise preserves
 preexisting keys. Do not reject combinations by comparing software major versions.
 

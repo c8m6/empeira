@@ -107,7 +107,7 @@ module Empeira
           key = execute!(['cat', URI(url).path], 'release signing key').stdout
           File.write(path, key, perm: 0o600)
         else
-          @download.fetch(url, path)
+          @download.fetch(url, path, operation: 'Download agent release signing key')
         end
         path
       end
@@ -148,14 +148,15 @@ module Empeira
       end
 
       def dnf_command
-        ['dnf', '--quiet', "--config=#{CONFIG_PATH}", "--releasever=#{@target.release}"]
+        # --quiet also hides HTTP status details needed for the one authentication retry.
+        ['dnf', "--config=#{CONFIG_PATH}", "--releasever=#{@target.release}"]
       end
 
       def package_url(candidate)
         spec = "#{@package}-#{candidate.fetch('version')}.#{candidate.fetch('architecture')}"
         urls = native!([*dnf_command, 'repoquery', "--repoid=#{candidate.fetch('repository')}", '--location', spec],
                        'DNF artifact location').stdout.lines
-               .map(&:strip).uniq
+               .map(&:strip).select { |line| line.start_with?('https://') }.uniq
         raise Error, 'Selected agent source did not provide one HTTPS package location' unless urls.size == 1
 
         Configuration::AgentSchema.https_url!(urls.first, 'agent resolved package URL')

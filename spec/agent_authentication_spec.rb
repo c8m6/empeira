@@ -1,16 +1,6 @@
 # frozen_string_literal: true
 
-require 'stringio'
-
-class AgentLoginTerminal < StringIO
-  def tty?
-    true
-  end
-
-  def noecho
-    yield self
-  end
-end
+require_relative 'support/agent_login_terminal'
 
 RSpec.describe Empeira::Agent::Authentication do
   let(:input) { AgentLoginTerminal.new("yes\nfixture-user\nfixture-password\n") }
@@ -21,6 +11,14 @@ RSpec.describe Empeira::Agent::Authentication do
   it 'does not prompt for public sources' do
     expect(authentication.attempt { :success }).to eq(:success)
     expect(output.string).to be_empty
+  end
+
+  it 'matches case-insensitive hosts and explicit default ports while keeping foreign origins separate' do
+    ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'fixture-user'
+    ENV['EMPEIRA_AGENT_REPO_PASSWORD'] = 'fixture-password'
+    expect(authentication.credentials('https://PACKAGES.EXAMPLE.ORG:443/pool/package.deb'))
+      .to eq(%w[fixture-user fixture-password])
+    expect(authentication.credentials('http://packages.example.org/pool/package.deb')).to be_nil
   end
 
   it 'suspends progress, reads a hidden password once and retries after a 401' do
@@ -51,7 +49,7 @@ RSpec.describe Empeira::Agent::Authentication do
     ENV['EMPEIRA_AGENT_REPO_PASSWORD'] = 'environment-password'
     expect(authentication.credentials).to eq(%w[environment-user environment-password])
     expect { authentication.attempt { raise Empeira::Agent::AuthenticationRequired } }
-      .to raise_error(Empeira::Error, /explicit credentials were not replaced/)
+      .to raise_error(Empeira::Error, /ENV credentials were not replaced/)
     expect(output.string).to be_empty
   end
 
@@ -87,7 +85,7 @@ RSpec.describe Empeira::Agent::Download do
   let(:download) { described_class.new(authentication: authentication) }
   let(:path) { Pathname(@directory).join('package.deb') }
   let(:http) { double('HTTP connection') }
-  let(:response) { double('HTTP response', code: '200', :[] => nil) }
+  let(:response) { double('HTTP response', code: '200', message: 'Synthetic reason', :[] => nil) }
   let(:requests) { [] }
 
   before do
@@ -122,6 +120,19 @@ RSpec.describe Empeira::Agent::Download do
     expect { download.fetch('https://packages.example.org/agent.deb', path) }
       .to raise_error(Empeira::Error, /certificate verification failed/)
     expect(path).not_to exist
+  end
+
+  [SocketError.new('name resolution failed'), Timeout::Error.new('read timeout'),
+   Errno::ECONNREFUSED.new].each do |error|
+    it "diagnoses #{error.class} as a transport failure without an HTTP response" do
+      allow(Net::HTTP).to receive(:start).and_raise(error)
+      operation = -> { download.fetch('https://packages.example.org/agent.deb', path) }
+      expect(&operation).to raise_error(Empeira::Error) do |failure|
+        expect(failure.message).to include('Download agent package', 'https://packages.example.org/agent.deb',
+                                           'No HTTP response received')
+      end
+      expect(path).not_to exist
+    end
   end
 
   it 'enforces a configured SHA-256 and removes failed downloads' do

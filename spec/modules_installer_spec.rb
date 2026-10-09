@@ -76,6 +76,9 @@ RSpec.describe Empeira::Modules::Installer do
                                      exit_status: 1, timed_out: false)
     end
     expect { installer.synchronize(request, @directory, state: state) }
-      .to raise_error(Empeira::Error, /Module: stdlib\nthe server responded with status 403/)
+      .to raise_error(Empeira::Error) do |error|
+        expect(error.message).to include('Module: stdlib', 'Operation: Puppetfile plan',
+                                         'the server responded with status 403')
+      end
   end
 end
