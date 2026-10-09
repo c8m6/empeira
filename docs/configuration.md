@@ -114,6 +114,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `vm.console.root_password` | Initial console password, `empeira`; a string overrides it and `null` disables it |
 | `dns.upstream` | `mode: host` and empty `servers` by default; explicit mode requires resolver IPs |
 | `dns.additional_resolver` | Optional DNS name or IP address queried before the existing upstream for non-Empeira names; NXDOMAIN/NODATA fall through |
+| `dns.rewrites` | Exact external hostnames mapped to enabled `<service>.empeira.internal` targets; `[]` by default |
 | `hiera.mounts` | Puppet-aware module/environment mounts, `[]`; each source is optional unless `required: true` |
 | `node_defaults.os` | Configured node OS family, default `ubuntu` |
 | `node_defaults.version` | OS version string, default `"24.04"` |
@@ -140,6 +141,45 @@ release version. A partial project mapping may omit it and inherit the default.
 Unknown keys, unused namespaces, named nodes, and `node_defaults.provider` are
 rejected. `puppetdb.enabled: false` omits PostgreSQL/PuppetDB and disables server
 storeconfigs/report integration, preserving any previously created database volumes.
+
+### DNS rewrites for internal services
+
+Use an additional infrastructure service as a local API Compatibility Layer:
+
+```yaml
+dns:
+  rewrites:
+    - from: ipam.example.net
+      to: api-layer.empeira.internal
+    - from: inventory.example.net
+      to: api-layer.empeira.internal
+containers:
+  additional:
+    - name: api-layer
+      image:
+        repository: registry.example.net/lab/api-layer
+        tag: "1"
+```
+
+Each entry requires exactly `from` and `to`. Hostnames are case-insensitive; a
+trailing root dot is accepted. Duplicate sources, wildcards, regular expressions,
+URLs and IP addresses are rejected. Sources must be outside `empeira.internal`,
+which prevents self references and cycles. Targets must name an enabled built-in
+or additional service, using exactly `<service>.empeira.internal`; node names and
+nested names are not service targets. `up` reports missing or disabled targets
+before acquiring images or changing infrastructure.
+
+Run `empeira up` after adding, changing or removing a rewrite. CoreDNS reloads its
+configuration while preserving its container and existing container/VM nodes.
+Service-discovery updates supply the current target IPv4 address; no IP belongs in
+the rewrite configuration. Repeated unchanged `up` calls do not reload the policy.
+See [DNS rewrites](networking.md#exact-dns-rewrites) for DNS response semantics.
+
+A DNS rewrite changes name resolution only. Applications still send the original
+HTTP Host/TLS SNI name and use their original protocol and port. The service must
+implement the desired API behavior and, for HTTPS, present a certificate valid for
+the original hostname that the client trusts. Empeira supplies no TLS termination,
+certificate management, HTTP transformation, port mapping or proxy-policy changes.
 
 ### Additional server bind mounts
 

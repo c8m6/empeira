@@ -68,7 +68,7 @@ EMPEIRA_TEST_SCOPE=services EMPEIRA_REQUIRED_RUNTIMES=podman \
 | `containers` | Runtime contracts and real Ubuntu/RPM node lifecycle |
 | `services` | Control plane, exported resources, proxy policy, OpenVox View and generated service YAML |
 | `nodes` | Default OpenVox lifecycle and signed DNF installation |
-| `network` | Gateway allow/deny/revocation; Docker also exercises additional DNS resolver forwarding |
+| `network` | Gateway allow/deny/revocation; Docker also exercises additional DNS resolvers and exact service rewrites |
 | `images` | Native metadata, immutable pins, reconciliation and synthetic registry authentication |
 | `lifecycle` | Isolated runtime smoke, Hiera/EYAML, SSH, ownership and cleanup |
 | `mounts` | Read-only/writable server mounts and selective reconciliation |
@@ -78,8 +78,9 @@ EMPEIRA_TEST_SCOPE=services EMPEIRA_REQUIRED_RUNTIMES=podman \
 | `update-plane` | Disposable helpers, artifact refresh and public Forge acquisition without infrastructure |
 | `browser` | Real Chromium UI, internal reachability and isolation |
 | `vm` | Accelerated VM lifecycle and proxy policy |
+| `dns-nodes` | DNS rewrite reload/removal with real container and accelerated VM nodes |
 | `shared-network` | Production container/VM TCP/UDP peer lifecycle |
-| `full` | All listed container scopes; excludes VM/shared-network |
+| `full` | All listed container scopes; excludes VM/dns-nodes/shared-network |
 
 The `Manual runtime integration` workflow exposes these scopes through
 `workflow_dispatch`. It selects one engine and has no automatic or scheduled heavy
@@ -180,6 +181,21 @@ The last command is an explicit TCG test-artifact diagnostic, not evidence of
 accelerated product VM support. These proofs do not substitute for the production
 peer lifecycle gate. Test arbitrary TCP/UDP between providers, internal browser
 reachability, DNS, egress revocation, unchanged node identities and owned cleanup.
+
+The Docker network scope includes real CoreDNS tests for exact DNS rewrites:
+
+```sh
+EMPEIRA_INTEGRATION=1 EMPEIRA_REQUIRED_RUNTIMES=docker \
+  bundle exec rspec spec/integration/dns_rewrites_spec.rb
+EMPEIRA_TEST_SCOPE=dns-nodes EMPEIRA_REQUIRED_RUNTIMES=docker \
+  bundle exec ruby script/integration.rb
+```
+
+The first gate uses isolated CoreDNS and DNS-client containers to check A/AAAA/CNAME
+answers, dynamic service addresses, exact matching, reload/removal and no external
+fallback. The manual `dns-nodes` scope additionally requires accelerated QEMU and
+tests both real container and VM nodes across repeated `up` without restarting
+them. It is deliberately separate from ordinary CI and container-only `full`.
 
 ## Build information and releases
 

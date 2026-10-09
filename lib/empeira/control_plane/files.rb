@@ -129,21 +129,51 @@ module Empeira
 
       def corefile_content(upstreams:, routes:, bootstrap: false)
         corefile(bootstrap: bootstrap).gsub('@HOST_UPSTREAM@', Array(upstreams).join(' ')) +
-          resolver_routes(routes, bootstrap: bootstrap)
+          resolver_routes(routes, bootstrap: bootstrap) + rewrite_zones(upstreams: upstreams, routes: routes,
+                                                                        bootstrap: bootstrap)
+      end
+
+      # Reloadable DNS policy is deliberately outside the container definition fingerprint.
+      # Exact rewrites use authoritative discovery; unmatched descendants keep normal forwarding.
+      # rubocop:disable-next Metrics/MethodLength
+      def rewrite_zones(upstreams:, routes:, bootstrap:)
+        Configuration::DNSRewrites.entries(@context.configuration).map do |entry|
+          source, target = entry.values_at('from', 'to')
+          route = routes.keys.select { |zone| source == zone || source.end_with?(".#{zone}") }.max_by(&:size)
+          servers = route ? routes.fetch(route) : upstreams
+          <<~CONFIG
+            #{source}:53 {
+              rewrite stop name exact #{source} #{target}
+              template IN AAAA . {
+                rcode NOERROR
+              }
+              hosts /empeira/hosts empeira.internal {
+                ttl 1
+                reload 1s
+              }
+              #{forwarders(Array(servers).join(' '), bootstrap: bootstrap, authoritative: true)}
+              loop
+              reload
+            }
+          CONFIG
+        end.join
       end
 
       def resolver_routes(routes, bootstrap: false)
-        routes.map do |zone, addresses|
+        sources = Configuration::DNSRewrites.entries(@context.configuration).map { |entry| entry.fetch('from') }
+        routes.except(*sources).map do |zone, addresses|
           forwarding = forwarders(addresses.join(' '), bootstrap: bootstrap)
           "#{zone}:53 {\n  template IN AAAA {\n    rcode NOERROR\n  }\n  #{forwarding}\n  loop\n  reload\n}\n"
         end.join
       end
 
-      def forwarders(servers, bootstrap: false)
+      def forwarders(servers, bootstrap: false, authoritative: false)
         additional = @context.configuration.dig('dns', 'additional_resolver') unless bootstrap
-        return "forward . #{servers}" unless additional
+        exclusion = authoritative ? "    except empeira.internal\n" : ''
+        fallback = authoritative ? "forward . #{servers} {\n#{exclusion}  }" : "forward . #{servers}"
+        return fallback unless additional
 
-        "forward . #{additional} {\n    next NXDOMAIN\n    next_on_nodata\n  }\n  forward . #{servers}"
+        "forward . #{additional} {\n#{exclusion}    next NXDOMAIN\n    next_on_nodata\n  }\n  #{fallback}"
       end
 
       # One readable CoreDNS document defines both authoritative and forwarding zones.

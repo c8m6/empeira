@@ -108,7 +108,7 @@ TCP 80/443 and enforce their destination allowlists. Normal proxy allow rules ap
 regardless of target IP range; the temporary authenticated bootstrap proxy retains
 its separate private/reserved-address restrictions.
 `proxy.global` does not grant direct egress. Applications choose DIRECT/proxy using
-their own settings and `NO_PROXY`; there is no fallback or DNS rewriting.
+their own settings and `NO_PROXY`; direct/proxy selection has no automatic fallback.
 See [proxy policy](proxy.md) for hostname rules and bootstrap destinations.
 
 During bootstrap, a node is excluded from direct egress and normal proxy bindings.
@@ -175,6 +175,47 @@ or NODATA falls through to the existing upstream. It may be a DNS name or addres
 and need not be an Empeira service. `up` activates it after additional services
 start. VPN/engine routing remains the host's responsibility; flat Linux resolver
 files cannot represent every split-DNS route. AAAA queries return NODATA.
+
+### Exact DNS rewrites
+
+`dns.rewrites` redirects an exact external hostname to an enabled internal service:
+
+```yaml
+dns:
+  rewrites:
+    - from: ipam.example.net
+      to: api-layer.empeira.internal
+    - from: inventory.example.net
+      to: api-layer.empeira.internal
+```
+
+Both container and VM nodes use the same CoreDNS policy. Sources are normalized
+case-insensitively, with an optional trailing root dot. A rule matches only its
+source: `child.ipam.example.net` still follows the normal resolver policy, including
+host split-DNS routes and the optional additional resolver. Unknown internal names
+and configured rewrite lookups never fall back to an external resolver.
+
+CoreDNS uses an exact `rewrite name` rule and the existing authoritative hosts-file
+discovery for `empeira.internal`. An A query returns the target service's current
+IPv4 address under the original source name, with a one-second TTL. No CNAME record
+is created: CNAME queries return NOERROR with no answers for a discovered target.
+AAAA queries retain IPv4-only behavior and return NOERROR with no answers. If a
+target temporarily has no discovery record, A/CNAME queries return SERVFAIL locally;
+AAAA remains empty. `up` rejects targets absent from the enabled service plan.
+
+Adding, changing or removing rules takes effect through `empeira up`, using the
+existing Corefile reload and SIGUSR1. CoreDNS and existing nodes keep their
+identities and resolver bindings. Hosts-file updates are polled every second, so
+service-address changes do not require a CoreDNS restart. Client DNS caches may
+delay observations until their cached records expire. Unchanged `up` is idempotent.
+Changes to the DNS image or container definition still retain the existing
+protection against DNS replacement while nodes exist.
+
+An API Compatibility Layer can therefore simulate several production API names
+through one additional service; see the [configuration example](configuration.md#dns-rewrites-for-internal-services).
+Only DNS changes. The original HTTP Host, TLS SNI, protocol, port and certificate
+checks remain the application's responsibility. Gateway grants and proxy allowlists
+are unchanged; a client using an HTTP proxy remains subject to that proxy's policy.
 
 The server is `server.empeira.internal:8140`. PostgreSQL and OpenVoxDB are internal,
 with retained volumes and random private database credentials. Readiness verifies

@@ -37,7 +37,7 @@ module Empeira
         prepare_server
         prepare_puppetdb
         @plan.additional_services.each_key { |key| reconcile(key) }
-        activate_additional_resolver if @bootstrap_dns
+        activate_dns
         prepare_browser
         @progress.stage(95, 'Verifying control plane...')
         finish_reconciliation
@@ -152,6 +152,7 @@ module Empeira
         @plan.validate_server_mounts!
         check_network_architecture!
         check_service_names!
+        @plan.validate_dns_rewrites!
         @plan.module_request.warnings.each { |message| @progress.warning(message) }
         @plan.module_request.verify_available!
         lockdown_existing_gateway
@@ -185,13 +186,18 @@ module Empeira
       def prepare_files
         @plan.additional_configurations.prepare
         @plan.module_request
-        resolver = Platform::Resolvers.new(platform: @context.platform, runner: @runner)
-        upstreams = resolver.resolve(@plan.config.fetch('dns').fetch('upstream'))
-        @dns_resolution = { upstreams: upstreams, routes: resolver.routes }
+        prepare_dns_resolution
+        @reload_dns = dns_reload_needed?
         @bootstrap_dns = bootstrap_dns?(**@dns_resolution)
         @direct_egress = resolve_direct_egress
         @plan.files.prepare(**@dns_resolution, bootstrap: @bootstrap_dns)
         prepare_gateway_plan
+      end
+
+      def prepare_dns_resolution
+        resolver = Platform::Resolvers.new(platform: @context.platform, runner: @runner)
+        upstreams = resolver.resolve(@plan.config.fetch('dns').fetch('upstream'))
+        @dns_resolution = { upstreams: upstreams, routes: resolver.routes }
       end
 
       def prepare_gateway_plan
@@ -215,8 +221,17 @@ module Empeira
         resource.nil? || resource['state'] != 'running' || stale?('dns', resource, definition)
       end
 
-      def activate_additional_resolver
-        @plan.files.activate_additional_resolver(**@dns_resolution)
+      def dns_reload_needed?
+        return false if @plan.files.corefile_current?(**@dns_resolution)
+
+        definition = @plan.definitions.fetch('dns')
+        @runtime.inspect_service(definition, expected_id: recorded('dns'))&.fetch('state') == 'running'
+      end
+
+      def activate_dns
+        return unless @bootstrap_dns || @reload_dns
+
+        @plan.files.activate_additional_resolver(**@dns_resolution) if @bootstrap_dns
         @runtime.reload_service(@observed.fetch('dns'), signal: 'USR1')
         @changed = true
       end

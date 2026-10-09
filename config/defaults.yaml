@@ -60,6 +60,7 @@ dns:
     mode: host
     servers: []
   additional_resolver: null
+  rewrites: []
 node_defaults:
   os: ubuntu
   version: "24.04"
