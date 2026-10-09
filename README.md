@@ -1,16 +1,38 @@
-# Empeira
+# empeira
 
 **Ephemeral Manifest Playground for Exploring Infrastructure, Roles & Automation**
-
-Empeira runs disposable, isolated Puppet-compatible infrastructure for developing
-and testing control repositories. It is intended for people who need real agents,
-catalogs, Hiera and PuppetDB without connecting a lab to production infrastructure.
 
 [![Build & Tests](https://img.shields.io/github/actions/workflow/status/c8m6/empeira/ci.yml?branch=main&label=Build%20%26%20Tests)](https://github.com/c8m6/empeira/actions/workflows/ci.yml)
 [![OpenVox E2E](https://img.shields.io/github/actions/workflow/status/c8m6/empeira/openvox.yml?branch=main&label=OpenVox%20E2E)](https://github.com/c8m6/empeira/actions/workflows/openvox.yml)
 [![Release](https://img.shields.io/github/v/release/c8m6/empeira?include_prereleases&sort=date&label=Release)](https://github.com/c8m6/empeira/releases)
 [![Ruby: 3.4 / 4.0](https://img.shields.io/badge/Ruby-3.4%20%7C%204.0-CC342D)](docs/installation.md)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue)](LICENSE)
+
+**ἐμπειρία (empeiría)** — experience gained through practice. The name reflects
+learning about infrastructure by experimenting, testing and seeing what happens.
+
+empeira gives your local Puppet control repository a disposable, isolated lab with
+real agents, catalogs, Hiera and PuppetDB. Test infrastructure changes against an
+OpenVox environment without connecting to production infrastructure.
+
+![Local manifests, modules and Hiera data feed an isolated OpenVox Server, OpenVoxDB and PostgreSQL lab with disposable container and VM nodes; Puppet runs return catalog and application feedback without a Git push or deployment.](docs/images/empeira-overview.png)
+
+## Edit. Save. Test.
+
+**No Git push. No deployment.**
+
+Edit your manifests, roles, modules or Hiera data locally. empeira works directly
+with your development files, so there is no need to commit, push or deploy changes
+before testing them. Run `empeira node puppet host1` on a disposable node to compile
+a fresh catalog, apply it and see the results.
+
+Saving a file does not start Puppet. Before an empeira-managed Puppet run, changed
+inputs trigger authenticated environment-cache invalidation. Puppetfile changes
+may require `empeira update modules`; `up` does not synchronize modules. See
+[environment caching](docs/nodes.md#environment-cache-and-live-code) and
+[Puppetfile modules](docs/hiera-and-eyaml.md#puppetfile-modules).
+
+## Features
 
 OpenVox Server, OpenVoxDB, PostgreSQL and OpenVox Agent are the defaults. Server and
 database OCI images are independently replaceable; agent packages, versions and
@@ -98,7 +120,7 @@ The control repository, module directory and shared image caches are preserved.
 
 ## Alpha status
 
-Empeira is being prepared for its first public alpha. Interfaces and inventory
+empeira is being prepared for its first public alpha. Interfaces and inventory
 schemas may change; unsupported inventory fails closed without automatic migration.
 Use synthetic control code and disposable credentials. The shared network is a
 cooperative lab, and its internal PuppetDB API is unauthenticated.
@@ -118,5 +140,5 @@ and [pull requests](https://github.com/c8m6/empeira/pulls) are welcome. Follow t
 
 Project-owned code and documentation are licensed under
 [AGPL-3.0-only](LICENSE). Third-party packages and images retain their own licenses
-and notices and are obtained from upstream; Empeira does not bundle them or
+and notices and are obtained from upstream; empeira does not bundle them or
 redistribute proprietary Puppet Enterprise software.
