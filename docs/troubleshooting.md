@@ -88,9 +88,11 @@ turning off checking. Destroy/recreate removes a disposable node's private known
 
 Run `empeira proxy show HOSTNAME` and check every matching rule. Verify the node
 exists in the workspace, `proxy.enabled` is true, and `up` has reconciled the
-configuration and current node addresses. A DNS allow rule cannot override denied private/metadata addresses
-or port restrictions. Managed bootstrap access is separate and does not grant
-normal access afterward. See [proxy](proxy.md).
+configuration and current node addresses. Allowed DNS destinations may resolve to
+private or reserved IP addresses; only HTTP port 80 and HTTPS CONNECT port 443 are
+permitted. After updating Empeira, run `empeira up` to replace a proxy still using
+the previous IP restrictions. Managed bootstrap access retains its own destination
+restrictions and does not grant normal access afterward. See [proxy](proxy.md).
 
 ## Hiera and EYAML
 

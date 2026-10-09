@@ -86,6 +86,16 @@ The `Manual runtime integration` workflow exposes these scopes through
 run. A required unavailable runtime fails instead of becoming a successful skip.
 Public-source outages and registry rate limits remain real validation failures.
 
+The focused Squid regression uses a synthetic HTTP/HTTPS server on an isolated
+private RFC 1918 subnet. Allowed and denied domains resolve to the same address;
+the test checks domain allowlists, hostname rules, proxy reconciliation and blocked
+direct egress for both engines:
+
+```bash
+EMPEIRA_INTEGRATION=1 EMPEIRA_REQUIRED_RUNTIMES=docker,podman \
+  bundle exec rspec spec/integration/control_plane_spec.rb --example 'allows selected'
+```
+
 The automatic PR workflow runs the existing Ubuntu default node lifecycle test:
 
 ```bash

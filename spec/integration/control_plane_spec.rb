@@ -85,11 +85,11 @@ RSpec.describe 'Real control-plane integration', :integration do
         expect(compile(service('server')).stdout).to include('live-v2')
       end
 
-      it 'allows only selected HTTP and HTTPS destinations through the proxy with no direct egress' do
+      it 'allows selected HTTP and HTTPS domains at private IPs while denying other domains and direct egress' do
         @fixture = ProxyFixture.new(app: app, runtime: runtime, directory: @directory)
         @fixture.start
         config = { 'proxy' => { 'enabled' => true,
-                                'global' => %w[allowed.test private.test metadata.test],
+                                'global' => %w[allowed.test private.test],
                                 'rules' => [{ 'hosts' => ['*-web-*'], 'allow' => ['denied.test'] }] },
                    'dns' => { 'upstream' => { 'mode' => 'explicit', 'servers' => [@fixture.dns_address] } } }
         File.write(File.join(project, '.empeira.yaml'), YAML.dump(config))
@@ -111,7 +111,9 @@ RSpec.describe 'Real control-plane integration', :integration do
         current.infrastructure.up
         lookup = [Empeira::ControlPlane::Health::RUBY, '-rresolv', '-e',
                   'puts Resolv.getaddress("allowed.test"); puts Resolv.getaddress("server.empeira.internal")']
-        expect(runtime.service_exec(service('server'), lookup).stdout.lines.size).to eq(2)
+        addresses = runtime.service_exec(service('server'), lookup).stdout.lines.map(&:strip)
+        expect(addresses.size).to eq(2)
+        expect(IPAddr.new('10.0.0.0/8')).to include(IPAddr.new(addresses.first))
         File.write(File.join(project, '.empeira.yaml'), YAML.dump(config))
         configured.infrastructure.up
         server = service('server')
@@ -123,15 +125,13 @@ RSpec.describe 'Real control-plane integration', :integration do
         expect(runtime.service_exec(server, [*curl, '--fail', '--cacert',
                                              '/etc/puppetlabs/code/environments/production/fixture-ca.pem',
                                              'https://allowed.test']).stdout).to eq('fixture')
+        expect(runtime.service_exec(server, [*curl, '--fail', 'http://private.test']).stdout).to eq('fixture')
         %w[http https].each do |scheme|
-          denied = runtime.service_exec(server, [*curl, '--fail', "#{scheme}://denied.test"])
+          denied = runtime.service_exec(server, [*curl, '--fail', '--output', '/dev/null',
+                                                 '--write-out', '%{http_code}', "#{scheme}://denied.test"])
           expect(denied).not_to be_success
-        end
-        %w[private.test metadata.test].each do |destination|
-          denied = runtime.service_exec(server, [*curl, '--output', '/dev/null', '--write-out', '%{http_code}',
-
-                                                 "http://#{destination}"])
-          expect(denied.stdout).to eq('403')
+          expect(denied.stderr).to include('403')
+          expect(denied.stdout).to eq('403') if scheme == 'http'
         end
         direct = runtime.service_exec(server, %w[curl --silent --fail --max-time 3 --noproxy * http://1.1.1.1])
         expect(direct).not_to be_success

@@ -104,7 +104,9 @@ never on unrestricted provider NAT. Policy edits preserve node/gateway identitie
 `status` checks actual rules and forwarding, and `up` repairs drift.
 
 CoreDNS alone receives TCP/UDP 53 to its selected resolvers. Proxies alone receive
-TCP 80/443 and enforce their destination allowlists/private-address restrictions.
+TCP 80/443 and enforce their destination allowlists. Normal proxy allow rules apply
+regardless of target IP range; the temporary authenticated bootstrap proxy retains
+its separate private/reserved-address restrictions.
 `proxy.global` does not grant direct egress. Applications choose DIRECT/proxy using
 their own settings and `NO_PROXY`; there is no fallback or DNS rewriting.
 See [proxy policy](proxy.md) for hostname rules and bootstrap destinations.

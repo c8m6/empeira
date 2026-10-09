@@ -408,6 +408,32 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(runtime.services.except('gateway').values.map { |item| item['networks'].size }.uniq).to eq([1])
   end
 
+  it 'replaces a proxy with the previous IP restriction on up without changing user policy or other services' do
+    config = { 'proxy' => { 'enabled' => true, 'global' => ['example.org'] } }
+    mutate(controller(config), :up)
+    current = Empeira::ControlPlane::Plan.new(context: context(config))
+    definition = current.definitions.fetch('proxy')
+    previous_policy = definition.options.fetch('configuration')
+                                .sub('http_access deny !Safe_ports',
+                                     "acl forbidden dst #{Empeira::Network::ProxyPolicy::FORBIDDEN}\n" \
+                                     'http_access deny !Safe_ports')
+                                .sub('include /empeira-proxy/proxy-rules.conf',
+                                     "http_access deny forbidden\ninclude /empeira-proxy/proxy-rules.conf")
+    previous = Empeira::Services::Definition.new(key: 'proxy', workspace: current.context.workspace,
+                                                 **definition.options.merge('configuration' => previous_policy))
+    runtime.services.fetch('proxy').fetch('labels')['io.empeira.definition'] = previous.fingerprint
+    File.write(current.files.path('squid.conf'), previous_policy.gsub('@EMPEIRA_DNS@', '172.20.0.2'))
+    ids = runtime.services.transform_values { |resource| resource['id'] }
+
+    expect(mutate(controller(config), :up)).to be(true)
+    actual = runtime.services.transform_values { |resource| resource['id'] }
+    expect(actual.except('proxy')).to eq(ids.except('proxy'))
+    expect(actual.fetch('proxy')).not_to eq(ids.fetch('proxy'))
+    expect(File.read(current.files.path('squid.conf'))).not_to include('forbidden', '@EMPEIRA_DNS@')
+    expect(mutate(controller(config), :up)).to be(false)
+    expect(runtime.services.transform_values { |resource| resource['id'] }).to eq(actual)
+  end
+
   it 'removes proxy but retains the common DNS gateway when disabling proxy access' do
     mutate(controller('proxy' => { 'enabled' => true }), :up)
     mutate(controller, :up)

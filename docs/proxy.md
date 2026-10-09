@@ -63,9 +63,10 @@ Destination rules are separate from hostname globs:
 | `https://github.com`, `github.com/path`, `github.com:443` | Invalid |
 | IP literals, whitespace, internal Empeira names | Invalid |
 
-Only HTTP port 80 and HTTPS CONNECT port 443 are allowed. Private, loopback,
-link-local, metadata and other reserved address ranges remain denied, even if the
-DNS name matches. There is no TLS interception. Server-side outbound traffic gets
+Only HTTP port 80 and HTTPS CONNECT port 443 are allowed. Allowed DNS destinations
+are reachable regardless of their target IP range, including private, loopback,
+link-local and reserved addresses. Domains without a matching allow rule remain
+denied. There is no TLS interception. Server-side outbound traffic gets
 `proxy.global` only; node hostname rules do not expand server access.
 
 ## Node policy and reconciliation
@@ -78,10 +79,13 @@ directly to the VM instance's reserved peer address. The proxy is reached at
 `proxy.empeira.internal:3128` on the isolated network. A request without a matching
 global or hostname rule remains denied.
 
-After changing global destinations or rules, run `empeira up`. Only the proxy
-container is replaced for such changes; unrelated service containers and retained
-volumes are preserved. Current node bindings are regenerated. Existing container
-and VM nodes consume the new policy without a restart; open proxy
+After changing global destinations or rules, or updating Empeira's generated Squid
+policy, run `empeira up`. The generated configuration is part of the proxy service
+fingerprint, so `up` replaces an existing proxy even when the YAML policy is
+unchanged.
+Only the proxy container is replaced for such changes; unrelated service containers
+and retained volumes are preserved. Current node bindings are regenerated. Existing
+container and VM nodes consume the new policy without a restart; open proxy
 connections can end during reconciliation. Enabling/disabling proxy mode is a
 separate topology change and may require explicit node cleanup as reported by `up`.
 
@@ -90,10 +94,11 @@ separate topology change and may require explicit node cleanup as reported by `u
 Managed bootstrap destinations are separate from normal user policy. Reviewed
 agent and distribution endpoints in `agent.install` and `bootstrap.guests` allow
 Puppet/OpenVox and required guest packages to be installed without duplicating them
-in `proxy.global`. The temporary authenticated bootstrap proxy uses the same DNS
-and private-address restrictions. Its credential is not stored in the guest seed,
-JSON inventory or logs. A /32 source ACL admits only the provisioning node. The
-proxy and its private configuration are removed after use. When the normal
+in `proxy.global`. The temporary authenticated bootstrap proxy uses workspace DNS
+and retains its private, loopback, link-local and reserved destination-address
+restrictions independently of normal proxy policy. Its credential is not stored in
+the guest seed, JSON inventory or logs. A /32 source ACL admits only the provisioning
+node. The proxy and its private configuration are removed after use. When the normal
 workspace proxy is disabled, a node has no proxy access once bootstrap ends.
 
 `bootstrap.guests.*.destinations` grants network access only; it never writes an APT
