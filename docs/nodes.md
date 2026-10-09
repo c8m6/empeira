@@ -103,6 +103,15 @@ provisioned nodes are not bootstrapped again by `up` or `node start`. See
 [agent sources and caching](configuration.md#agent-sources-and-shared-package-cache)
 for generic sources, version resolution, optional verification and HTTP login.
 
+Bootstrap command failures include the operation, native stdout/stderr, exit code
+and timeout status with secrets redacted. Internal VM SSH confirms the guest exit
+status separately from its transport status. Once the APT archive is restored and
+compared successfully, a clearly transient SSH failure deleting that backup is
+retried once, with a warning. Only the idempotent removal is repeated; packages and
+restoration are not replayed. Native errors, missing completion status, command
+timeouts and a second transport failure stop provisioning. Incomplete nodes are not automatically
+resumed across commands; inspect the retained backup, then correct and recreate.
+
 After restoration and before the first catalog, both node providers perform the same
 read-only check for active Ubuntu/Debian distribution APT sources. Legacy `.list`
 and deb822 `.sources` files are accepted. A missing/disabled source fails with an
@@ -132,10 +141,17 @@ configuration is broken. SSH exercises the login path that Puppet actually confi
 Neither access command starts a stopped node implicitly. Use `node start` first.
 Both retain normal interactive output without a progress overlay.
 
-The default SSH username is the local execution user's account name. On WSL2 this
-is the Linux account. Default keys, `ssh-agent` and normal OpenSSH configuration
-remain available; Empeira does not force a generated login identity. Configure the
-user, authorized keys and daemon through your Puppet code or guest configuration.
+For container nodes, the default SSH username is the local execution user's account
+name (the Linux account on WSL2). Default keys, `ssh-agent` and normal OpenSSH
+configuration remain available. Configure that user, its authorized keys and daemon
+through Puppet or guest configuration.
+
+For VM nodes, the default is the existing Cloud-Init account `empeira` and its
+managed private key. Password and keyboard-interactive authentication are disabled;
+the client selects the supplied identity without offering unrelated agent keys.
+`--user` and `--identity` independently override these defaults. Missing or unsafe
+managed keys fail before connection, without generating a replacement. This access
+also works for incomplete nodes once the VM and SSH daemon are running.
 An authentication failure remains an SSH failure, with the client's output and
 exit status. It never creates a login user, injects keys, or falls back to exec.
 
@@ -150,8 +166,8 @@ empeira node ssh host1 --user deploy --identity ~/.ssh/test_ed25519
 section in SSH configuration. Empeira fixes the host, port and transport to the owned
 node, disables connection sharing and forwarding, and uses a private per-node
 `known_hosts` file with `accept-new` checking. User settings cannot redirect the
-connection through another proxy or jump host. Keys in the developer's SSH agent
-remain usable. Host-key changes fail until investigated; disposable host entries
+connection through another proxy or jump host. Container logins retain the developer's
+normal SSH agent behavior. Host-key changes fail until investigated; disposable host entries
 are removed with the node and do not pollute `~/.ssh/known_hosts`.
 
 Podman publishes SSH on a verified dynamic loopback port. Docker's internal bridge
@@ -167,15 +183,24 @@ keyboard-interactive login are initially disabled. They do not provision develop
 accounts or authorized keys. Puppet may manage the daemon and authentication policy.
 Custom node images must provide the corresponding startup and package-manager contract.
 
-The VM technical user `empeira` and its private generated management key are separate
-from user-facing SSH. Empeira uses them to install the agent, enroll certificates
-and run Puppet. They are not a fallback login for `node ssh`.
+Empeira also uses the VM account and managed key internally to install the agent,
+enroll certificates and run Puppet. User-facing SSH opens an ordinary interactive
+login without the internal provisioning command or automatic sudo.
+
+VM SSH and serial sessions release the workspace mutation lock after ownership and
+running-state checks. Parallel sessions and read-only status remain available. A
+shared instance guard prevents `node stop`, `node destroy` or restart from replacing
+the VM while a session is attached; detach first and retry the conflicting operation.
+Other nodes and workspace commands can proceed. Instance lock files stay stable;
+their open descriptors are released on detach, disconnect, errors and signals.
 
 ## VM console recovery
 
 Each VM has a private Unix-domain serial socket created by its QEMU process.
 `node shell vm1` attaches to that existing endpoint without starting another QEMU.
 Press Enter to obtain a prompt. **Ctrl-] detaches** and leaves the VM running.
+The connection prints the detach instruction. With `vm.console.root_password: null`,
+it also suggests `empeira node ssh vm1`; it does not assign a replacement password.
 Local terminal mode is restored after detach, EOF or errors. Serial access carries
 terminal bytes rather than SSH window-size negotiation; use `stty rows N cols N`
 in the guest when a full-screen program needs different dimensions.

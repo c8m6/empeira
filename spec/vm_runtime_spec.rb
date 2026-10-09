@@ -7,9 +7,10 @@ RSpec.describe Empeira::VM::QemuRuntime do
   let(:locations) do
     Empeira::Platform::Locations.new(home: Dir.pwd, environment: {}, temporary_root: @directory)
   end
+  let(:configuration) { { 'vm' => { 'console' => { 'root_password' => nil } } } }
   let(:context) do
-    Struct.new(:workspace, :locations, :platform).new(
-      workspace, locations, Struct.new(:architecture).new(:amd64)
+    Struct.new(:workspace, :locations, :platform, :configuration).new(
+      workspace, locations, Struct.new(:architecture).new(:amd64), configuration
     )
   end
   let(:engine) { instance_double(Empeira::VM::Qemu, accelerator: 'kvm', executable: '/usr/bin/qemu-system-x86_64') }
@@ -72,7 +73,10 @@ RSpec.describe Empeira::VM::QemuRuntime do
     allow(runtime).to receive(:running?).and_return(true)
     runner = runtime.instance_variable_get(:@runner)
     expect(runner).not_to receive(:run)
-    expect(runner).to receive(:console).with(runtime.console_path('host1'))
+    expect(runner).to receive(:console).with(runtime.console_path('host1'), guidance: include(
+      "Connected to VM serial console.\nPress Ctrl+] to detach. The VM will keep running.\n",
+      'No console password is configured. Use empeira node ssh host1 instead.'
+    ))
     runtime.console(record)
     server.close
     runtime.cleanup(record.merge('pid' => nil))

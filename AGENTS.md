@@ -150,6 +150,12 @@ A failed catalog on a provisioned node remains retryable. Bootstrap semantics ar
 provider-independent; Cloud-Init is VM-specific and not required in containers.
 Remote bootstrap content requires integrity protection if implemented.
 
+Bootstrap command failures report sanitized native stdout/stderr, operation, exit
+code and timeout. Internal VM SSH distinguishes transport failure from confirmed
+guest status. Only a clearly transient SSH failure removing an already restored and
+verified APT backup is retried once; never replay package installation or accept an
+unverified restoration. Unknown completion and persistent failures retain the node.
+
 ## Network and access
 
 Empeira Network is a logical isolated peer domain shared by container and VM nodes.
@@ -178,11 +184,14 @@ The shared lab is cooperative, not an adversarial tenant boundary. PuppetDB HTTP
 is unauthenticated inside the isolated network, never host-published. Normal
 agent/server/CA TLS remains intact; global autosigning is disabled.
 
-`node shell` is direct runtime exec or a private VM serial console. `node ssh` is
-real SSH using the local username and normal OpenSSH identities/agent/config, with
-independent `--user`/`--identity`. Authentication failure never injects users/keys
-or falls back to shell. Verify owned endpoints and use private node known-hosts.
-VM management credentials are separate. Console password applies once, is redacted
+`node shell` is direct runtime exec or a private VM serial console. Container
+`node ssh` uses the local username and normal OpenSSH identities/agent/config. VM
+`node ssh` defaults to the existing `empeira` account and managed key, including
+incomplete running nodes. Preserve independent `--user`/`--identity` overrides.
+Authentication failure never injects users/keys or falls back to shell. Verify owned
+endpoints and use private node known-hosts. VM interactive access releases the
+workspace mutation lock and holds a shared instance guard; conflicting VM lifecycle
+operations fail until sessions detach. Console password applies once, is redacted
 and removed from temporary seed material, never restored after Puppet changes it.
 Private console sockets support macOS path limits and are removed with the node.
 

@@ -494,10 +494,9 @@ Native signature checks stay enabled. Existing trusted keys may be used; an
 optional `key: {url: https://..., sha256: ...}` supplies an additional public key.
 An APT source can also retain its existing `release` artifact. Set
 `verify_signatures: false` on an APT/DNF source or direct package only when you
-intend to use an unsigned source. Empeira emits one warning during that node's
-bootstrap. The exception is scoped to that source or local RPM; base-source
-signature checks and HTTPS verification remain active. Temporarily imported RPM
-keys are removed after installation without removing preexisting keys.
+intend to use an unsigned source. The exception is scoped to that source or local
+RPM; base-source signature checks and HTTPS verification remain active. Temporarily
+imported RPM keys are removed after installation without removing preexisting keys.
 
 Packages are shared across workspaces under the current user's cache:
 

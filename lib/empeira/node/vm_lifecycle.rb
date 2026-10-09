@@ -29,12 +29,14 @@ module Empeira
       def stop(name:)
         mutate do
           record = fetch_vm(name)
-          changed = !!@qemu.stop(record)
-          @peer.stop(record)
-          record['state'] = 'stopped'
-          record['pid'] = nil
-          save
-          lifecycle_result(record.fetch('hostname'), :stopped, changed: changed)
+          session_lock(record).exclusive do
+            changed = !!@qemu.stop(record)
+            @peer.stop(record)
+            record['state'] = 'stopped'
+            record['pid'] = nil
+            save
+            lifecycle_result(record.fetch('hostname'), :stopped, changed: changed)
+          end
         end
       end
 
@@ -64,17 +66,17 @@ module Empeira
       end
 
       def shell(name:)
-        mutate { @qemu.console(booted_vm(name)) }
+        interactive_vm(name) { |record| @qemu.console(record) }
       end
 
       def ssh(name:, user: nil, identity: nil)
-        mutate do
-          record = booted_vm(name)
+        interactive_vm(name) do |record|
           credentials = SSHCredentials.new(context: context, runner: @runner, provider: 'vm',
                                            hostname: record.fetch('hostname'))
-          UserSSH.new(runner: @runner, credentials: credentials, proxy_command: @peer.ssh_command(record)).session(
-            record, user: user, identity: identity
-          )
+          UserSSH.new(runner: @runner, credentials: credentials, proxy_command: @peer.ssh_command(record),
+                      default_user: ::Empeira::VM::CloudInit::USER, managed_identity: true).session(
+                        record, user: user, identity: identity
+                      )
         end
       end
 
@@ -89,8 +91,28 @@ module Empeira
 
       private
 
-      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Retained VM restart has ordered, visible milestones.
+      def interactive_vm(name)
+        lock = nil
+        record = mutate do
+          current = booted_vm(name)
+          lock = session_lock(current).acquire(shared: true)
+          current
+        end
+        Execution::Terminal.with_interrupts { @progress.streaming { yield record } }
+      ensure
+        lock&.close
+      end
+
+      def session_lock(record)
+        ::Empeira::VM::SessionLock.new(context: context, record: record)
+      end
+
       def boot_existing(record)
+        session_lock(record).exclusive { resume_vm(record) }
+      end
+
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Retained VM restart has ordered, visible milestones.
+      def resume_vm(record)
         @progress.stage(20, 'Checking retained VM storage...')
         overlay, seed = existing_storage(record)
         @progress.stage(30, 'Checking VM network prerequisites...')
@@ -148,6 +170,10 @@ module Empeira
         record = vm_records[name]
         return unless record
 
+        session_lock(record).exclusive { remove_vm_instance(name, record, certificates: certificates) }
+      end
+
+      def remove_vm_instance(name, record, certificates:)
         @qemu.stop(record)
         @peer.destroy(record, @state)
         @qemu.cleanup(record)

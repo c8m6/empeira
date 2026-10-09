@@ -51,7 +51,11 @@ module Empeira
       end
 
       def execute!(arguments, message)
-        raise Error, message unless @execute.call(arguments).success?
+        result = @execute.call(arguments)
+        return if result.success?
+
+        details = Execution::Diagnostics.command(result, operation: message, tool: arguments.first)
+        raise Error, "#{message}\n#{details}", cause: nil
       end
     end
   end

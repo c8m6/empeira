@@ -76,6 +76,15 @@ module Empeira
           "#{text.strip.empty? ? '[No native diagnostic available]' : bounded(text.strip)}"
       end
 
+      def self.command(result, operation:, tool:, secrets: [])
+        secrets += %w[EMPEIRA_AGENT_REPO_USERNAME EMPEIRA_AGENT_REPO_PASSWORD].filter_map { |key| ENV.fetch(key, nil) }
+        stdout = bounded(safe_text(result.stdout, secrets: secrets))
+        stderr = bounded(safe_text(result.stderr, secrets: secrets))
+        "Operation: #{safe_text(operation, secrets: secrets)}\nTool: #{safe_text(tool)}\n" \
+          "Exit code: #{result.exit_status || 'unavailable'}\nTimeout: #{result.timed_out}\n" \
+          "stdout:\n#{stdout.empty? ? '[Empty]' : stdout}\nstderr:\n#{stderr.empty? ? '[Empty]' : stderr}"
+      end
+
       def self.response_text(body, content_type, secrets)
         return '[Empty response body]' if body.empty?
         return '[Binary response body omitted]' if binary?(body, content_type)

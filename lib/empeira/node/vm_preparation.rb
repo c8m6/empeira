@@ -99,7 +99,8 @@ module Empeira
       def package_configuration(record, execute)
         family = PackageBootstrap::FAMILIES.fetch(record.fetch('os'))
         klass = family == 'debian' ? AptConfiguration : RpmConfiguration
-        klass.new(os: record.fetch('os'), execute: execute)
+        options = family == 'debian' ? { on_retry: @progress.method(:warning) } : {}
+        klass.new(os: record.fetch('os'), execute: execute, **options)
       end
 
       def package_bootstrap(record)
@@ -121,7 +122,10 @@ module Empeira
         { 'certname' => record.fetch('hostname'), 'server' => 'server.empeira.internal',
           'environment' => context.configuration.dig('server', 'environment') }.each do |key, value|
           result = @ssh.run(record, [Certificates::PUPPET, 'config', 'set', key, value, '--section', 'main'])
-          raise Error, 'VM agent configuration failed; node retained for diagnosis' unless result.success?
+          next if result.success?
+
+          details = Execution::Diagnostics.command(result, operation: "VM agent configuration: #{key}", tool: 'puppet')
+          raise Error, "VM agent configuration failed; node retained for diagnosis\n#{details}", cause: nil
         end
       end
 

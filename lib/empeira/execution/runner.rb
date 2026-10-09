@@ -44,8 +44,8 @@ module Empeira
         reap_stream(pid) if pid
       end
 
-      def console(path, input: $stdin, output: $stdout)
-        Console.new.attach(path, input: input, output: output)
+      def console(path, input: $stdin, output: $stdout, guidance: nil)
+        Console.new.attach(path, input: input, output: output, guidance: guidance)
       end
 
       def debug(message)

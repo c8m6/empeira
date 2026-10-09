@@ -17,14 +17,9 @@ module Empeira
         @requirements = requirements
         @execute = execute
         @copy = copy
-        @progress = progress
       end
 
       def install(proxy_url:)
-        if @requirements.repository['verify_signatures'] == false
-          @progress.warning('Agent source signature verification is explicitly disabled; ' \
-                            'HTTPS verification remains active.')
-        end
         @acquisition.with_package(@requirements) do |artifact|
           AgentPackage.new(target: @requirements.target, package: @requirements.agent.fetch('package'),
                            artifact: artifact, execute: @execute, copy: @copy,

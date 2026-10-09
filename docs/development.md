@@ -141,6 +141,18 @@ Rootless Podman also needs writable TUN/KVM inside its namespace. See
 [VM installation](installation.md#vm-prerequisites) and
 [networking](networking.md#runtime-attachment-and-privilege-boundary).
 
+The real VM lifecycle regression verifies the default managed SSH login and explicit
+overrides, then exercises retained disk and console recovery. A second case injects
+a permanent guest error at the final APT backup removal: the restored archive must
+remain verifiable, Puppet must stay blocked, and SSH/console access must release the
+workspace lock while preventing concurrent stop of that instance. The injected error
+does not reproduce an unexplained historical SSH disconnect.
+
+```bash
+EMPEIRA_VM_INTEGRATION=1 EMPEIRA_VM_RUNTIME=docker \
+  bundle exec rspec spec/integration/vm_spec.rb --format documentation
+```
+
 ```bash
 EMPEIRA_TEST_SCOPE=vm EMPEIRA_REQUIRED_RUNTIMES=docker \
   bundle exec ruby script/integration.rb

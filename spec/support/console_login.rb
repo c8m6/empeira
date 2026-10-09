@@ -7,8 +7,8 @@ module LiveConsoleLogin
     input, keyboard = IO.pipe
     screen, output = IO.pipe
     writer = Thread.new { drive_console(screen, keyboard) }
-    allow(app.runner).to receive(:console).and_wrap_original do |original, path|
-      original.call(path, input: input, output: output)
+    allow(app.runner).to receive(:console).and_wrap_original do |original, path, **options|
+      original.call(path, **options, input: input, output: output)
     end
     expect(app.nodes.shell(name: name)).to be_success
     expect(writer.value).to include('uid=0(root)')

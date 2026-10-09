@@ -99,7 +99,7 @@ module Empeira
           raise Providers::OwnershipError, 'VM console endpoint ownership is invalid'
         end
 
-        @runner.console(path)
+        @runner.console(path, guidance: console_guidance(record.fetch('hostname')))
       rescue Errno::ENOENT
         raise Error, 'VM console endpoint is missing'
       end
@@ -109,6 +109,13 @@ module Empeira
       end
 
       private
+
+      def console_guidance(hostname)
+        message = "Connected to VM serial console.\nPress Ctrl+] to detach. The VM will keep running.\n"
+        return message if @context.configuration.dig('vm', 'console', 'root_password')
+
+        "#{message}No console password is configured. Use empeira node ssh #{hostname} instead.\n"
+      end
 
       def validate_monitor_directory!(directory)
         metadata = File.lstat(directory)

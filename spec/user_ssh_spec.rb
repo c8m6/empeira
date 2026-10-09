@@ -34,4 +34,47 @@ RSpec.describe Empeira::Node::UserSSH do
       expect(credentials.key_path).not_to exist
     end
   end
+
+  context 'with VM managed defaults' do
+    let(:client) do
+      described_class.new(runner: runner, credentials: credentials, default_user: 'empeira', managed_identity: true)
+    end
+
+    before do
+      credentials.prepare_hosts
+      credentials.key_path.write('synthetic private key')
+      credentials.public_path.write('synthetic public key')
+    end
+
+    [{}, { user: 'deploy' }, { identity: '/some/key' }, { user: 'deploy', identity: '/some/key' }].each do |overrides|
+      it "uses existing management authentication with independent overrides #{overrides.keys}" do
+        expect(runner).not_to receive(:run)
+        expect(runner).to receive(:stream) do |command, arguments:|
+          expect(command).to eq('ssh')
+          expect(arguments).to include('-l', overrides.fetch(:user, 'empeira'), '-i',
+                                       overrides.fetch(:identity, credentials.key_path.to_s),
+                                       'IdentitiesOnly=yes', 'PasswordAuthentication=no',
+                                       'StrictHostKeyChecking=accept-new', 'HostKeyAlias=node.example',
+                                       'ControlMaster=no', 'ControlPath=none', 'ProxyJump=none')
+          expect(arguments.grep(/UserKnownHostsFile/).first).to include(credentials.directory.to_s)
+          Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
+        end
+        expect(client.session(record, **overrides)).to be_success
+      end
+    end
+
+    it 'rejects missing management keys without generating replacement credentials' do
+      credentials.key_path.unlink
+      expect(runner).not_to receive(:stream)
+      expect(runner).not_to receive(:run)
+      expect { client.session(record) }.to raise_error(Empeira::Error, /key material is missing or unsafe/)
+    end
+
+    it 'rejects symlinked management keys' do
+      credentials.key_path.unlink
+      File.symlink(credentials.public_path, credentials.key_path)
+      expect(runner).not_to receive(:stream)
+      expect { client.session(record) }.to raise_error(Empeira::Error, /key material is missing or unsafe/)
+    end
+  end
 end

@@ -47,10 +47,13 @@ RSpec.describe Empeira::AptSources do
     expect(checker).to be_valid
   end
 
-  it 'stops before Puppet on a failed guest check and hides guest diagnostics' do
-    failure = Empeira::Execution::Result.new(stdout: 'secret', stderr: 'secret', exit_status: 1, timed_out: false)
-    expect do
-      Empeira::Node::PackageSources.verify!(execute: ->(_arguments) { failure })
-    end.to raise_error(Empeira::Error, /Puppet was not run/)
+  it 'stops before Puppet and retains sanitized native diagnostics on a failed guest check' do
+    failure = Empeira::Execution::Result.new(stdout: 'no active sources', stderr: 'password=synthetic-secret',
+                                             exit_status: 1, timed_out: false)
+    operation = -> { Empeira::Node::PackageSources.verify!(execute: ->(_arguments) { failure }) }
+    expect(&operation).to raise_error(Empeira::Error) do |error|
+      expect(error.message).to include('Puppet was not run', 'no active sources', 'Exit code: 1', 'Timeout: false')
+      expect(error.full_message).not_to include('synthetic-secret')
+    end
   end
 end
