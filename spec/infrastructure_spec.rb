@@ -51,6 +51,17 @@ RSpec.describe Empeira::Infrastructure::Service do
     expect(store(app).load).to be_nil
   end
 
+  it 'rejects redirect source collisions with a newly allocated subnet before network creation or inventory writes' do
+    redirect = { 'from' => { 'ip' => '10.200.30.3', 'port' => 8080 },
+                 'to' => { 'service' => 'server', 'port' => 8140 } }
+    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('network' => { 'redirects' => [redirect] }))
+    allow_any_instance_of(Empeira::Network::Peer::Allocation).to receive(:choose).and_return('10.200.30.0/24')
+    app = application
+    expect { app.infrastructure.up }.to raise_error(Empeira::ConfigurationError, /collides with the workspace subnet/)
+    expect(runner.mutations).to be_empty
+    expect(store(app).load).to be_nil
+  end
+
   it 'destroys the owning runtime when project and user configuration are invalid' do
     original = application(engine: 'docker')
     original.infrastructure.up

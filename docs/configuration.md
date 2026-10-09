@@ -108,12 +108,14 @@ release version. A partial project mapping may omit it and inherit the default.
 | `server.mounts` | Additional server-only host bind mounts, `[]`; `source`, `target`, optional boolean `readonly` (default `true`) |
 | `puppetdb.memory` | Positive integer MiB, `768` |
 | `network.egress` | Direct TCP proxy-bypass host/port entries, `[]`; a project array replaces the default array |
+| `network.redirects` | Exact external IPv4/TCP pairs redirected to enabled internal services, `[]` |
 | `proxy.enabled` | Boolean, `false`; creates the normal HTTP/HTTPS policy proxy |
 | `proxy.global` | DNS destination array, `[]` |
 | `proxy.rules` | Additive hostname-glob rules with `hosts` and `allow` arrays, `[]` |
 | `vm.console.root_password` | Initial console password, `empeira`; a string overrides it and `null` disables it |
 | `dns.upstream` | `mode: host` and empty `servers` by default; explicit mode requires resolver IPs |
 | `dns.additional_resolver` | Optional DNS name or IP address queried before the existing upstream for non-Empeira names; NXDOMAIN/NODATA fall through |
+| `dns.rewrites` | Exact external hostnames mapped to enabled `<service>.empeira.internal` targets; `[]` by default |
 | `hiera.mounts` | Puppet-aware module/environment mounts, `[]`; each source is optional unless `required: true` |
 | `node_defaults.os` | Configured node OS family, default `ubuntu` |
 | `node_defaults.version` | OS version string, default `"24.04"` |
@@ -140,6 +142,45 @@ release version. A partial project mapping may omit it and inherit the default.
 Unknown keys, unused namespaces, named nodes, and `node_defaults.provider` are
 rejected. `puppetdb.enabled: false` omits PostgreSQL/PuppetDB and disables server
 storeconfigs/report integration, preserving any previously created database volumes.
+
+### DNS rewrites for internal services
+
+Use an additional infrastructure service as a local API Compatibility Layer:
+
+```yaml
+dns:
+  rewrites:
+    - from: ipam.example.net
+      to: api-layer.empeira.internal
+    - from: inventory.example.net
+      to: api-layer.empeira.internal
+containers:
+  additional:
+    - name: api-layer
+      image:
+        repository: registry.example.net/lab/api-layer
+        tag: "1"
+```
+
+Each entry requires exactly `from` and `to`. Hostnames are case-insensitive; a
+trailing root dot is accepted. Duplicate sources, wildcards, regular expressions,
+URLs and IP addresses are rejected. Sources must be outside `empeira.internal`,
+which prevents self references and cycles. Targets must name an enabled built-in
+or additional service, using exactly `<service>.empeira.internal`; node names and
+nested names are not service targets. `up` reports missing or disabled targets
+before acquiring images or changing infrastructure.
+
+Run `empeira up` after adding, changing or removing a rewrite. CoreDNS reloads its
+configuration while preserving its container and existing container/VM nodes.
+Service-discovery updates supply the current target IPv4 address; no IP belongs in
+the rewrite configuration. Repeated unchanged `up` calls do not reload the policy.
+See [DNS rewrites](networking.md#exact-dns-rewrites) for DNS response semantics.
+
+A DNS rewrite changes name resolution only. Applications still send the original
+HTTP Host/TLS SNI name and use their original protocol and port. The service must
+implement the desired API behavior and, for HTTPS, present a certificate valid for
+the original hostname that the client trusts. Empeira supplies no TLS termination,
+certificate management, HTTP transformation, port mapping or proxy-policy changes.
 
 ### Additional server bind mounts
 
@@ -613,6 +654,54 @@ network:
 Named direct destinations enter generated `NO_PROXY`; applications choose DIRECT
 or proxy themselves. See [networking](networking.md#one-gateway-one-direct-egress-policy)
 for routing, revocation and privilege boundaries.
+
+## Transparent TCP redirects
+
+Use `network.redirects` to exercise production Puppet/Hiera endpoints against a
+local service while preserving the original IP and port. For example, a PowerDNS
+API compatibility service can receive these two endpoints:
+
+```yaml
+network:
+  redirects:
+    - from:
+        ip: 192.0.2.8
+        port: 8080
+      to:
+        service: api-compat
+        port: 8081
+    - from:
+        ip: 192.0.2.9
+        port: 8080
+      to:
+        service: api-compat
+        port: 8081
+```
+
+Define `api-compat` under `containers.additional` using your test service image.
+The example IPs are documentation addresses; substitute the endpoints used by your
+Puppet code. `from` accepts only `ip` and `port`; `to` accepts only `service` and
+`port`. Both ports are integer TCP ports from 1 through 65535. Sources must be exact
+routable unicast IPv4 addresses outside the allocated workspace subnet. CIDRs,
+wildcards, duplicate source pairs, UDP, IPv6 and external target addresses are
+rejected. Service names are lowercase internal names, without `.empeira.internal`.
+Enabled control-plane application services and additional services are supported;
+nodes, the gateway, the browser UI relay and temporary bootstrap helpers are excluded.
+
+Run `empeira up` after edits. It resolves owned service addresses, replaces gateway
+policy and preserves existing nodes and the workspace network. Unknown/disabled
+targets fail validation. Temporarily absent targets stay blocked until the owned
+service is reconciled; unreachable target ports fail without contacting the external
+endpoint, even when that endpoint also has an explicit egress grant.
+
+Direct connections work from container/VM nodes, the Puppet server (including
+catalog compilation) and internal services. HTTP methods, paths, headers and bodies
+are unchanged. No DNS rewrite, egress grant, proxy exception or TLS termination is
+created. Explicit proxy users connect to the proxy first and remain subject to its
+allowlist; use the application's direct-connection settings when testing redirects,
+for example `curl --noproxy '*' http://192.0.2.8:8080/test`.
+See [redirect routing](networking.md#transparent-tcp-redirects) for connection
+revocation and runtime boundaries.
 
 ## Control-plane images and provenance
 

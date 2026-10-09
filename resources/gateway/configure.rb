@@ -27,17 +27,60 @@ module EmpeiraGateway
     command('iptables-restore', '--wait', '5', input: content)
   end
 
+  # rubocop:disable-next Metrics/AbcSize -- Compose only explicit DNS, proxy, egress and redirect grants.
   def rules(plan, internal:, external:)
     filter = [':INPUT DROP [0:0]', ':FORWARD DROP [0:0]', ':OUTPUT DROP [0:0]', ':BOOTSTRAP - [0:0]',
               "-A FORWARD -i #{internal} -o #{external} -j BOOTSTRAP"]
+    unless plan.fetch('redirects', []).empty?
+      filter << "-A FORWARD -i #{internal} -o #{internal} -m conntrack --ctstate DNAT -j BOOTSTRAP"
+    end
     plan.fetch('blocked', []).sort.each { |ip| filter << "-A BOOTSTRAP -s #{ip}/32 -j DROP" }
+    filter.concat(redirect_filter(plan, internal))
     filter.concat(dns_rules(plan, internal, external))
     filter.concat(proxy_rules(plan, internal, external))
     filter.concat(direct_rules(plan, internal, external))
     nat = [':PREROUTING ACCEPT [0:0]', ':INPUT ACCEPT [0:0]', ':OUTPUT ACCEPT [0:0]',
            ':POSTROUTING ACCEPT [0:0]',
            "-A POSTROUTING -s #{plan.fetch('subnet')} -o #{external} -j MASQUERADE"]
+    nat.concat(redirect_nat(plan, internal))
     "*filter\n#{filter.join("\n")}\nCOMMIT\n*nat\n#{nat.join("\n")}\nCOMMIT\n"
+  end
+
+  def redirect_selector(entry)
+    source = entry.fetch('from')
+    "-m conntrack --ctorigdst #{source.fetch('ip')} --ctorigdstport #{source.fetch('port')}"
+  end
+
+  def redirect_filter(plan, internal)
+    plan.fetch('redirects', []).flat_map do |entry|
+      target = entry['to']
+      selector = redirect_selector(entry)
+      allowed = if target
+                  ["-A FORWARD -i #{internal} -o #{internal} -s #{plan.fetch('subnet')} " \
+                   "-d #{target.fetch('ip')}/32 -p tcp --dport #{target.fetch('port')} #{selector} " \
+                   '--ctstate DNAT --ctdir ORIGINAL -j ACCEPT',
+                   "-A FORWARD -i #{internal} -o #{internal} -s #{target.fetch('ip')}/32 " \
+                   "-d #{plan.fetch('subnet')} -p tcp --sport #{target.fetch('port')} #{selector} " \
+                   '--ctstate ESTABLISHED --ctdir REPLY -j ACCEPT']
+                else
+                  []
+                end
+      [*allowed, "-A FORWARD -p tcp #{selector} -j DROP"]
+    end
+  end
+
+  def redirect_nat(plan, internal)
+    plan.fetch('redirects', []).filter_map do |entry|
+      target = entry['to']
+      next unless target
+
+      source = entry.fetch('from')
+      ["-A PREROUTING -i #{internal} -s #{plan.fetch('subnet')} -d #{source.fetch('ip')}/32 " \
+       "-p tcp --dport #{source.fetch('port')} -j DNAT --to-destination #{target.fetch('ip')}:#{target.fetch('port')}",
+       "-A POSTROUTING -o #{internal} -s #{plan.fetch('subnet')} -d #{target.fetch('ip')}/32 " \
+       "-p tcp --dport #{target.fetch('port')} #{redirect_selector(entry)} --ctstate DNAT --ctdir ORIGINAL " \
+       "-j SNAT --to-source #{plan.fetch('gateway')}"]
+    end.flatten
   end
 
   def dns_rules(plan, internal, external)
@@ -98,6 +141,35 @@ module EmpeiraGateway
 
     validate_addresses(plan, subnet)
     validate_entries(plan.fetch('entries'))
+    validate_redirects(plan.fetch('redirects', []), subnet)
+  end
+
+  def validate_redirects(entries, subnet)
+    sources = entries.map { |entry| validate_redirect(entry, subnet) }
+    raise 'Duplicate gateway redirect sources' unless sources.uniq == sources
+  end
+
+  def validate_redirect(entry, subnet)
+    raise 'Invalid gateway redirect' unless entry.is_a?(Hash) && entry.keys.sort == %w[from to]
+
+    source = entry.fetch('from')
+    validate_endpoint(source)
+    raise 'Redirect source collides with workspace subnet' if subnet.include?(source.fetch('ip'))
+
+    target = entry['to']
+    if target
+      validate_endpoint(target)
+      raise 'Redirect target is outside workspace subnet' unless subnet.include?(target.fetch('ip'))
+    end
+    source
+  end
+
+  def validate_endpoint(value)
+    raise 'Invalid redirect endpoint' unless value.is_a?(Hash) && value.keys.sort == %w[ip port]
+
+    ipv4(value.fetch('ip'))
+    port = value.fetch('port')
+    raise 'Invalid redirect TCP port' unless port.is_a?(Integer) && port.between?(1, 65_535)
   end
 
   def validate_addresses(plan, subnet)
@@ -131,7 +203,19 @@ module EmpeiraGateway
     plan = JSON.parse(File.binread(path))
     validate(plan)
     internal, external = interfaces(plan)
-    restore(rules(plan, internal: internal, external: external))
+    expected = rules(plan, internal: internal, external: external)
+    nat = expected.split('*nat', 2).last
+    actual = command('iptables-save')
+    if nat_configuration(actual) != nat_configuration(expected)
+      # Keep forwarding blocked until new NAT and namespace-local connection state agree.
+      restore("*nat#{nat}")
+      command('conntrack', '--flush')
+    end
+    restore(expected)
+  end
+
+  def nat_configuration(content)
+    normalized(content).select { |(table, _chain), _value| table == '*nat' }
   end
 
   def route(gateway)
@@ -190,9 +274,13 @@ module EmpeiraGateway
     raise 'Gateway routing disabled; run empeira up' unless File.read('/proc/sys/net/ipv4/ip_forward').strip == '1'
   end
 
+  # rubocop:disable-next Metrics/CyclomaticComplexity -- Explicit operation dispatch for the owned helper contract.
   def run(arguments)
     case arguments.first
     when 'hold' then sleep
+    when 'redirects-capability'
+      command('conntrack', '--version')
+      puts 'tcp-redirects-v1'
     when 'lockdown'
       restore(lockdown)
     when 'apply' then apply(arguments.fetch(1))

@@ -90,6 +90,7 @@ class ServiceRuntime
     calls << [:exec, arguments]
     output = arguments.include?('DELETE') ? "HTTP/1.1 204 No Content\r\n\r\n" : ''
     output = "[main]\ngpgcheck=1\n" if arguments == ['cat', '/etc/dnf/dnf.conf']
+    output = "tcp-redirects-v1\n" if arguments == [Empeira::Network::Gateway::EXECUTABLE, 'redirects-capability']
     Empeira::Execution::Result.new(stdout: output, stderr: '', exit_status: 0, timed_out: false)
   end
 

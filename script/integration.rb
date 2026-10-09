@@ -10,7 +10,7 @@ suites = {
   'containers' => [%w[runtime node], 'EMPEIRA_INTEGRATION', '1'],
   'services' => [%w[control_plane additional_configuration], 'EMPEIRA_INTEGRATION', '1'],
   'nodes' => [%w[node], 'EMPEIRA_INTEGRATION', '1'],
-  'network' => [%w[direct_egress], 'EMPEIRA_INTEGRATION', 'direct-egress'],
+  'network' => [%w[direct_egress network_redirects], 'EMPEIRA_INTEGRATION', 'direct-egress'],
   'images' => [%w[image_freshness registry_auth], 'EMPEIRA_INTEGRATION', 'images'],
   'lifecycle' => [%w[smoke], 'EMPEIRA_INTEGRATION', 'smoke'],
   'mounts' => [%w[server_mounts], 'EMPEIRA_INTEGRATION', 'mounts'],
@@ -20,20 +20,25 @@ suites = {
   'update-plane' => [%w[update_plane], 'EMPEIRA_INTEGRATION', 'update-plane'],
   'browser' => [%w[browser], 'EMPEIRA_BROWSER_INTEGRATION', '1'],
   'vm' => [%w[vm vm_proxy], 'EMPEIRA_VM_INTEGRATION', '1'],
+  'dns-nodes' => [%w[dns_rewrites_nodes], 'EMPEIRA_DNS_NODE_INTEGRATION', '1'],
+  'redirect-nodes' => [%w[network_redirects], 'EMPEIRA_INTEGRATION', 'direct-egress'],
   'shared-network' => [%w[peer_network], 'EMPEIRA_PEER_NETWORK', '1']
 }
 full = %w[containers services network images lifecycle mounts development node-tools modules update-plane browser]
 abort "Unknown integration scope: #{scope}" unless scope == 'full' || suites.key?(scope)
 selected = (scope == 'full' ? full : [scope]).map { |key| suites.fetch(key) }
 if %w[network full].include?(scope) && runtime == 'docker'
-  selected << [%w[dns_additional_resolver], 'EMPEIRA_INTEGRATION', '1']
+  selected << [%w[dns_additional_resolver dns_rewrites], 'EMPEIRA_INTEGRATION', '1']
 end
 runner = Empeira::Execution::Runner.new
 selected.each do |files, gate, value|
   environment = { gate => value, 'EMPEIRA_VM_RUNTIME' => runtime }
+  environment['EMPEIRA_REDIRECT_VM'] = '1' if scope == 'redirect-nodes'
   environment['EMPEIRA_VM_PROXY_INTEGRATION'] = '1' if files.include?('vm_proxy')
   arguments = ['exec', 'rspec', *files.map { |name| "spec/integration/#{name}_spec.rb" }]
-  arguments += ['--example', runtime] unless %w[vm peer_network dns_additional_resolver].intersect?(files)
+  unless %w[vm peer_network dns_additional_resolver dns_rewrites_nodes].intersect?(files)
+    arguments += ['--example', runtime]
+  end
   result = runner.stream('bundle', arguments: arguments, environment: environment)
   exit(result.exit_status || 1) unless result.success?
 end

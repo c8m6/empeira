@@ -19,11 +19,11 @@ module Empeira
                       'environment' => :environment,
                       'memory' => :positive_integer, 'cpus' => :positive_integer, 'timeout' => :positive_integer },
         'puppetdb' => { 'enabled' => :boolean, 'memory' => :positive_integer, 'runtime' => :puppetdb_runtime },
-        'network' => { 'egress' => :network_egress },
+        'network' => { 'egress' => :network_egress, 'redirects' => :network_redirects },
         'proxy' => { 'enabled' => :boolean, 'global' => :allowlist, 'rules' => :proxy_rules },
         'vm' => { 'console' => { 'root_password' => :optional_string } },
         'dns' => { 'upstream' => { 'mode' => :dns_mode, 'servers' => :dns_servers },
-                   'additional_resolver' => :additional_resolver },
+                   'additional_resolver' => :additional_resolver, 'rewrites' => :dns_rewrites },
         'node_defaults' => { 'init' => :node_init, 'os' => :optional_string, 'version' => :optional_string,
                              'memory' => :positive_integer, 'cpus' => :positive_integer },
         'mocks' => { 'commands' => :command_mocks },
@@ -172,12 +172,13 @@ module Empeira
       def structured_validator(rule)
         { additional_services: AdditionalServices.method(:validate!), proxy_rules: Network::HostPolicy.method(:validate!),
           hiera_mounts: HieraMountSchema.method(:validate!), command_mocks: CommandMocks.method(:validate!),
-          server_mounts: ServerMounts.method(:validate!),
+          server_mounts: ServerMounts.method(:validate!), dns_rewrites: DNSRewrites.method(:validate!),
           image: ImageSchema.method(:validate!),
           node_images: NodeImages.method(:nodes),
           agent: AgentSchema.method(:validate!), bootstrap_guests: BootstrapGuests.method(:validate!),
           bootstrap_packages: Node::PackageBootstrap.method(:validate!),
           network_egress: Network::DirectEgress.method(:validate!),
+          network_redirects: NetworkRedirects.method(:validate!),
           server_runtime: Server::Runtime.method(:validate!),
           puppetdb_runtime: Server::PuppetDBRuntime.method(:validate!) }[rule]
       end

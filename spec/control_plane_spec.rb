@@ -247,6 +247,85 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(JSON.parse(File.read(path)).fetch('blocked')).to be_empty
   end
 
+  def redirect_configuration(ip: '192.0.2.8', source_port: 8080, service: 'api-compat', target_port: 8081)
+    { 'puppetdb' => { 'enabled' => false },
+      'containers' => { 'additional' => [{ 'name' => 'api-compat',
+                                           'image' => { 'repository' => 'fixture/api', 'tag' => 'test' } }] },
+      'network' => { 'redirects' => [{ 'from' => { 'ip' => ip, 'port' => source_port },
+                                       'to' => { 'service' => service, 'port' => target_port } }] } }
+  end
+
+  def gateway_configuration(config)
+    files = Empeira::ControlPlane::Files.new(context: context(config))
+    JSON.parse(File.read(files.path('gateway.json')))
+  end
+
+  it 'resolves redirects after service startup, reuses identities and remains idempotent' do
+    config = redirect_configuration
+    expect(mutate(controller(config), :up)).to be(true)
+    resource = runtime.services.fetch('api-compat')
+    network = Empeira::ControlPlane::Plan.new(context: context(config)).network
+    expect(gateway_configuration(config).fetch('redirects').first.fetch('to'))
+      .to eq('ip' => resource.dig('networks', network, 'IPAddress'), 'port' => 8081)
+    ids = runtime.services.transform_values { |service| service.fetch('id') }
+    fingerprint = @store.load.dig('control_plane', 'gateway_policy')
+    expect(mutate(controller(config), :up)).to be(false)
+    expect(runtime.services.transform_values { |service| service.fetch('id') }).to eq(ids)
+    expect(@store.load.dig('control_plane', 'gateway_policy')).to eq(fingerprint)
+    expect(@store.load.fetch('control_plane')).not_to have_key('redirects')
+    expect(@store.load.to_s).not_to include('192.0.2.8')
+  end
+
+  it 'reconciles source pairs, target services and ports, and removal without replacing other services' do
+    first = redirect_configuration
+    mutate(controller(first), :up)
+    ids = runtime.services.transform_values { |service| service.fetch('id') }
+    configurations = [redirect_configuration(ip: '192.0.2.9'), redirect_configuration(source_port: 8082),
+                      redirect_configuration(service: 'server', target_port: 8140),
+                      redirect_configuration(target_port: 8083)]
+    configurations.each do |config|
+      expect(mutate(controller(config), :up)).to be(true)
+      expect(gateway_configuration(config).fetch('redirects').first.fetch('from'))
+        .to eq(config.dig('network', 'redirects').first.fetch('from'))
+      expect(runtime.services.transform_values { |service| service.fetch('id') }).to eq(ids)
+    end
+    removed = first.merge('network' => { 'redirects' => [] })
+    expect(mutate(controller(removed), :up)).to be(true)
+    expect(gateway_configuration(removed).fetch('redirects')).to eq([])
+  end
+
+  it 'blocks stale targets before recreation and refreshes their observed addresses afterwards' do
+    config = redirect_configuration
+    mutate(controller(config), :up)
+    config['containers']['additional'][0]['environment'] = { 'REVISION' => 'next' }
+    applied = []
+    allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
+      applied << gateway_configuration(config).fetch('redirects') if arguments.include?('apply')
+      method.call(resource, arguments, **options)
+    end
+    mutate(controller(config), :up)
+    expect(applied.first.first.fetch('to')).to be_nil
+    expect(applied.last.first.fetch('to')).to include('port' => 8081)
+    expect(runtime.calls).to include([:remove, 'api-compat'])
+  end
+
+  it 'rejects invalid service names and reserved source addresses before images or creation' do
+    [redirect_configuration(service: 'absent'), redirect_configuration(ip: '172.20.0.3')].each do |config|
+      expect { mutate(controller(config), :up) }.to raise_error(Empeira::ConfigurationError, /network.redirects/)
+      expect(runtime.calls).to be_empty
+    end
+  end
+
+  it 'fails explicitly and stops an old custom gateway instead of silently ignoring redirects' do
+    allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
+      result = method.call(resource, arguments, **options)
+      arguments.include?('redirects-capability') ? result.with(stdout: '') : result
+    end
+    expect { mutate(controller(redirect_configuration), :up) }
+      .to raise_error(Empeira::Error, /Gateway does not support transparent/)
+    expect(runtime.services.fetch('gateway').fetch('state')).to eq('stopped')
+  end
+
   it 'rejects malformed persisted environment-cache checkpoints' do
     mutate(controller, :up)
     state = @store.load
@@ -330,6 +409,21 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect { mutate(controller, :up) }.to raise_error(Empeira::Error, /image acquisition failed/)
     expect(runtime.services).to be_empty
     expect(runtime.volumes).to be_empty
+  end
+
+  it 'keeps an existing gateway closed and preserves services when a pull is rate limited' do
+    plane = controller
+    mutate(plane, :up)
+    services = Marshal.load(Marshal.dump(runtime.services))
+    inventory = @store.load
+    calls = runtime.calls.size
+    allow(runtime).to receive(:ensure_image)
+      .and_raise(Empeira::Providers::ExecutionError, 'toomanyrequests: unauthenticated pull rate limit')
+
+    expect { mutate(plane, :up) }.to raise_error(Empeira::Providers::ExecutionError, /pull rate limit/)
+    expect(runtime.calls.drop(calls)).to eq([[:exec, [Empeira::Network::Gateway::EXECUTABLE, 'lockdown']]])
+    expect(runtime.services).to eq(services)
+    expect(@store.load).to eq(inventory)
   end
 
   it 'retains all persistent volumes and credentials across down/up' do
@@ -465,6 +559,79 @@ RSpec.describe Empeira::ControlPlane::Controller do
     { 'containers' => { 'additional' => names.map do |name|
       { 'name' => name, 'image' => { 'repository' => 'example/helper', 'tag' => '1' } }
     end } }
+  end
+
+  it 'adds, changes and removes DNS rewrites without replacing services or restarting either node provider' do
+    config = helper_services('api-layer', 'other-api')
+    mutate(controller(config), :up)
+    state = @store.load
+    state['nodes'] = rewrite_node_records
+    @store.with_lock { @store.write(state) }
+    ids = runtime.services.transform_values { |resource| resource.fetch('id') }
+    files = Empeira::ControlPlane::Files.new(context: context(config))
+    config['dns'] = { 'rewrites' => [{ 'from' => 'ipam.example.net', 'to' => 'api-layer.empeira.internal' }] }
+
+    [config, config.merge('dns' => { 'rewrites' => [{ 'from' => 'ipam.example.net',
+                                                      'to' => 'other-api.empeira.internal' }] }),
+     config.merge('dns' => { 'rewrites' => [] })].each do |desired|
+      runtime.calls.clear
+      expect(mutate(controller(desired), :up)).to be(true)
+      expect(runtime.services.transform_values { |resource| resource.fetch('id') }).to eq(ids)
+      expect(runtime.calls).to include([:reload, ids.fetch('dns'), 'USR1'])
+      expect(runtime.calls.select { |call| %i[create remove start stop].include?(call.first) }).to be_empty
+      expect(@store.load.fetch('nodes')).to eq(state.fetch('nodes'))
+      before = File.stat(files.path('Corefile')).ino
+      runtime.calls.clear
+      expect(mutate(controller(desired), :up)).to be(false)
+      expect(File.stat(files.path('Corefile')).ino).to eq(before)
+      expect(runtime.calls).not_to include([:reload, ids.fetch('dns'), 'USR1'])
+    end
+    expect(File.read(files.path('Corefile'))).not_to include('ipam.example.net')
+    replacement = config.merge('dns' => { 'rewrites' => [] },
+                               'images' => { 'dns' => { 'repository' => 'example/dns', 'tag' => 'changed' } })
+    expect { mutate(controller(replacement), :up) }
+      .to raise_error(Empeira::Error, /DNS replacement would invalidate existing node resolver bindings/)
+    expect(runtime.services.transform_values { |resource| resource.fetch('id') }).to eq(ids)
+  end
+
+  # rubocop:disable-next Metrics/MethodLength -- Complete synthetic records exercise the real inventory validator.
+  def rewrite_node_records
+    common = { 'os' => 'ubuntu', 'version' => '24.04', 'architecture' => 'amd64',
+               'created_at' => Time.now.utc.iso8601, 'provisioned' => true }
+    container = common.merge('provider' => 'container', 'runtime' => 'podman', 'hostname' => 'container-node',
+                             'image' => 'example/node:1', 'id' => 'node-id',
+                             'definition' => { 'hostname' => 'container-node', 'image' => 'example/node:1',
+                                               'ip' => '172.20.0.96' })
+    vm = common.merge('provider' => 'vm', 'hostname' => 'vm-node', 'engine' => 'qemu', 'accelerator' => 'kvm',
+                      'memory' => 1024, 'cpus' => 1, 'ssh_port' => 22_000, 'state' => 'running',
+                      'overlay' => 'vms/vm-node/disk.qcow2', 'network' => "#{context.workspace.id}:environment",
+                      'mac_address' => '52:54:00:00:00:01',
+                      'peer' => { 'ip' => '172.20.0.32', 'token' => 'a' * 32, 'backend' => 'DockerAdapter',
+                                  'dns' => '172.20.0.3' },
+                      'base_image' => { 'distribution' => 'ubuntu', 'version' => '24.04', 'architecture' => 'amd64',
+                                        'source' => 'https://images.example.net/base', 'revision' => 'synthetic',
+                                        'checksum' => 'a' * 64 })
+    { 'container-node' => container, 'vm-node' => vm }
+  end
+
+  it 'refreshes rewrite target addresses through ordinary discovery without reloading CoreDNS' do
+    config = helper_services('api-layer').merge(
+      'dns' => { 'rewrites' => [{ 'from' => 'ipam.example.net', 'to' => 'api-layer.empeira.internal' }] }
+    )
+    mutate(controller(config), :up)
+    plan = Empeira::ControlPlane::Plan.new(context: context(config))
+    runtime.services.fetch('api-layer').dig('networks', plan.network)['IPAddress'] = '172.20.0.222'
+    runtime.calls.clear
+    mutate(controller(config), :up)
+    expect(File.read(plan.files.path('hosts'))).to include('172.20.0.222 api-layer api-layer.empeira.internal')
+    expect(runtime.calls.none? { |call| call.first == :reload }).to be(true)
+  end
+
+  it 'rejects missing rewrite services before acquiring images or mutating infrastructure' do
+    plane = controller('dns' => { 'rewrites' => [{ 'from' => 'ipam.example.net',
+                                                   'to' => 'missing.empeira.internal' }] })
+    expect { mutate(plane, :up) }.to raise_error(Empeira::ConfigurationError, /target service.*missing or disabled/)
+    expect(runtime.calls).to be_empty
   end
 
   it 'reconciles additional services, records DNS, replaces changes and removes deleted services' do

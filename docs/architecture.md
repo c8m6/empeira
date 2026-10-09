@@ -120,6 +120,21 @@ See [networking](networking.md) for the privilege and trust boundaries.
 fixed loopback UI relay. Additional services use ordinary ownership, DNS and
 fingerprints, with a deliberately narrow configuration schema.
 
+Exact DNS rewrites share the existing CoreDNS configuration and service-discovery
+hosts file. Reloadable rewrite policy stays outside the DNS container definition
+fingerprint, so `up` can reload it without invalidating container/VM resolver
+bindings. Target lookups remain authoritative for `empeira.internal` and never
+fall through externally. No separate DNS inventory or provider-specific state is
+introduced. DNS image/definition replacement retains its existing node protection.
+
+Transparent TCP redirects reuse the same gateway policy, fingerprint and discovery
+boundary. Exact external source pairs are translated to observed internal services
+with DNAT/SNAT; unresolved targets remain denied. Reconciliation blocks stale targets
+before recreation and publishes their new addresses after service startup. Changed
+NAT revokes namespace-local connection state while DROP is active. Unchanged rules
+preserve connections and node identities. DNS and proxy policy are independent;
+there is no additional service-IP inventory or provider-specific redirect plane.
+
 Updates form a separate plane. `update modules` uses host Git acquisition and a
 disposable r10k helper; `update images` uses native registry metadata and cached
 pulls/builds. Helpers use the runtime's normal bridge, require no infrastructure

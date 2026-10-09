@@ -2,7 +2,7 @@
 
 module Empeira
   module Network
-    # One policy and addressing boundary for every peer backend. No target translation.
+    # One policy, addressing and TCP translation boundary for every peer backend.
     class Gateway
       OFFSETS = { 'gateway' => 2, 'dns' => 3, 'proxy' => 4, 'bootstrap-proxy' => 5 }.freeze
       EXECUTABLE = '/usr/local/libexec/empeira-gateway'
@@ -12,7 +12,7 @@ module Empeira
       end
 
       # rubocop:disable-next Metrics/AbcSize -- Compose the complete provider-independent firewall input.
-      def self.plan(state:, resolved:, upstreams:, routes:, additional: nil)
+      def self.plan(state:, resolved:, upstreams:, routes:, additional: nil, redirects: [])
         subnet = state.fetch('peer_network').fetch('subnet')
         resolvers = (upstreams + routes.values.flatten + additional_addresses(additional)).uniq.sort
         unless resolvers.all? { |address| IPAddr.new(address).ipv4? }
@@ -22,7 +22,7 @@ module Empeira
         { 'version' => 1, 'subnet' => subnet, 'gateway' => address(subnet),
           'dns' => address(subnet, 'dns'), 'resolvers' => resolvers,
           'proxies' => %w[proxy bootstrap-proxy].map { |key| address(subnet, key) },
-          'blocked' => blocked_addresses(state), 'entries' => resolved.entries }
+          'blocked' => blocked_addresses(state), 'entries' => resolved.entries, 'redirects' => redirects }
       end
 
       def self.blocked_addresses(state)

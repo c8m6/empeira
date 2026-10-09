@@ -57,7 +57,7 @@ RSpec.describe 'CoreDNS additional resolver forwarding', :integration do
         template IN A route-fallback.corp.test {
           rcode NXDOMAIN
         }
-        template IN AAAA nodata.test {
+        template IN A nodata.test {
           rcode NOERROR
         }
       }
@@ -71,7 +71,8 @@ RSpec.describe 'CoreDNS additional resolver forwarding', :integration do
     @additional = start_dns('additional', additional_corefile, additional_hosts)
     @upstream = start_dns('upstream', ".:53 {\n  hosts /fixture/hosts\n}\n",
                           "198.51.100.20 hit.test fallback.test\n" \
-                          "2001:db8::20 nodata.test\n198.51.100.21 unknown.empeira.internal\n" \
+                          "198.51.100.22 nodata.test\n2001:db8::20 nodata.test\n" \
+                          "198.51.100.21 unknown.empeira.internal\n" \
                           "198.51.100.24 route-hit.corp.test route-fallback.corp.test\n")
   end
 
@@ -101,8 +102,11 @@ RSpec.describe 'CoreDNS additional resolver forwarding', :integration do
       expect(hit).not_to include('198.51.100.20')
       fallback, = query('fallback.test', 'A', server)
       expect(fallback).to include('198.51.100.20')
-      nodata, = query('nodata.test', 'AAAA', server)
-      expect(nodata).to include('2001:db8::20')
+      nodata, = query('nodata.test', 'A', server)
+      expect(nodata).to include('198.51.100.22')
+      ipv6, _, ipv6_status = query('nodata.test', 'AAAA', server)
+      expect(ipv6_status).to be_success
+      expect(ipv6).not_to include('2001:db8::20')
       route_hit, = query('route-hit.corp.test', 'A', server)
       expect(route_hit).to include('198.51.100.14')
       route_fallback, = query('route-fallback.corp.test', 'A', server)

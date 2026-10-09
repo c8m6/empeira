@@ -108,13 +108,68 @@ TCP 80/443 and enforce their destination allowlists. Normal proxy allow rules ap
 regardless of target IP range; the temporary authenticated bootstrap proxy retains
 its separate private/reserved-address restrictions.
 `proxy.global` does not grant direct egress. Applications choose DIRECT/proxy using
-their own settings and `NO_PROXY`; there is no fallback or DNS rewriting.
+their own settings and `NO_PROXY`; direct/proxy selection has no automatic fallback.
 See [proxy policy](proxy.md) for hostname rules and bootstrap destinations.
 
 During bootstrap, a node is excluded from direct egress and normal proxy bindings.
 A separate authenticated /32-source-bound proxy installs packages. Cleanup restores
 package configuration, removes temporary access/credentials and activates final
 runtime policy before enrollment and Puppet. Failed bootstrap stays incomplete.
+
+## Transparent TCP redirects
+
+`network.redirects` maps exact original IPv4/TCP destination pairs to the current
+address/port of an owned internal application service. Multiple pairs may share a
+service. This supports fixed production endpoints such as PowerDNS APIs without
+changing Puppet/Hiera or implementing application logic in Empeira. Configuration
+and an example are in [configuration](configuration.md#transparent-tcp-redirects).
+
+Container nodes, Puppet/OpenVox Server and internal services already route external
+destinations through the workspace gateway. VM cloud-init installs the same default
+route, and peer adapters transport Ethernet without introducing another IP router.
+The browser UI relay and the gateway itself are infrastructure endpoints, outside
+this source/target contract. Source addresses inside the workspace subnet or in
+loopback, link-local, unspecified or multicast/reserved ranges are rejected because
+those paths would bypass normal gateway routing.
+
+The gateway applies exact DNAT in its private namespace. Since the destination and
+client share a subnet, it also SNATs redirected flows to its internal address so
+replies return through the same conntrack translation. The test service sees the
+gateway as its TCP client; the original client sees the configured external endpoint.
+TCP bytes are unchanged, including HTTP headers and bodies. TLS remains end to end
+and the application must validate the original endpoint's certificate as usual.
+This follows Netfilter's [same-network NAT guidance](https://www.netfilter.org/documentation/HOWTO/NAT-HOWTO-6.html).
+
+Filtering accepts only the configured original pair and the observed internal
+target pair in the appropriate direction. It drops other packets for that original
+pair before DNS/proxy/direct-egress grants, so a missing target never falls back to
+the external IP. Bootstrap nodes remain excluded. Target addresses come from the
+existing ownership-checked runtime discovery, with no additional inventory mapping.
+Before target recreation, the redirect is blocked; after services start, `up`
+refreshes the policy using their current addresses. A target that exits or refuses
+connections causes a connection failure. Removing a service still referenced by
+configuration fails validation; remove its redirect as part of the same edit.
+
+Reconciliation first installs DROP, installs changed NAT while forwarding is still
+blocked, then clears conntrack only inside the owned gateway namespace and activates
+the complete filter. Mapping changes therefore revoke old connections, including
+previous connections to the original external destination. This also interrupts
+other connections passing through that gateway; clients must reconnect. Identical
+NAT on repeated `up` preserves connection state. Any apply/capability failure leaves
+the gateway blocked/stopped. `status` checks complete filter/NAT rules and forwarding.
+No host conntrack, foreign firewall or target container configuration is changed.
+
+The same helper runs in the Linux engine for Docker, rootless Podman, Docker Desktop
+and Podman Machine; QEMU peers use the existing adapters. Runtime isolation and
+attachment requirements still apply. Custom `images.direct_egress` images must
+implement `redirects-capability` (`tcp-redirects-v1`), the redirect plan and conntrack
+invalidation; incompatible images fail explicitly. Native macOS requires execution
+of the platform gates before claiming validation.
+
+Redirects do not change DNS, proxy allowlists/environment, `NO_PROXY`, or bootstrap
+grants. An application explicitly using a proxy initially connects to that proxy;
+it still needs a proxy allowlist entry and receives no automatic direct exception.
+Use application-specific DIRECT settings or `curl --noproxy '*'` for direct tests.
 
 ## Runtime attachment and privilege boundary
 
@@ -141,7 +196,10 @@ Cross-workspace subnets, namespaces and bridge rules are distinct, but this shar
 network does not protect against a malicious privileged peer.
 
 The gateway recipe uses official Ruby/Alpine and distribution iproute2/iptables
-packages. Go/Ruby, image and package notices are preserved in built images; only
+and [conntrack-tools](https://www.netfilter.org/projects/conntrack-tools/)
+(Netfilter, GPL-2.0-or-later) packages. The connection tool is a separate executable
+in the owned helper, with no host installation or new Ruby dependency. Go/Ruby,
+image and package notices are preserved in built images; only
 project-owned source/recipes are shipped in Empeira. See
 [provenance](configuration.md#control-plane-images-and-provenance).
 
@@ -175,6 +233,47 @@ or NODATA falls through to the existing upstream. It may be a DNS name or addres
 and need not be an Empeira service. `up` activates it after additional services
 start. VPN/engine routing remains the host's responsibility; flat Linux resolver
 files cannot represent every split-DNS route. AAAA queries return NODATA.
+
+### Exact DNS rewrites
+
+`dns.rewrites` redirects an exact external hostname to an enabled internal service:
+
+```yaml
+dns:
+  rewrites:
+    - from: ipam.example.net
+      to: api-layer.empeira.internal
+    - from: inventory.example.net
+      to: api-layer.empeira.internal
+```
+
+Both container and VM nodes use the same CoreDNS policy. Sources are normalized
+case-insensitively, with an optional trailing root dot. A rule matches only its
+source: `child.ipam.example.net` still follows the normal resolver policy, including
+host split-DNS routes and the optional additional resolver. Unknown internal names
+and configured rewrite lookups never fall back to an external resolver.
+
+CoreDNS uses an exact `rewrite name` rule and the existing authoritative hosts-file
+discovery for `empeira.internal`. An A query returns the target service's current
+IPv4 address under the original source name, with a one-second TTL. No CNAME record
+is created: CNAME queries return NOERROR with no answers for a discovered target.
+AAAA queries retain IPv4-only behavior and return NOERROR with no answers. If a
+target temporarily has no discovery record, A/CNAME queries return SERVFAIL locally;
+AAAA remains empty. `up` rejects targets absent from the enabled service plan.
+
+Adding, changing or removing rules takes effect through `empeira up`, using the
+existing Corefile reload and SIGUSR1. CoreDNS and existing nodes keep their
+identities and resolver bindings. Hosts-file updates are polled every second, so
+service-address changes do not require a CoreDNS restart. Client DNS caches may
+delay observations until their cached records expire. Unchanged `up` is idempotent.
+Changes to the DNS image or container definition still retain the existing
+protection against DNS replacement while nodes exist.
+
+An API Compatibility Layer can therefore simulate several production API names
+through one additional service; see the [configuration example](configuration.md#dns-rewrites-for-internal-services).
+Only DNS changes. The original HTTP Host, TLS SNI, protocol, port and certificate
+checks remain the application's responsibility. Gateway grants and proxy allowlists
+are unchanged; a client using an HTTP proxy remains subject to that proxy's policy.
 
 The server is `server.empeira.internal:8140`. PostgreSQL and OpenVoxDB are internal,
 with retained volumes and random private database credentials. Readiness verifies

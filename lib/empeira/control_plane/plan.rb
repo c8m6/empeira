@@ -75,6 +75,24 @@ module Empeira
         definitions.transform_values(&:fingerprint)
       end
 
+      def validate_dns_rewrites!
+        entries = config.dig('dns', 'rewrites')
+        return if entries.empty?
+
+        targets = definitions.keys.map { |key| naming.hostname(key) }
+        entries.each_with_index do |entry, index|
+          target = Configuration::DNSRewrites.normalize(entry.fetch('to'))
+          next if targets.include?(target)
+
+          raise ConfigurationError, "dns.rewrites[#{index}].to target service #{target} is missing or disabled; " \
+                                    'configure the service before running empeira up'
+        end
+      end
+
+      def validate_network_redirects!(subnet: self.subnet)
+        Network::Redirects.validate!(config.dig('network', 'redirects'), definitions: definitions, subnet: subnet)
+      end
+
       def bind(source, target, readonly: true)
         raise ConfigurationError, 'Mount paths must not contain commas or newlines' if source.to_s.match?(/[,\r\n]/)
 

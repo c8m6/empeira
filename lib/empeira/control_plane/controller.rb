@@ -25,6 +25,7 @@ module Empeira
         load_state
         check_network_architecture!
         check_service_names!
+        @gateway_reconciling = true
         lockdown_existing_gateway
         prepare_files
         @progress.stage(20, 'Preparing persistent storage...')
@@ -37,13 +38,18 @@ module Empeira
         prepare_server
         prepare_puppetdb
         @plan.additional_services.each_key { |key| reconcile(key) }
-        activate_additional_resolver if @bootstrap_dns
+        activate_dns
         prepare_browser
+        refresh_redirects
         @progress.stage(95, 'Verifying control plane...')
         finish_reconciliation
         @changed
+      rescue StandardError
+        lockdown_existing_gateway if @gateway_reconciling
+        raise
       ensure
         @desired_images = nil
+        @gateway_reconciling = false
       end
 
       # The browser lifecycle may change only the browser pair. Required workspace
@@ -152,6 +158,8 @@ module Empeira
         @plan.validate_server_mounts!
         check_network_architecture!
         check_service_names!
+        @plan.validate_dns_rewrites!
+        @plan.validate_network_redirects!
         @plan.module_request.warnings.each { |message| @progress.warning(message) }
         @plan.module_request.verify_available!
         lockdown_existing_gateway
@@ -185,20 +193,49 @@ module Empeira
       def prepare_files
         @plan.additional_configurations.prepare
         @plan.module_request
-        resolver = Platform::Resolvers.new(platform: @context.platform, runner: @runner)
-        upstreams = resolver.resolve(@plan.config.fetch('dns').fetch('upstream'))
-        @dns_resolution = { upstreams: upstreams, routes: resolver.routes }
+        prepare_dns_resolution
+        @reload_dns = dns_reload_needed?
         @bootstrap_dns = bootstrap_dns?(**@dns_resolution)
         @direct_egress = resolve_direct_egress
         @plan.files.prepare(**@dns_resolution, bootstrap: @bootstrap_dns)
         prepare_gateway_plan
       end
 
+      def prepare_dns_resolution
+        resolver = Platform::Resolvers.new(platform: @context.platform, runner: @runner)
+        upstreams = resolver.resolve(@plan.config.fetch('dns').fetch('upstream'))
+        @dns_resolution = { upstreams: upstreams, routes: resolver.routes }
+      end
+
       def prepare_gateway_plan
+        @plan.validate_network_redirects!
         @gateway_plan = Network::Gateway.plan(state: @state, resolved: @direct_egress,
                                               additional: @plan.config.dig('dns', 'additional_resolver'),
+                                              redirects: resolved_redirects(existing_redirect_targets),
                                               **@dns_resolution)
         @plan.files.write('gateway.json', JSON.generate(@gateway_plan))
+      end
+
+      def existing_redirect_targets
+        definitions = @plan.definitions.slice(*@plan.config.dig('network', 'redirects').map do |entry|
+          entry.fetch('to').fetch('service')
+        end)
+        ids = definitions.to_h { |key, _| [key, recorded(key)] }
+        @runtime.inspect_services(definitions, expected_ids: ids)
+      end
+
+      def resolved_redirects(resources)
+        Network::Redirects.new(entries: @plan.config.dig('network', 'redirects'), network: @plan.network,
+                               subnet: @plan.subnet).resolve(definitions: @plan.definitions, resources: resources)
+      end
+
+      def refresh_redirects
+        redirects = resolved_redirects(@observed)
+        return if redirects == @gateway_plan.fetch('redirects')
+
+        @gateway_plan['redirects'] = redirects
+        @plan.files.write('gateway.json', JSON.generate(@gateway_plan))
+        apply_gateway_policy
       end
 
       def resolve_direct_egress
@@ -215,8 +252,17 @@ module Empeira
         resource.nil? || resource['state'] != 'running' || stale?('dns', resource, definition)
       end
 
-      def activate_additional_resolver
-        @plan.files.activate_additional_resolver(**@dns_resolution)
+      def dns_reload_needed?
+        return false if @plan.files.corefile_current?(**@dns_resolution)
+
+        definition = @plan.definitions.fetch('dns')
+        @runtime.inspect_service(definition, expected_id: recorded('dns'))&.fetch('state') == 'running'
+      end
+
+      def activate_dns
+        return unless @bootstrap_dns || @reload_dns
+
+        @plan.files.activate_additional_resolver(**@dns_resolution) if @bootstrap_dns
         @runtime.reload_service(@observed.fetch('dns'), signal: 'USR1')
         @changed = true
       end
@@ -529,13 +575,29 @@ module Empeira
         end
         reconcile('gateway')
         gateway_command(@observed.fetch('gateway'), 'lockdown')
+        require_redirect_capability
         attach_gateway('gateway')
-        gateway_command(@observed.fetch('gateway'), 'apply', '/empeira-gateway/gateway.json')
-        record_gateway_policy
+        apply_gateway_policy
       rescue StandardError
         resource = @observed['gateway']
         @runtime.stop_service(resource) if resource
         raise
+      end
+
+      def require_redirect_capability
+        return if @plan.config.dig('network', 'redirects').empty?
+
+        result = @runtime.service_exec(@observed.fetch('gateway'),
+                                       [Network::Gateway::EXECUTABLE, 'redirects-capability'])
+        return if result.success? && result.stdout.strip == 'tcp-redirects-v1'
+
+        raise Error, 'Gateway does not support transparent IPv4/TCP redirects; configure a compatible ' \
+                     'images.direct_egress image'
+      end
+
+      def apply_gateway_policy
+        gateway_command(@observed.fetch('gateway'), 'apply', '/empeira-gateway/gateway.json')
+        record_gateway_policy
       end
 
       def record_gateway_policy

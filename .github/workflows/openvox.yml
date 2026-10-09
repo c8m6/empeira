@@ -28,6 +28,16 @@ jobs:
         with:
           ruby-version: '3.4'
           bundler-cache: true
+      - name: Configure the public Docker Hub cache on the hosted runner
+        run: |
+          export DOCKER_CONFIG="$RUNNER_TEMP/empeira-smoke-docker"
+          printf 'DOCKER_CONFIG=%s\n' "$DOCKER_CONFIG" >> "$GITHUB_ENV"
+          install -d -m 0700 "$DOCKER_CONFIG"
+          bundle exec ruby script/ci_docker_mirror.rb configure /etc/docker/daemon.json > "$RUNNER_TEMP/docker-daemon.json"
+          sudo install -d -m 0755 /etc/docker
+          sudo install -m 0600 "$RUNNER_TEMP/docker-daemon.json" /etc/docker/daemon.json
+          sudo systemctl restart docker
+          docker info --format '{{json .RegistryConfig.Mirrors}}' | bundle exec ruby script/ci_docker_mirror.rb verify
       - name: Verify AMD64 Docker engine
         run: |
           test "$(docker info --format '{{.Architecture}}')" = x86_64
@@ -36,3 +46,9 @@ jobs:
         run: >-
           bundle exec rspec spec/integration/node_spec.rb
           --example 'docker runs the default OpenVox node' --format documentation
+      - name: Report bounded Docker daemon diagnostics on failure
+        if: failure()
+        run: |
+          # Ruby reads stdin; the shell must preserve $stdin.
+          # shellcheck disable=SC2016
+          sudo journalctl --unit=docker --lines=40 --no-pager | bundle exec ruby -Ilib -rempeira -e 'puts Empeira::Execution::Diagnostics.bounded(Empeira::Execution::Diagnostics.safe_text($stdin.read))'
