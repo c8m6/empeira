@@ -116,6 +116,16 @@ containers, networks and volumes are absent. No global prune is used.
 The workflow reads all software pins from `config/defaults.yaml`; it needs no
 repository secrets and uses public artifacts only.
 
+Before the PR smoke, its disposable hosted Docker daemon uses Google's public
+[Docker Hub cache](https://docs.cloud.google.com/artifact-registry/docs/pull-cached-dockerhub-images)
+at `mirror.gcr.io`. Setup preserves existing daemon settings and verifies the active
+mirror after restart. This also covers Docker Hub base images used by local builds;
+GHCR images keep their original source. Image references, configured digest pins,
+TLS verification and the complete smoke assertions remain unchanged. Cache hits
+avoid the shared runner's anonymous Docker Hub pull quota. Cache misses still use
+Docker Hub, and acquisition failures remain failures. Local engines and workspace
+DNS, gateway and isolation policy are unaffected by this CI-only setup.
+
 The APT authentication regression uses a local HTTPS repository with synthetic Basic
 credentials and an ephemeral GPG signing key. It checks the helper's effective
 `auth.conf.d` configuration, private file mode and exact credential bytes, then

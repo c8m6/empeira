@@ -411,6 +411,21 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(runtime.volumes).to be_empty
   end
 
+  it 'keeps an existing gateway closed and preserves services when a pull is rate limited' do
+    plane = controller
+    mutate(plane, :up)
+    services = Marshal.load(Marshal.dump(runtime.services))
+    inventory = @store.load
+    calls = runtime.calls.size
+    allow(runtime).to receive(:ensure_image)
+      .and_raise(Empeira::Providers::ExecutionError, 'toomanyrequests: unauthenticated pull rate limit')
+
+    expect { mutate(plane, :up) }.to raise_error(Empeira::Providers::ExecutionError, /pull rate limit/)
+    expect(runtime.calls.drop(calls)).to eq([[:exec, [Empeira::Network::Gateway::EXECUTABLE, 'lockdown']]])
+    expect(runtime.services).to eq(services)
+    expect(@store.load).to eq(inventory)
+  end
+
   it 'retains all persistent volumes and credentials across down/up' do
     mutate(controller, :up)
     volumes = Marshal.load(Marshal.dump(runtime.volumes))

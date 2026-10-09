@@ -39,12 +39,14 @@ RSpec.describe 'Native registry error diagnostics' do
           'manifest unknown' => 'image or tag', 'name unknown' => 'image or tag', 'not found' => 'image or tag',
           'connection refused' => 'network access', 'network unreachable' => 'network access',
           'DNS failure' => 'network access', 'certificate verify failed' => 'TLS verification',
+          'toomanyrequests: You have reached your unauthenticated pull rate limit.' => 'registry access',
           'x509: certificate signed by unknown authority' => 'TLS verification'
         }.each do |diagnostic, kind|
           it "keeps #{operation} #{diagnostic} distinct from authentication failure" do
             failure(diagnostic)
             expect { runtime.public_send(operation, image) }.to raise_error(error_class) do |error|
               expect(error.message).to include(kind)
+              expect(error.message).to include(diagnostic)
               expect(error.message).not_to include(' login ')
             end
           end
