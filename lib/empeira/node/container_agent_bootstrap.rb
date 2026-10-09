@@ -23,9 +23,9 @@ module Empeira
         PackageSources.verify!(execute: execute)
       end
 
-      def install_agent(resource, record, requirements, execute)
-        installer = AgentInstaller.build(config: context.configuration, requirements: requirements,
-                                         os: record.fetch('os'), execute: execute, copy: guest_copy(resource, execute))
+      def install_agent(resource, _record, requirements, execute)
+        installer = AgentInstaller.build(context: context, runtime: @runtime, requirements: requirements,
+                                         execute: execute, copy: guest_copy(resource, execute), progress: @progress)
         installer.install(proxy_url: @bootstrap_proxy.url)
       end
 

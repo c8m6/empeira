@@ -141,6 +141,8 @@ images:
         build: nodes/rpm/Containerfile
         architectures: [amd64, arm64]
 agent:
+  cache:
+    enabled: true
   package: openvox-agent
   version: "8.29.0"
   install:

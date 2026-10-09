@@ -9,11 +9,10 @@ RSpec.describe Empeira::VM::Agent do
 
   it 'uses the shared repository installer with the OpenVox package by default' do
     requirements = Empeira::VM::BootstrapRequirements.new(context: app.context, os: 'ubuntu', version: '24.04')
-    installer = instance_double(Empeira::Node::AgentRepository, install: nil)
-    expect(Empeira::Node::AgentRepository).to receive(:new).with(
-      source: requirements.repository, package: app.context.configuration.dig('agent', 'package'),
-      version: app.context.configuration.dig('agent', 'version'),
-      execute: an_instance_of(Proc), copy: an_instance_of(Proc)
+    installer = instance_double(Empeira::Node::AgentInstallation, install: nil)
+    expect(Empeira::Node::AgentInstallation).to receive(:new).with(
+      context: app.context, runtime: an_instance_of(Empeira::Runtime::Podman), requirements: requirements,
+      execute: an_instance_of(Proc), copy: an_instance_of(Proc), progress: an_instance_of(Empeira::Progress)
     ).and_return(installer)
     allow(ssh).to receive(:run).and_return(success)
     described_class.new(context: app.context, ssh: ssh).ensure_installed(record, requirements: requirements,
@@ -28,10 +27,10 @@ RSpec.describe Empeira::VM::Agent do
     File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('agent' => agent))
     requirements = Empeira::VM::BootstrapRequirements.new(context: app.context, os: 'ubuntu', version: '24.04',
                                                           architecture: 'amd64')
-    installer = instance_double(Empeira::Node::AgentPackage, install: nil)
-    expect(Empeira::Node::AgentPackage).to receive(:new).with(
-      os: 'ubuntu', rpm_options: [], source: source, package: 'puppet-agent', version: '8.20.0',
-      execute: an_instance_of(Proc), copy: an_instance_of(Proc)
+    installer = instance_double(Empeira::Node::AgentInstallation, install: nil)
+    expect(Empeira::Node::AgentInstallation).to receive(:new).with(
+      context: app.context, runtime: an_instance_of(Empeira::Runtime::Podman), requirements: requirements,
+      execute: an_instance_of(Proc), copy: an_instance_of(Proc), progress: an_instance_of(Empeira::Progress)
     ).and_return(installer)
     allow(ssh).to receive(:run).and_return(success)
     described_class.new(context: app.context, ssh: ssh).ensure_installed(record, requirements: requirements,

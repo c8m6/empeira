@@ -2,24 +2,34 @@
 
 module Empeira
   module Node
-    # Selects one native installer from the configured method and guest family.
     module AgentInstaller
       module_function
 
-      def build(config:, requirements:, os:, execute:, copy:)
-        method = config.dig('agent', 'install', 'method')
-        klass = if method == 'package'
-                  AgentPackage
-                elsif PackageBootstrap::FAMILIES.fetch(os) == 'debian'
-                  AgentRepository
-                else
-                  DnfAgentRepository
-                end
-        options = {}
-        options[:rpm_options] = requirements.rpm_options unless klass == AgentRepository
-        options[:os] = os if klass == AgentPackage
-        klass.new(**options, source: requirements.repository, package: requirements.agent.fetch('package'),
-                             version: requirements.agent.fetch('version'), execute: execute, copy: copy)
+      def build(context:, runtime:, requirements:, execute:, copy:, progress: Progress.new)
+        AgentInstallation.new(context: context, runtime: runtime, requirements: requirements,
+                              execute: execute, copy: copy, progress: progress)
+      end
+    end
+
+    class AgentInstallation
+      def initialize(context:, runtime:, requirements:, execute:, copy:, progress:)
+        @acquisition = Agent::Acquisition.new(context: context, runtime: runtime, progress: progress)
+        @requirements = requirements
+        @execute = execute
+        @copy = copy
+        @progress = progress
+      end
+
+      def install(proxy_url:)
+        if @requirements.repository['verify_signatures'] == false
+          @progress.warning('Agent source signature verification is explicitly disabled; ' \
+                            'HTTPS verification remains active.')
+        end
+        @acquisition.with_package(@requirements) do |artifact|
+          AgentPackage.new(target: @requirements.target, package: @requirements.agent.fetch('package'),
+                           artifact: artifact, execute: @execute, copy: @copy,
+                           rpm_options: @requirements.rpm_options).install(proxy_url: proxy_url)
+        end
       end
     end
   end

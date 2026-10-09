@@ -76,8 +76,12 @@ RSpec.describe 'Private native package proxy configuration' do
                                                                 copy: copy)
                  -> { instance.run(proxy_url: endpoint) }
                else
-                 instance = Empeira::Node::AgentRepository.new(source: {}, package: 'synthetic-agent', version: '1',
-                                                               execute: execute, copy: copy)
+                 target = Empeira::Agent::Target.new(os: 'ubuntu', release: '24.04', architecture: 'amd64')
+                 artifact_path = Pathname(@directory).join('synthetic.deb')
+                 File.write(artifact_path, 'synthetic', perm: 0o600)
+                 artifact = Empeira::Agent::Artifact.new(path: artifact_path, metadata: {})
+                 instance = Empeira::Node::AgentPackage.new(target: target, package: 'synthetic-agent',
+                                                            artifact: artifact, execute: execute, copy: copy)
                  -> { instance.install(proxy_url: endpoint) }
                end
       expect(&invoke).to raise_error(Empeira::Error) do |error|

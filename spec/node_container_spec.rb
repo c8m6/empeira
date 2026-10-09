@@ -47,11 +47,8 @@ RSpec.describe Empeira::Node::Container do
   end
 
   before do
-    allow(Empeira::Node::AgentRepository).to receive(:new).and_return(
-      instance_double(Empeira::Node::AgentRepository, install: nil)
-    )
-    allow(Empeira::Node::DnfAgentRepository).to receive(:new).and_return(
-      instance_double(Empeira::Node::DnfAgentRepository, install: nil)
+    allow(Empeira::Node::AgentInstallation).to receive(:new).and_return(
+      instance_double(Empeira::Node::AgentInstallation, install: nil)
     )
     definition = Empeira::Infrastructure::Definition.new(context: app.context)
     runtime.networks[definition.network.backend_name] = Empeira::Network::Resource.new(
@@ -110,10 +107,16 @@ RSpec.describe Empeira::Node::Container do
       super()
     end
 
+    it 'leaves credential handling to agent acquisition' do
+      ENV['EMPEIRA_AGENT_REPO_USERNAME'] = 'incomplete-user'
+      provider.run(request)
+      expect(store.load.dig('nodes', 'test-node', 'provisioned')).to be(true)
+    end
+
     it 'installs base packages, then the agent, then configures and runs Puppet' do
       events = []
-      installer = instance_double(Empeira::Node::AgentRepository)
-      allow(Empeira::Node::AgentRepository).to receive(:new).and_return(installer)
+      installer = instance_double(Empeira::Node::AgentInstallation)
+      allow(Empeira::Node::AgentInstallation).to receive(:new).and_return(installer)
       allow(installer).to receive(:install) { events << :agent }
       allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
         events << :base_packages if arguments.first == 'apt-get' && arguments.include?('git')
@@ -132,8 +135,8 @@ RSpec.describe Empeira::Node::Container do
     end
 
     it 'retains the node and never runs Puppet when agent installation fails' do
-      installer = instance_double(Empeira::Node::AgentRepository)
-      allow(Empeira::Node::AgentRepository).to receive(:new).and_return(installer)
+      installer = instance_double(Empeira::Node::AgentInstallation)
+      allow(Empeira::Node::AgentInstallation).to receive(:new).and_return(installer)
       allow(installer).to receive(:install).and_raise(Empeira::Error, 'repository authentication failed')
       expect(runtime).not_to receive(:stream_service)
       expect { provider.run(request) }.to raise_error(Empeira::Error, /repository authentication failed/)
@@ -143,8 +146,8 @@ RSpec.describe Empeira::Node::Container do
 
     it 'uses DNF after base package bootstrap on a Rocky container' do
       events = []
-      installer = instance_double(Empeira::Node::DnfAgentRepository, install: nil)
-      expect(Empeira::Node::DnfAgentRepository).to receive(:new).and_return(installer)
+      installer = instance_double(Empeira::Node::AgentInstallation, install: nil)
+      expect(Empeira::Node::AgentInstallation).to receive(:new).and_return(installer)
       expect(installer).to receive(:install) { events << :agent }
       allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
         events << :base_packages if arguments.first == 'dnf' && arguments.include?('git')

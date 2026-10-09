@@ -5,6 +5,10 @@ require_relative 'support/command_mock_guest'
 
 class VMRuntimeFixture < ServiceRuntime
   def check_available!; end
+
+  def architecture
+    'amd64'
+  end
 end
 
 RSpec.describe Empeira::Node::VM do

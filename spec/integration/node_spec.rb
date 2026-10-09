@@ -126,7 +126,8 @@ RSpec.describe 'Real container nodes', :integration do
         expect(version).to be_success
         expect(version.stdout).to eq("#{app.context.configuration.dig('agent', 'version')}#{source.fetch('suffix')}")
         [Empeira::Node::PackageProxy::DNF_PATH, Empeira::Node::DnfAgentRepository::REPO_PATH,
-         Empeira::Node::AgentRepository::CURL_CONFIG_PATH, '/var/tmp/empeira-agent-release.rpm'].each do |path|
+         "#{Empeira::Node::AgentPackage::PACKAGE_PATH}.rpm",
+         '/var/tmp/empeira-agent-signing-key-0', '/var/tmp/empeira-agent-release.rpm'].each do |path|
           expect(runtime.service_exec(resource, ['test', '!', '-e', path])).to be_success
         end
       end

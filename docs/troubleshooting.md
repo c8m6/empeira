@@ -77,9 +77,11 @@ If agent installation reports an unavailable package version, compare
 published by that source. The retained node can be inspected with `node shell`.
 For `method: package`, use the complete installed package version and verify
 its URL and SHA-256. A checksum mismatch stops before package installation.
-`401 Unauthorized` calls for both `EMPEIRA_AGENT_REPO_USERNAME` and
-`EMPEIRA_AGENT_REPO_PASSWORD`; `403 Forbidden` means access is denied and
-`404 Not Found` means a source or package is missing. A signature error calls
+Valid agent-cache hits need no network access or credentials. On a cache miss,
+a damaged artifact or with caching disabled, `401 Unauthorized` calls for both
+`EMPEIRA_AGENT_REPO_USERNAME` and `EMPEIRA_AGENT_REPO_PASSWORD`; `403 Forbidden`
+means access is denied and `404 Not Found` means a source or package is missing.
+A signature error calls
 for checking the configured signing key or RPM signature. Credentials do not
 belong in YAML. Failed APT/DNF restoration retains the node and prevents the
 first Puppet run and subsequent `node start` or `node puppet` operations. Existing
