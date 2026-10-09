@@ -108,6 +108,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `server.mounts` | Additional server-only host bind mounts, `[]`; `source`, `target`, optional boolean `readonly` (default `true`) |
 | `puppetdb.memory` | Positive integer MiB, `768` |
 | `network.egress` | Direct TCP proxy-bypass host/port entries, `[]`; a project array replaces the default array |
+| `network.redirects` | Exact external IPv4/TCP pairs redirected to enabled internal services, `[]` |
 | `proxy.enabled` | Boolean, `false`; creates the normal HTTP/HTTPS policy proxy |
 | `proxy.global` | DNS destination array, `[]` |
 | `proxy.rules` | Additive hostname-glob rules with `hosts` and `allow` arrays, `[]` |
@@ -653,6 +654,54 @@ network:
 Named direct destinations enter generated `NO_PROXY`; applications choose DIRECT
 or proxy themselves. See [networking](networking.md#one-gateway-one-direct-egress-policy)
 for routing, revocation and privilege boundaries.
+
+## Transparent TCP redirects
+
+Use `network.redirects` to exercise production Puppet/Hiera endpoints against a
+local service while preserving the original IP and port. For example, a PowerDNS
+API compatibility service can receive these two endpoints:
+
+```yaml
+network:
+  redirects:
+    - from:
+        ip: 192.0.2.8
+        port: 8080
+      to:
+        service: api-compat
+        port: 8081
+    - from:
+        ip: 192.0.2.9
+        port: 8080
+      to:
+        service: api-compat
+        port: 8081
+```
+
+Define `api-compat` under `containers.additional` using your test service image.
+The example IPs are documentation addresses; substitute the endpoints used by your
+Puppet code. `from` accepts only `ip` and `port`; `to` accepts only `service` and
+`port`. Both ports are integer TCP ports from 1 through 65535. Sources must be exact
+routable unicast IPv4 addresses outside the allocated workspace subnet. CIDRs,
+wildcards, duplicate source pairs, UDP, IPv6 and external target addresses are
+rejected. Service names are lowercase internal names, without `.empeira.internal`.
+Enabled control-plane application services and additional services are supported;
+nodes, the gateway, the browser UI relay and temporary bootstrap helpers are excluded.
+
+Run `empeira up` after edits. It resolves owned service addresses, replaces gateway
+policy and preserves existing nodes and the workspace network. Unknown/disabled
+targets fail validation. Temporarily absent targets stay blocked until the owned
+service is reconciled; unreachable target ports fail without contacting the external
+endpoint, even when that endpoint also has an explicit egress grant.
+
+Direct connections work from container/VM nodes, the Puppet server (including
+catalog compilation) and internal services. HTTP methods, paths, headers and bodies
+are unchanged. No DNS rewrite, egress grant, proxy exception or TLS termination is
+created. Explicit proxy users connect to the proxy first and remain subject to its
+allowlist; use the application's direct-connection settings when testing redirects,
+for example `curl --noproxy '*' http://192.0.2.8:8080/test`.
+See [redirect routing](networking.md#transparent-tcp-redirects) for connection
+revocation and runtime boundaries.
 
 ## Control-plane images and provenance
 

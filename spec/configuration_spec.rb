@@ -20,7 +20,7 @@ RSpec.describe Empeira::Configuration do
     expect(config['version']).to eq(1)
     expect(config['runtime']).to eq('container_engine' => 'podman')
     expect(config['modules']).to eq('path' => 'modules')
-    expect(config['network']).to eq('egress' => [])
+    expect(config['network']).to eq('egress' => [], 'redirects' => [])
     expect(config['node_defaults']).to include('memory' => 1024, 'cpus' => 2)
     expect(config['node_defaults']).not_to have_key('provider')
     expect(config['puppetdb']['enabled']).to be(true)
@@ -69,7 +69,7 @@ RSpec.describe Empeira::Configuration do
 
   it 'accepts and ignores the removed network.internet project key for compatibility' do
     write_config('network: {internet: false}')
-    expect(load_config.fetch('network')).to eq('egress' => [])
+    expect(load_config.fetch('network')).to eq('egress' => [], 'redirects' => [])
   end
 
   it 'does not permit arbitrary CLI configuration overrides' do

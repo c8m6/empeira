@@ -6,7 +6,7 @@ on:
       scope:
         description: Integration scope (full excludes accelerated VM suites)
         type: choice
-        options: [containers, services, nodes, network, images, lifecycle, mounts, development, node-tools, modules, update-plane, browser, vm, dns-nodes, shared-network, full]
+        options: [containers, services, nodes, network, images, lifecycle, mounts, development, node-tools, modules, update-plane, browser, vm, dns-nodes, redirect-nodes, shared-network, full]
         default: containers
       runtime:
         description: Container runtime to validate
@@ -20,7 +20,7 @@ permissions:
 jobs:
   integration:
     # VM jobs run only on a dedicated disposable host with verified acceleration.
-    runs-on: ${{ contains(fromJSON('["vm","dns-nodes","shared-network"]'), inputs.scope) && fromJSON('["self-hosted","linux","X64","empeira-vm"]') || fromJSON('["ubuntu-24.04"]') }}
+    runs-on: ${{ contains(fromJSON('["vm","dns-nodes","redirect-nodes","shared-network"]'), inputs.scope) && fromJSON('["self-hosted","linux","X64","empeira-vm"]') || fromJSON('["ubuntu-24.04"]') }}
     timeout-minutes: 120
     env:
       EMPEIRA_TEST_SCOPE: ${{ inputs.scope }}
@@ -35,7 +35,7 @@ jobs:
           ruby-version: '3.4'
           bundler-cache: true
       - name: Install hosted Podman prerequisites
-        if: inputs.runtime == 'podman' && !contains(fromJSON('["vm","dns-nodes","shared-network"]'), inputs.scope)
+        if: inputs.runtime == 'podman' && !contains(fromJSON('["vm","dns-nodes","redirect-nodes","shared-network"]'), inputs.scope)
         run: sudo apt-get update && sudo apt-get install -y podman netavark
       - name: Execute only the requested scope and runtime
         run: bundle exec ruby script/integration.rb

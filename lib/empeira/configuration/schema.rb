@@ -19,7 +19,7 @@ module Empeira
                       'environment' => :environment,
                       'memory' => :positive_integer, 'cpus' => :positive_integer, 'timeout' => :positive_integer },
         'puppetdb' => { 'enabled' => :boolean, 'memory' => :positive_integer, 'runtime' => :puppetdb_runtime },
-        'network' => { 'egress' => :network_egress },
+        'network' => { 'egress' => :network_egress, 'redirects' => :network_redirects },
         'proxy' => { 'enabled' => :boolean, 'global' => :allowlist, 'rules' => :proxy_rules },
         'vm' => { 'console' => { 'root_password' => :optional_string } },
         'dns' => { 'upstream' => { 'mode' => :dns_mode, 'servers' => :dns_servers },
@@ -178,6 +178,7 @@ module Empeira
           agent: AgentSchema.method(:validate!), bootstrap_guests: BootstrapGuests.method(:validate!),
           bootstrap_packages: Node::PackageBootstrap.method(:validate!),
           network_egress: Network::DirectEgress.method(:validate!),
+          network_redirects: NetworkRedirects.method(:validate!),
           server_runtime: Server::Runtime.method(:validate!),
           puppetdb_runtime: Server::PuppetDBRuntime.method(:validate!) }[rule]
       end

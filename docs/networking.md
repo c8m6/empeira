@@ -116,6 +116,61 @@ A separate authenticated /32-source-bound proxy installs packages. Cleanup resto
 package configuration, removes temporary access/credentials and activates final
 runtime policy before enrollment and Puppet. Failed bootstrap stays incomplete.
 
+## Transparent TCP redirects
+
+`network.redirects` maps exact original IPv4/TCP destination pairs to the current
+address/port of an owned internal application service. Multiple pairs may share a
+service. This supports fixed production endpoints such as PowerDNS APIs without
+changing Puppet/Hiera or implementing application logic in Empeira. Configuration
+and an example are in [configuration](configuration.md#transparent-tcp-redirects).
+
+Container nodes, Puppet/OpenVox Server and internal services already route external
+destinations through the workspace gateway. VM cloud-init installs the same default
+route, and peer adapters transport Ethernet without introducing another IP router.
+The browser UI relay and the gateway itself are infrastructure endpoints, outside
+this source/target contract. Source addresses inside the workspace subnet or in
+loopback, link-local, unspecified or multicast/reserved ranges are rejected because
+those paths would bypass normal gateway routing.
+
+The gateway applies exact DNAT in its private namespace. Since the destination and
+client share a subnet, it also SNATs redirected flows to its internal address so
+replies return through the same conntrack translation. The test service sees the
+gateway as its TCP client; the original client sees the configured external endpoint.
+TCP bytes are unchanged, including HTTP headers and bodies. TLS remains end to end
+and the application must validate the original endpoint's certificate as usual.
+This follows Netfilter's [same-network NAT guidance](https://www.netfilter.org/documentation/HOWTO/NAT-HOWTO-6.html).
+
+Filtering accepts only the configured original pair and the observed internal
+target pair in the appropriate direction. It drops other packets for that original
+pair before DNS/proxy/direct-egress grants, so a missing target never falls back to
+the external IP. Bootstrap nodes remain excluded. Target addresses come from the
+existing ownership-checked runtime discovery, with no additional inventory mapping.
+Before target recreation, the redirect is blocked; after services start, `up`
+refreshes the policy using their current addresses. A target that exits or refuses
+connections causes a connection failure. Removing a service still referenced by
+configuration fails validation; remove its redirect as part of the same edit.
+
+Reconciliation first installs DROP, installs changed NAT while forwarding is still
+blocked, then clears conntrack only inside the owned gateway namespace and activates
+the complete filter. Mapping changes therefore revoke old connections, including
+previous connections to the original external destination. This also interrupts
+other connections passing through that gateway; clients must reconnect. Identical
+NAT on repeated `up` preserves connection state. Any apply/capability failure leaves
+the gateway blocked/stopped. `status` checks complete filter/NAT rules and forwarding.
+No host conntrack, foreign firewall or target container configuration is changed.
+
+The same helper runs in the Linux engine for Docker, rootless Podman, Docker Desktop
+and Podman Machine; QEMU peers use the existing adapters. Runtime isolation and
+attachment requirements still apply. Custom `images.direct_egress` images must
+implement `redirects-capability` (`tcp-redirects-v1`), the redirect plan and conntrack
+invalidation; incompatible images fail explicitly. Native macOS requires execution
+of the platform gates before claiming validation.
+
+Redirects do not change DNS, proxy allowlists/environment, `NO_PROXY`, or bootstrap
+grants. An application explicitly using a proxy initially connects to that proxy;
+it still needs a proxy allowlist entry and receives no automatic direct exception.
+Use application-specific DIRECT settings or `curl --noproxy '*'` for direct tests.
+
 ## Runtime attachment and privilege boundary
 
 Normal Empeira operation requires no interactive sudo/root. One-time runtime,
@@ -141,7 +196,10 @@ Cross-workspace subnets, namespaces and bridge rules are distinct, but this shar
 network does not protect against a malicious privileged peer.
 
 The gateway recipe uses official Ruby/Alpine and distribution iproute2/iptables
-packages. Go/Ruby, image and package notices are preserved in built images; only
+and [conntrack-tools](https://www.netfilter.org/projects/conntrack-tools/)
+(Netfilter, GPL-2.0-or-later) packages. The connection tool is a separate executable
+in the owned helper, with no host installation or new Ruby dependency. Go/Ruby,
+image and package notices are preserved in built images; only
 project-owned source/recipes are shipped in Empeira. See
 [provenance](configuration.md#control-plane-images-and-provenance).
 

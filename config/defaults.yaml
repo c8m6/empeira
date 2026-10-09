@@ -48,6 +48,7 @@ puppetdb:
       data: /opt/puppetlabs/server/data/puppetdb
 network:
   egress: []
+  redirects: []
 proxy:
   enabled: false
   global: []

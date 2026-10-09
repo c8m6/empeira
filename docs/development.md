@@ -68,7 +68,7 @@ EMPEIRA_TEST_SCOPE=services EMPEIRA_REQUIRED_RUNTIMES=podman \
 | `containers` | Runtime contracts and real Ubuntu/RPM node lifecycle |
 | `services` | Control plane, exported resources, proxy policy, OpenVox View and generated service YAML |
 | `nodes` | Default OpenVox lifecycle and signed DNF installation |
-| `network` | Gateway allow/deny/revocation; Docker also exercises additional DNS resolvers and exact service rewrites |
+| `network` | Gateway allow/deny/revocation and transparent TCP redirects from a managed container and Puppet server; Docker also exercises DNS resolvers/rewrites |
 | `images` | Native metadata, immutable pins, reconciliation and synthetic registry authentication |
 | `lifecycle` | Isolated runtime smoke, Hiera/EYAML, SSH, ownership and cleanup |
 | `mounts` | Read-only/writable server mounts and selective reconciliation |
@@ -78,9 +78,10 @@ EMPEIRA_TEST_SCOPE=services EMPEIRA_REQUIRED_RUNTIMES=podman \
 | `update-plane` | Disposable helpers, artifact refresh and public Forge acquisition without infrastructure |
 | `browser` | Real Chromium UI, internal reachability and isolation |
 | `vm` | Accelerated VM lifecycle and proxy policy |
+| `redirect-nodes` | TCP redirects from existing container/accelerated VM nodes and Puppet server; preserved HTTP bytes, target recreation, connection revocation and external canary |
 | `dns-nodes` | DNS rewrite reload/removal with real container and accelerated VM nodes |
 | `shared-network` | Production container/VM TCP/UDP peer lifecycle |
-| `full` | All listed container scopes; excludes VM/dns-nodes/shared-network |
+| `full` | All listed container scopes; excludes VM/dns-nodes/redirect-nodes/shared-network |
 
 The `Manual runtime integration` workflow exposes these scopes through
 `workflow_dispatch`. It selects one engine and has no automatic or scheduled heavy
@@ -181,6 +182,21 @@ The last command is an explicit TCG test-artifact diagnostic, not evidence of
 accelerated product VM support. These proofs do not substitute for the production
 peer lifecycle gate. Test arbitrary TCP/UDP between providers, internal browser
 reachability, DNS, egress revocation, unchanged node identities and owned cleanup.
+
+The network scope includes real transparent redirect tests for both runtimes.
+The accelerated scope adds a managed QEMU VM to the same traffic assertions:
+
+```bash
+EMPEIRA_TEST_SCOPE=redirect-nodes EMPEIRA_REQUIRED_RUNTIMES=docker bundle exec ruby script/integration.rb
+EMPEIRA_TEST_SCOPE=redirect-nodes EMPEIRA_REQUIRED_RUNTIMES=podman bundle exec ruby script/integration.rb
+```
+
+It verifies DELETE/path/Host/custom header/body and a complete 64 KiB response,
+same-service hairpin connections, changed source/target ports, multiple sources,
+owned target recreation at a different IP, unchanged node/service identities,
+preserved connections on identical `up`, revoked established connections on removal,
+and zero requests to an external canary even with an overlapping egress grant.
+This manual scope requires KVM/HVF preflight and is excluded from `full` and normal CI.
 
 The Docker network scope includes real CoreDNS tests for exact DNS rewrites:
 

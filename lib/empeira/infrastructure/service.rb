@@ -138,6 +138,7 @@ module Empeira
           'subnet' => Network::Peer::Allocation.new(context: @context, runtime: runtime, runner: @runner).choose
         }
         @definition.network.allocation = @peer_network.fetch('subnet')
+        @definition.plan.validate_network_redirects!(subnet: @peer_network.fetch('subnet'))
       end
 
       def ensure_network(runtime, state, resource)

@@ -25,6 +25,7 @@ module Empeira
         load_state
         check_network_architecture!
         check_service_names!
+        @gateway_reconciling = true
         lockdown_existing_gateway
         prepare_files
         @progress.stage(20, 'Preparing persistent storage...')
@@ -39,11 +40,16 @@ module Empeira
         @plan.additional_services.each_key { |key| reconcile(key) }
         activate_dns
         prepare_browser
+        refresh_redirects
         @progress.stage(95, 'Verifying control plane...')
         finish_reconciliation
         @changed
+      rescue StandardError
+        lockdown_existing_gateway if @gateway_reconciling
+        raise
       ensure
         @desired_images = nil
+        @gateway_reconciling = false
       end
 
       # The browser lifecycle may change only the browser pair. Required workspace
@@ -153,6 +159,7 @@ module Empeira
         check_network_architecture!
         check_service_names!
         @plan.validate_dns_rewrites!
+        @plan.validate_network_redirects!
         @plan.module_request.warnings.each { |message| @progress.warning(message) }
         @plan.module_request.verify_available!
         lockdown_existing_gateway
@@ -201,10 +208,34 @@ module Empeira
       end
 
       def prepare_gateway_plan
+        @plan.validate_network_redirects!
         @gateway_plan = Network::Gateway.plan(state: @state, resolved: @direct_egress,
                                               additional: @plan.config.dig('dns', 'additional_resolver'),
+                                              redirects: resolved_redirects(existing_redirect_targets),
                                               **@dns_resolution)
         @plan.files.write('gateway.json', JSON.generate(@gateway_plan))
+      end
+
+      def existing_redirect_targets
+        definitions = @plan.definitions.slice(*@plan.config.dig('network', 'redirects').map do |entry|
+          entry.fetch('to').fetch('service')
+        end)
+        ids = definitions.to_h { |key, _| [key, recorded(key)] }
+        @runtime.inspect_services(definitions, expected_ids: ids)
+      end
+
+      def resolved_redirects(resources)
+        Network::Redirects.new(entries: @plan.config.dig('network', 'redirects'), network: @plan.network,
+                               subnet: @plan.subnet).resolve(definitions: @plan.definitions, resources: resources)
+      end
+
+      def refresh_redirects
+        redirects = resolved_redirects(@observed)
+        return if redirects == @gateway_plan.fetch('redirects')
+
+        @gateway_plan['redirects'] = redirects
+        @plan.files.write('gateway.json', JSON.generate(@gateway_plan))
+        apply_gateway_policy
       end
 
       def resolve_direct_egress
@@ -544,13 +575,29 @@ module Empeira
         end
         reconcile('gateway')
         gateway_command(@observed.fetch('gateway'), 'lockdown')
+        require_redirect_capability
         attach_gateway('gateway')
-        gateway_command(@observed.fetch('gateway'), 'apply', '/empeira-gateway/gateway.json')
-        record_gateway_policy
+        apply_gateway_policy
       rescue StandardError
         resource = @observed['gateway']
         @runtime.stop_service(resource) if resource
         raise
+      end
+
+      def require_redirect_capability
+        return if @plan.config.dig('network', 'redirects').empty?
+
+        result = @runtime.service_exec(@observed.fetch('gateway'),
+                                       [Network::Gateway::EXECUTABLE, 'redirects-capability'])
+        return if result.success? && result.stdout.strip == 'tcp-redirects-v1'
+
+        raise Error, 'Gateway does not support transparent IPv4/TCP redirects; configure a compatible ' \
+                     'images.direct_egress image'
+      end
+
+      def apply_gateway_policy
+        gateway_command(@observed.fetch('gateway'), 'apply', '/empeira-gateway/gateway.json')
+        record_gateway_policy
       end
 
       def record_gateway_policy

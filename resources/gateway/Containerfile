@@ -1,6 +1,6 @@
 ARG EMPEIRA_BASE_RUBY=library/ruby:3.4.11-alpine3.23
 FROM ${EMPEIRA_BASE_RUBY}
-RUN apk upgrade --no-cache && apk add --no-cache iproute2 iptables iptables-legacy
+RUN apk upgrade --no-cache && apk add --no-cache iproute2 iptables iptables-legacy conntrack-tools
 COPY configure.rb /usr/local/libexec/empeira-gateway
 COPY bridge.rb /usr/local/libexec/empeira-bridge
 RUN chmod 0755 /usr/local/libexec/empeira-gateway /usr/local/libexec/empeira-bridge

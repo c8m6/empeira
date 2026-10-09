@@ -247,6 +247,85 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(JSON.parse(File.read(path)).fetch('blocked')).to be_empty
   end
 
+  def redirect_configuration(ip: '192.0.2.8', source_port: 8080, service: 'api-compat', target_port: 8081)
+    { 'puppetdb' => { 'enabled' => false },
+      'containers' => { 'additional' => [{ 'name' => 'api-compat',
+                                           'image' => { 'repository' => 'fixture/api', 'tag' => 'test' } }] },
+      'network' => { 'redirects' => [{ 'from' => { 'ip' => ip, 'port' => source_port },
+                                       'to' => { 'service' => service, 'port' => target_port } }] } }
+  end
+
+  def gateway_configuration(config)
+    files = Empeira::ControlPlane::Files.new(context: context(config))
+    JSON.parse(File.read(files.path('gateway.json')))
+  end
+
+  it 'resolves redirects after service startup, reuses identities and remains idempotent' do
+    config = redirect_configuration
+    expect(mutate(controller(config), :up)).to be(true)
+    resource = runtime.services.fetch('api-compat')
+    network = Empeira::ControlPlane::Plan.new(context: context(config)).network
+    expect(gateway_configuration(config).fetch('redirects').first.fetch('to'))
+      .to eq('ip' => resource.dig('networks', network, 'IPAddress'), 'port' => 8081)
+    ids = runtime.services.transform_values { |service| service.fetch('id') }
+    fingerprint = @store.load.dig('control_plane', 'gateway_policy')
+    expect(mutate(controller(config), :up)).to be(false)
+    expect(runtime.services.transform_values { |service| service.fetch('id') }).to eq(ids)
+    expect(@store.load.dig('control_plane', 'gateway_policy')).to eq(fingerprint)
+    expect(@store.load.fetch('control_plane')).not_to have_key('redirects')
+    expect(@store.load.to_s).not_to include('192.0.2.8')
+  end
+
+  it 'reconciles source pairs, target services and ports, and removal without replacing other services' do
+    first = redirect_configuration
+    mutate(controller(first), :up)
+    ids = runtime.services.transform_values { |service| service.fetch('id') }
+    configurations = [redirect_configuration(ip: '192.0.2.9'), redirect_configuration(source_port: 8082),
+                      redirect_configuration(service: 'server', target_port: 8140),
+                      redirect_configuration(target_port: 8083)]
+    configurations.each do |config|
+      expect(mutate(controller(config), :up)).to be(true)
+      expect(gateway_configuration(config).fetch('redirects').first.fetch('from'))
+        .to eq(config.dig('network', 'redirects').first.fetch('from'))
+      expect(runtime.services.transform_values { |service| service.fetch('id') }).to eq(ids)
+    end
+    removed = first.merge('network' => { 'redirects' => [] })
+    expect(mutate(controller(removed), :up)).to be(true)
+    expect(gateway_configuration(removed).fetch('redirects')).to eq([])
+  end
+
+  it 'blocks stale targets before recreation and refreshes their observed addresses afterwards' do
+    config = redirect_configuration
+    mutate(controller(config), :up)
+    config['containers']['additional'][0]['environment'] = { 'REVISION' => 'next' }
+    applied = []
+    allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
+      applied << gateway_configuration(config).fetch('redirects') if arguments.include?('apply')
+      method.call(resource, arguments, **options)
+    end
+    mutate(controller(config), :up)
+    expect(applied.first.first.fetch('to')).to be_nil
+    expect(applied.last.first.fetch('to')).to include('port' => 8081)
+    expect(runtime.calls).to include([:remove, 'api-compat'])
+  end
+
+  it 'rejects invalid service names and reserved source addresses before images or creation' do
+    [redirect_configuration(service: 'absent'), redirect_configuration(ip: '172.20.0.3')].each do |config|
+      expect { mutate(controller(config), :up) }.to raise_error(Empeira::ConfigurationError, /network.redirects/)
+      expect(runtime.calls).to be_empty
+    end
+  end
+
+  it 'fails explicitly and stops an old custom gateway instead of silently ignoring redirects' do
+    allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
+      result = method.call(resource, arguments, **options)
+      arguments.include?('redirects-capability') ? result.with(stdout: '') : result
+    end
+    expect { mutate(controller(redirect_configuration), :up) }
+      .to raise_error(Empeira::Error, /Gateway does not support transparent/)
+    expect(runtime.services.fetch('gateway').fetch('state')).to eq('stopped')
+  end
+
   it 'rejects malformed persisted environment-cache checkpoints' do
     mutate(controller, :up)
     state = @store.load

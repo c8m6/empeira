@@ -89,6 +89,10 @@ module Empeira
         end
       end
 
+      def validate_network_redirects!(subnet: self.subnet)
+        Network::Redirects.validate!(config.dig('network', 'redirects'), definitions: definitions, subnet: subnet)
+      end
+
       def bind(source, target, readonly: true)
         raise ConfigurationError, 'Mount paths must not contain commas or newlines' if source.to_s.match?(/[,\r\n]/)
 
