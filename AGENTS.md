@@ -168,10 +168,11 @@ destination policy. Never flush host/engine firewall tables or modify foreign ru
 Normal proxy access uses `proxy.enabled`, with the union of `proxy.global` and every
 matching `proxy.rules[].allow`. Match normalized full hostnames using `*`/`?` globs.
 All workspace nodes are clients when enabled; destinations remain allowlisted.
-Preserve private/metadata-address denial and HTTP/HTTPS-only behavior. Authenticated,
-source-bound bootstrap access is separate and temporary. DNS uses host/corporate
-resolvers with no hard-coded public fallback. Internal names remain authoritative;
-an optional additional resolver falls through on NXDOMAIN/NODATA.
+Allowlisted normal proxy destinations are reachable regardless of target IP range;
+preserve HTTP/HTTPS-only behavior. Authenticated, source-bound bootstrap access is
+separate and temporary and retains its private/reserved-address restrictions. DNS
+uses host/corporate resolvers with no hard-coded public fallback. Internal names
+remain authoritative; an optional additional resolver falls through on NXDOMAIN/NODATA.
 
 The shared lab is cooperative, not an adversarial tenant boundary. PuppetDB HTTP
 is unauthenticated inside the isolated network, never host-published. Normal

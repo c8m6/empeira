@@ -5,6 +5,7 @@ module Empeira
     class ProxyPolicy
       LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?'
       DOMAIN = /\A(?:\*\.)?#{LABEL}(?:\.#{LABEL})+\z/
+      # Destination IP restrictions apply only to the authenticated bootstrap proxy.
       IPV4_FORBIDDEN = %w[0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16
                           172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4].freeze
       # Squid normalizes mapped addresses to IPv4 before interpreting the prefix.
@@ -31,10 +32,10 @@ module Empeira
           client_rule, 'http_access deny !clients',
           'request_header_access Proxy-Authorization deny all',
           'acl SSL_ports port 443', 'acl Safe_ports port 80 443', 'acl CONNECT method CONNECT',
-          "acl forbidden dst #{FORBIDDEN}", 'http_access deny !Safe_ports',
-          'http_access deny CONNECT !SSL_ports', 'http_access deny forbidden',
+          ("acl forbidden dst #{FORBIDDEN}" if @authorization), 'http_access deny !Safe_ports',
+          'http_access deny CONNECT !SSL_ports', ('http_access deny forbidden' if @authorization),
           *destination_rules, 'http_access deny all', ''
-        ].join("\n")
+        ].compact.join("\n")
       end
 
       def self.domain_rules(domains, name: 'permitted', condition: nil)

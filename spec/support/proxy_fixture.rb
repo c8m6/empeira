@@ -2,7 +2,7 @@
 
 require 'openssl'
 
-# Dedicated synthetic upstream on an RFC 2544 benchmarking subnet.
+# Dedicated synthetic upstream on a private RFC 1918 subnet.
 # No public Internet service or production certificate participates in these tests.
 class ProxyFixture
   attr_reader :dns_address, :ca_path
@@ -12,7 +12,7 @@ class ProxyFixture
     @runtime = runtime
     @directory = Pathname.new(directory).join('proxy-fixture')
     FileUtils.mkdir_p(@directory)
-    @subnet = "198.18.#{SecureRandom.random_number(240) + 1}"
+    @subnet = "10.254.#{SecureRandom.random_number(240) + 1}"
     @dns_address = "#{@subnet}.3"
     @egress = Empeira::Network::Egress.new(workspace: app.context.workspace, policy: Empeira::Network::Policy.new)
     @resources = []
@@ -85,8 +85,7 @@ class ProxyFixture
                                             .resolve('mode' => 'host', 'servers' => [])
     File.write(@directory.join('Corefile'), ".:53 {\n hosts /fixture/hosts {\n  fallthrough\n }\n " \
                                             "forward . #{resolvers.join(' ')}\n}\n")
-    File.write(@directory.join('hosts'),
-               "#{@subnet}.2 allowed.test denied.test\n127.0.0.1 private.test\n169.254.169.254 metadata.test\n")
+    File.write(@directory.join('hosts'), "#{@subnet}.2 allowed.test denied.test private.test\n")
     File.write(@directory.join('server.rb'), server_code)
   end
 

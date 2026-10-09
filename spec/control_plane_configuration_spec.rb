@@ -103,12 +103,22 @@ RSpec.describe 'Control-plane configuration and service contracts' do
     policy = Empeira::Network::ProxyPolicy.new(config).configuration +
              Empeira::Network::ProxyPolicy.domain_rules(config.fetch('global')).join("\n")
     expect(policy).to include('dstdomain -n example.org .example.net', 'http_access deny CONNECT !SSL_ports',
-                              'http_access deny forbidden')
+                              'acl Safe_ports port 80 443', 'http_access deny !Safe_ports',
+                              'acl clients src "/empeira-proxy/proxy-clients"', 'http_access deny !clients',
+                              'request_header_access Proxy-Authorization deny all')
     expect(Empeira::Network::ProxyPolicy.new(config).configuration.lines.last).to eq("http_access deny all\n")
-    expect(policy).not_to include('ssl_bump')
+    expect(policy).not_to include('ssl_bump', 'forbidden')
+    Empeira::Network::ProxyPolicy::FORBIDDEN.split.each do |range|
+      expect(policy).not_to include(range)
+    end
   end
 
-  it 'blocks private IPv4 destinations and their mapped IPv6 forms without blocking every IPv4 destination' do
+  it 'retains private IPv4, IPv6 and mapped-address restrictions exclusively for authenticated bootstrap' do
+    policy = Empeira::Network::ProxyPolicy.new({ 'global' => ['example.test'] },
+                                               authorization: 'synthetic-token').configuration
+    expect(policy).to include("acl forbidden dst #{Empeira::Network::ProxyPolicy::FORBIDDEN}",
+                              'http_access deny forbidden', 'http_access deny !clients',
+                              'http_access deny !Safe_ports', 'http_access deny CONNECT !SSL_ports')
     ranges = Empeira::Network::ProxyPolicy::FORBIDDEN.split.map do |value|
       address, prefix = value.split('/')
       IPAddr.new("#{IPAddr.new(address).native}/#{prefix}")
@@ -117,6 +127,9 @@ RSpec.describe 'Control-plane configuration and service contracts' do
       [address, "::ffff:#{address}"].each do |form|
         expect(ranges.any? { |range| range.include?(IPAddr.new(form).native) }).to be(true)
       end
+    end
+    %w[:: ::1 fc00::1 fe80::1].each do |address|
+      expect(ranges.any? { |range| range.include?(IPAddr.new(address)) }).to be(true)
     end
     expect(ranges.any? { |range| range.include?(IPAddr.new('::ffff:198.18.121.2').native) }).to be(false)
   end
