@@ -39,11 +39,19 @@ RSpec.describe Empeira::Node::RuntimeProxy do
   it 'preserves internal and explicit direct-egress bypasses in all managed process environments' do
     File.write(File.join(@directory, '.empeira.yaml'),
                YAML.dump('proxy' => { 'enabled' => true },
-                         'network' => { 'egress' => [{ 'host' => 'direct.example', 'ports' => [80] }] }))
+                         'network' => { 'egress' => [{ 'host' => 'direct.example', 'ports' => [80] },
+                                                     { 'ip' => '192.0.2.20', 'ports' => [443] }] }))
     command = described_class.command(context, ['puppet'])
     expect(command).to include('HTTP_PROXY=http://proxy.empeira.internal:3128',
                                'https_proxy=http://proxy.empeira.internal:3128')
-    expect(command.find { |entry| entry.start_with?('NO_PROXY=') }).to include('.empeira.internal', 'direct.example')
+    expect(command.find { |entry| entry.start_with?('NO_PROXY=') })
+      .to include('.empeira.internal', 'direct.example', '192.0.2.20')
+    record = {}
+    execute = ->(arguments) { runtime_proxy_result(arguments, 'direct-node') }
+    proxy = described_class.new(context: context, record: record, execute: execute, persist: -> {})
+    expect(proxy.reconcile).to be(true)
+    expect(record.dig('runtime_proxy', 'current', 'direct')).to include('direct.example', '192.0.2.20')
+    expect(described_class.valid_inventory?(record.fetch('runtime_proxy'))).to be(true)
   end
 end
 

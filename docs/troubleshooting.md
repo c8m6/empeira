@@ -99,6 +99,10 @@ the tested guest policy there or explicitly recreate the disposable VM. Empeira
 does not recreate a removed account, inject keys or reset console passwords.
 Layout version 1 retains its original regular account and `/home/empeira` home.
 
+VM creation failures retain the original diagnostic and add the retained node's
+cleanup command. Inspect the underlying failure first; an incomplete VM requires
+explicit node destruction and recreation after the cause is corrected.
+
 For a container, shell is runtime exec. For a VM, it is the serial console and
 works with SSH stopped. Press Enter, then use the current console credentials.
 The initial default is `root` / `empeira`, unless disabled/overridden or changed by

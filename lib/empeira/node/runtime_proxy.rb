@@ -65,7 +65,7 @@ module Empeira
         internal = naming.reserved(@context.configuration).flat_map { |name| naming.aliases(name) }
         { 'url' => environment.fetch('http_proxy'), 'no_proxy' => environment.fetch('no_proxy'),
           'direct' => ['localhost', '127.0.0.1', *internal,
-                       *@context.configuration.dig('network', 'egress').map { |entry| entry.fetch('host') }].uniq }
+                       *Network::DirectEgress.destinations(@context.configuration.dig('network', 'egress'))].uniq }
       end
 
       def execute(desired, previous)

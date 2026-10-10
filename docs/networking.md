@@ -126,6 +126,8 @@ regardless of target IP range; the temporary authenticated bootstrap proxy retai
 its separate private/reserved-address restrictions.
 `proxy.global` does not grant direct egress. Applications choose DIRECT/proxy using
 their own settings and `NO_PROXY`; direct/proxy selection has no automatic fallback.
+Both explicit hostnames and IPv4 selectors from `network.egress` are included in
+normal proxy bypass settings. The gateway still permits only their configured TCP ports.
 See [proxy policy](proxy.md) for hostname rules and bootstrap destinations.
 
 During bootstrap, a node is excluded from direct egress and normal proxy bindings.

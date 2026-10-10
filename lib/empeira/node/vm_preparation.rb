@@ -34,8 +34,8 @@ module Empeira
         raise error unless @created_vm
 
         name = @created_vm.fetch('hostname')
-        raise error.class, "#{error.message}\nVM #{name} retained for diagnosis. Cleanup: empeira node destroy #{name}",
-              cause: nil
+        message = "#{error.message}\nVM #{name} retained for diagnosis. Cleanup: empeira node destroy #{name}"
+        raise error.exception(message), cause: error
       end
 
       def prepare_vm_disk(request, image, accelerator)

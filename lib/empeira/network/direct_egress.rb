@@ -38,6 +38,12 @@ module Empeira
         raise ConfigurationError, "#{path} must be a host array (legacy mode accepts only none or proxy)"
       end
 
+      def destinations(value)
+        return [] unless value.is_a?(Array)
+
+        value.map { |entry| entry.fetch('host') { entry.fetch('ip') } }
+      end
+
       def validate_entry!(entry, path)
         unless entry.is_a?(Hash) && [%w[host ports], %w[ip ports]].include?(entry.keys.sort)
           raise ConfigurationError, "#{path} must contain ports and exactly one of host or ip"

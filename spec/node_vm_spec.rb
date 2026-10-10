@@ -96,6 +96,38 @@ RSpec.describe Empeira::Node::VM do
     provider.run(request)
   end
 
+  it 'creates a VM with normal proxy enabled and an explicit IPv4 direct-egress destination' do
+    File.write(File.join(@directory, '.empeira.yaml'),
+               YAML.dump('proxy' => { 'enabled' => true },
+                         'network' => { 'egress' => [{ 'ip' => '192.0.2.20', 'ports' => [443] }] }))
+    context = app.context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
+    store.with_lock { Empeira::ControlPlane::Controller.new(context: context, runtime: runtime, store: store).up }
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: context, runner: app.runner, backend: engine, runtime: runtime)
+    expect(provider.run(request).changed).to be(true)
+    expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(true)
+    expect(store.load.dig('nodes', 'vm-host', 'runtime_proxy', 'current', 'direct')).to include('192.0.2.20')
+  end
+
+  it 'preserves unexpected error metadata and its original backtrace when retaining a VM' do
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+    original = nil
+    allow(provider.instance_variable_get(:@agent)).to receive(:ensure_installed) do
+      {}.fetch('synthetic-missing-key')
+    rescue KeyError => e
+      original = e
+      raise
+    end
+    expect { provider.run(request) }.to raise_error(KeyError) { |error|
+      expect(error.key).to eq('synthetic-missing-key')
+      expect(error.backtrace.first).to eq(original.backtrace.first)
+      expect(error.cause).to eq(original)
+      expect(error.message).to include('retained for diagnosis', 'empeira node destroy vm-host')
+    }
+    expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(false)
+  end
+
   context 'with VM interface rules' do
     let(:devices) { { 'ens192' => { 'network' => '192.0.2.10/32', 'vlan_id' => 123 } } }
     let(:network_guest) { VMNetworkGuest.new }
