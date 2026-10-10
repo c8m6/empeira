@@ -82,6 +82,7 @@ RSpec.describe 'Real node runtime management', :integration do
       app.infrastructure.up
       expect(guest(%w[apt-get update])).to be_success
       expect(record.slice('id', 'peer', 'overlay')).to eq(identity.slice('id', 'peer', 'overlay'))
+      verify_separate_vm_ssh if provider == 'vm'
     end
   end
 
@@ -105,6 +106,84 @@ RSpec.describe 'Real node runtime management', :integration do
   def management_ssh
     cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
     Empeira::VM::SSH.new(context: app.context, runner: app.runner, cloud_init: cloud)
+  end
+
+  # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Follow both real SSH daemons across Puppet and reboot.
+  def verify_separate_vm_ssh
+    expect(record.fetch('ssh_layout')).to eq(Empeira::VM::Management::VERSION)
+    expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
+    expect(guest(%w[systemctl is-active ssh.service])).to be_success
+    original = File.read(File.join(project, 'manifests/site.pp'))
+    system_config = "Port 2222\nListenAddress #{record.fetch('peer').fetch('ip')}\n" \
+                    "HostKey /etc/ssh/ssh_host_ed25519_key\nUsePAM yes\nPasswordAuthentication no\n" \
+                    "KbdInteractiveAuthentication no\nPermitRootLogin no\nSubsystem sftp internal-sftp\n"
+    manifest = <<~PUPPET
+      #{original}
+      service { 'ssh.socket': ensure => stopped, enable => false,
+        before => File['/etc/systemd/system/ssh.service'] }
+      file { '/etc/systemd/system/ssh.service':
+        ensure => file, owner => 'root', group => 'root', mode => '0644',
+        content => '[Unit]
+      Description=Puppet-managed system SSH
+      After=network.target
+      [Service]
+      Type=simple
+      RuntimeDirectory=sshd
+      RuntimeDirectoryMode=0755
+      ExecStartPre=/usr/sbin/sshd -t -f /etc/ssh/sshd_config
+      ExecStart=/usr/sbin/sshd -D -e -f /etc/ssh/sshd_config
+      KillMode=control-group
+      [Install]
+      WantedBy=multi-user.target
+      ', notify => Exec['reload-system-sshd-unit'],
+      }
+      exec { 'reload-system-sshd-unit': command => '/bin/systemctl daemon-reload',
+        refreshonly => true, before => File['/etc/ssh/sshd_config'] }
+      file { '/etc/ssh/sshd_config':
+        ensure => file, owner => 'root', group => 'root', mode => '0644',
+        content => '#{system_config}', notify => Service['ssh'],
+      }
+      service { 'ssh': ensure => running, enable => true }
+    PUPPET
+    File.write(File.join(project, 'manifests/site.pp'), manifest)
+    expect(app.nodes.puppet(name: hostname).exit_status).to eq(2)
+    result, output, error = access_session(app, name: hostname, operation: :ssh, port: 2222,
+                                                user: @login.username, identity: @login.identity.to_s)
+    expect(result.exit_status).to eq(7), error
+    expect(output).to include(@login.username)
+    expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
+    restarted = manifest.sub('Subsystem sftp internal-sftp', "Subsystem sftp internal-sftp\n# Puppet restart probe")
+    File.write(File.join(project, 'manifests/site.pp'), restarted)
+    expect(app.nodes.puppet(name: hostname).exit_status).to eq(2)
+    expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
+    manifest = restarted
+    manifest = manifest.sub("service { 'ssh': ensure => running, enable => true }",
+                            "service { 'ssh': ensure => stopped, enable => false }")
+    File.write(File.join(project, 'manifests/site.pp'), manifest)
+    expect(app.nodes.puppet(name: hostname).exit_status).to eq(2)
+    result, = access_session(app, name: hostname, operation: :ssh, port: 2222,
+                                  user: @login.username, identity: @login.identity.to_s)
+    expect(result.exit_status).not_to eq(0)
+    expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
+    app.nodes.stop(name: hostname)
+    app.nodes.start(name: hostname)
+    expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
+    expect(guest(%w[systemctl is-enabled empeira-management-ssh.service])).to be_success
+    expect(guest(%w[systemctl is-active ssh.service])).not_to be_success
+    expect(guest(%w[systemctl is-enabled ssh.service])).not_to be_success
+    wait_for_puppet_idle
+    expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
+  end
+
+  def wait_for_puppet_idle
+    lock = guest([Empeira::Node::Certificates::PUPPET, 'config', 'print', 'agent_catalog_run_lock']).stdout.strip
+    Timeout.timeout(180) do
+      loop do
+        return if guest(['test', '!', '-e', lock]).success?
+
+        sleep 1
+      end
+    end
   end
 
   # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Check root/user and provider interactive transports together.

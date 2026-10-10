@@ -359,7 +359,7 @@ RSpec.describe Empeira::Node::VM do
       path
     end
     allow(Empeira::VM::CloudInit).to receive(:new).and_return(cloud)
-    ssh = instance_double(Empeira::VM::SSH, wait: nil)
+    ssh = instance_double(Empeira::VM::SSH, wait: nil, system_proxy_command: nil)
     success = Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
     allow(ssh).to receive(:run) do |record, arguments, **|
       proxy_result = runtime_proxy_result(arguments, record.fetch('hostname'))

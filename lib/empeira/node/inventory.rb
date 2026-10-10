@@ -42,7 +42,12 @@ module Empeira
       def self.valid_vm?(name, record)
         valid_vm_image?(record['base_image']) && valid_vm_process?(record) &&
           valid_vm_network?(name, record) && valid_vm_metadata?(record) &&
+          valid_vm_ssh_layout?(record) &&
           (!record.key?('network_interfaces') || ::Empeira::VM::Interfaces.valid_inventory?(record['network_interfaces']))
+      end
+
+      def self.valid_vm_ssh_layout?(record)
+        !record.key?('ssh_layout') || record['ssh_layout'] == 1
       end
 
       def self.valid_vm_image?(image)

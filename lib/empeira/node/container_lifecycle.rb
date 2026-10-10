@@ -2,6 +2,7 @@
 
 module Empeira
   module Node
+    # rubocop:disable-next Metrics/ModuleLength -- Provider lifecycle operations share one ownership boundary.
     module ContainerLifecycle
       def start(name:)
         mutate do
@@ -57,15 +58,22 @@ module Empeira
         end
       end
 
-      def ssh(name:, user: nil, identity: nil)
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Verify the owned endpoint before selecting a guest tunnel.
+      def ssh(name:, user: nil, identity: nil, port: nil)
         mutate do
+          port = Configuration::SSHPreferences.port!(port || 22)
           record = fetch(name)
           resource = running(record)
           unless record['ssh_host'] && record['ssh_port']
             raise Error, 'Node has no managed SSH endpoint; destroy and recreate it with the current Empeira image'
           end
 
-          proxy = @runtime.ssh_proxy_command(resource) if record['ssh_transport'] == 'tunnel'
+          proxy = if port != 22
+                    @runtime.ssh_proxy_command(resource, port: port)
+                  elsif record['ssh_transport'] == 'tunnel'
+                    @runtime.ssh_proxy_command(resource)
+                  end
+          record = record.merge('ssh_port' => port) if port != 22
           UserSSH.new(runner: @runner, credentials: ssh_credentials(record.fetch('hostname')),
                       proxy_command: proxy, home: context.locations.home).session(
                         record, user: user, identity: identity

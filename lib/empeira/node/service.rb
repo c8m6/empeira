@@ -27,9 +27,9 @@ module Empeira
         end
       end
 
-      def ssh(name:, user: nil, identity: nil)
+      def ssh(name:, user: nil, identity: nil, port: nil)
         record = Infrastructure::Store.new(context: @context).load&.dig('nodes', name.downcase)
-        options = @ssh_preferences.resolve(hostname: name, user: user, identity: identity)
+        options = @ssh_preferences.resolve(hostname: name, user: user, identity: identity, port: port)
         provider(record&.fetch('provider') || 'container').ssh(name: name, **options)
       end
 

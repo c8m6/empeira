@@ -84,6 +84,15 @@ Its startup fragments apply only to interactive Bash, with a small owned block
 in the distribution's global initializer. Personal dotfiles and non-interactive
 process environments stay under their existing owners.
 
+Versioned VM SSH layouts keep existing nodes compatible without migrating their
+keys or accounts. New nodes seed an independent management daemon through Cloud-Init,
+with private configuration, keys, runtime and service state. Every managed command
+verifies this boundary, then enters the guest's normal mount namespace. The user
+system SSH adapter reaches the guest's peer IP through a narrowly allowed management
+forward. Personal user/key/port resolution happens only in the public `node ssh`
+path. Existing peer adapters, ownership checks, session guards and network policy
+remain responsible for their original boundaries.
+
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle
 operations return `changed: false`; absent start/stop and ownership conflicts fail.

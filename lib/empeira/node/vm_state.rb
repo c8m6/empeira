@@ -125,7 +125,8 @@ module Empeira
           'architecture' => context.platform.architecture.to_s, 'base_image' => identity.to_h,
           'overlay' => "vms/#{name}/disk.qcow2", 'network' => @state.dig('resources', 'network', 'logical_identity'),
           'mac_address' => vm_mac(name),
-          'peer' => peer_lease, 'ssh_port' => @peer.management_port, 'pid' => nil,
+          'peer' => peer_lease, 'ssh_port' => @peer.management_port,
+          'ssh_layout' => ::Empeira::VM::Management::VERSION, 'pid' => nil,
           'network_phase' => 'bootstrap', 'state' => 'preparing', 'provisioned' => false,
           'certificate_key' => nil, 'last_puppet_exit' => nil,
           'created_at' => Time.now.utc.iso8601

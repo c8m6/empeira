@@ -6,6 +6,7 @@ require 'shellwords'
 module Empeira
   module VM
     # Internal management transport for provisioning and Puppet operations.
+    # rubocop:disable-next Metrics/ClassLength -- Completion, upload cleanup and transport checks form one SSH boundary.
     class SSH
       class TransportError < Error
         attr_reader :timed_out
@@ -32,7 +33,7 @@ module Empeira
 
       def run(record, arguments, timeout: 30)
         marker = "EMPEIRA_GUEST_EXIT_#{SecureRandom.hex(16)}"
-        command = "#{Shellwords.join(['sudo', '-n', *arguments])}; empeira_guest_status=$?; " \
+        command = "#{guest_command(record, arguments)}; empeira_guest_status=$?; " \
                   "printf '\\n#{marker}:%s\\n' \"$empeira_guest_status\" >&2; exit 0"
         result = @runner.run(binary('ssh'), arguments: [*options(record), 'empeira@127.0.0.1', command],
                                             timeout: timeout)
@@ -40,12 +41,14 @@ module Empeira
       end
 
       def stream(record, arguments)
-        command = Shellwords.join(['sudo', '-n', *arguments])
+        command = guest_command(record, arguments)
         @runner.stream(binary('ssh'), arguments: [*options(record), 'empeira@127.0.0.1', command])
       end
 
       def copy_to(record, source, destination, mode: '0644')
-        temporary = "/home/empeira/.empeira-copy-#{SecureRandom.hex(8)}"
+        verify_result!(run(record, ['true']), 'Management SSH is unavailable before upload', 'ssh') if
+          Management.separate?(record)
+        temporary = "#{Management.home(record)}/.empeira-copy-#{SecureRandom.hex(8)}"
         transfer = @runner.run(binary('scp'), arguments: [*scp_options(record), source.to_s,
                                                           "empeira@127.0.0.1:#{temporary}"], timeout: 30)
         verify_result!(transfer, 'Cannot copy a file into the VM', 'scp')
@@ -57,6 +60,12 @@ module Empeira
           cleanup = run(record, ['rm', '-f', '--', temporary])
           verify_result!(cleanup, 'Cannot verify VM upload staging cleanup; VM retained for diagnosis', 'rm')
         end
+      end
+
+      def system_proxy_command(record, port:)
+        Configuration::SSHPreferences.port!(port)
+        verify_result!(run(record, ['true']), 'VM management SSH is unavailable for the system SSH tunnel', 'ssh')
+        [binary('ssh'), *options(record), '-W', "#{record.fetch('peer').fetch('ip')}:#{port}", 'empeira@127.0.0.1']
       end
 
       def wait(record, progress: nil, seconds: 300)
@@ -82,6 +91,13 @@ module Empeira
       end
 
       private
+
+      def guest_command(record, arguments)
+        return Shellwords.join(['sudo', '-n', *arguments]) unless Management.separate?(record)
+
+        "#{Shellwords.join(['sudo', '-n', Management::CHECK])} && " \
+          "#{Shellwords.join(['sudo', '-n', 'nsenter', '--target', '1', '--mount', '--', *arguments])}"
+      end
 
       def command_result(result, marker, operation)
         raise transport_error(result, operation), cause: nil unless result.success?
@@ -109,7 +125,8 @@ module Empeira
                     result.stderr.match?(/connection (?:reset|closed|refused|timed out)|broken pipe/i) &&
                     !result.stderr.match?(/permission denied|host key|host identification|authentication/i)
         details = Execution::Diagnostics.command(result, operation: "VM guest #{operation}", tool: 'ssh')
-        TransportError.new("SSH transport failed; guest command completion is unknown\n#{details}",
+        TransportError.new('Management SSH transport failed; guest command completion is unknown; ' \
+                           "inspect management service/account through node shell or serial logs\n#{details}",
                            transient: transient, timed_out: result.timed_out)
       end
 
@@ -122,7 +139,8 @@ module Empeira
 
       def client(record)
         credentials = Node::SSHCredentials.new(context: @context, runner: @runner, provider: 'vm',
-                                               hostname: record.fetch('hostname'))
+                                               hostname: record.fetch('hostname'),
+                                               purpose: Management.separate?(record) ? :management : nil)
         backend = Network::Peer::Backend.build(context: @context, runner: @runner, runtime: nil, store: nil)
         Node::SSHClient.new(runner: @runner, credentials: credentials, user: 'empeira',
                             proxy_command: backend.ssh_command(record))

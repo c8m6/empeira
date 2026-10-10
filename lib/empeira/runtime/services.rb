@@ -65,9 +65,9 @@ module Empeira
         service_command(['stop', '--time', '20', resource.fetch('id')], operation: 'node stop', timeout: 40)
       end
 
-      def ssh_proxy_command(resource)
+      def ssh_proxy_command(resource, port: nil)
         helper = Pathname(__dir__).join('../../../resources/nodes/ssh/proxy.rb').realpath
-        [RbConfig.ruby, helper.to_s, name, resource.fetch('id')]
+        [RbConfig.ruby, helper.to_s, name, resource.fetch('id'), *(port ? [port.to_s] : [])]
       end
 
       def stream_service(resource, arguments, interactive: false, logs: false)

@@ -16,8 +16,8 @@ class NodeRuntimeFixture < ServiceRuntime
     architecture
   end
 
-  def ssh_proxy_command(resource)
-    ['ruby', 'managed-ssh-proxy', 'docker', resource.fetch('id')]
+  def ssh_proxy_command(resource, port: nil)
+    ['ruby', 'managed-ssh-proxy', 'docker', resource.fetch('id'), *(port ? [port.to_s] : [])]
   end
 
   def stop_service(resource)
@@ -339,6 +339,20 @@ RSpec.describe Empeira::Node::Container do
     provider.destroy(name: 'test-node')
     path = app.context.locations.workspace(app.context.workspace).join('containers', 'test-node')
     expect(path).not_to exist
+  end
+
+  it 'selects an explicit guest SSH port through the owned byte tunnel without changing inventory or publication' do
+    provider.run(request)
+    record = store.load.fetch('nodes').fetch('test-node')
+    expect(runtime).to receive(:ssh_proxy_command).with(hash_including('id' => record['id']), port: 2222)
+                                                  .and_call_original
+    client = instance_double(Empeira::Node::UserSSH)
+    allow(Empeira::Node::UserSSH).to receive(:new).with(
+      hash_including(proxy_command: ['ruby', 'managed-ssh-proxy', 'docker', record['id'], '2222'])
+    ).and_return(client)
+    expect(client).to receive(:session).with(hash_including('ssh_port' => 2222), user: nil, identity: nil)
+    provider.ssh(name: 'test-node', port: 2222)
+    expect(store.load.fetch('nodes').fetch('test-node')).to eq(record)
   end
 
   it 'keeps failed Puppet results separate from running container state' do

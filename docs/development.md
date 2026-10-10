@@ -34,6 +34,12 @@ files, covering login/non-login behavior, PATH preservation, duplicate preventio
 and ownership failures. The manual runtime management gate also checks installed
 agent commands on retained guests after restart.
 
+The same manual gate tests dedicated VM management SSH while Puppet changes the
+system daemon port, restarts it and disables it. It checks real `node ssh --port`,
+the failed system login, continued managed Puppet operations and retained service
+states after VM restart. Management/system credentials and legacy layouts have
+deterministic coverage in `spec/vm_management_spec.rb`.
+
 For workflow changes, parse `.github/workflows/*.yml` and run `actionlint` when
 available. Review action pins, triggers and permissions as well as YAML syntax.
 See [contributing](../CONTRIBUTING.md) for review, commit and label conventions.

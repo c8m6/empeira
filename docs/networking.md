@@ -66,6 +66,13 @@ have no control-code mount or credentials; identity, definition and checksum are
 verified. The VM management NIC has restricted loopback SSH only, separate from
 peer application traffic, DNS and Puppet.
 
+New VM layouts forward this same private endpoint to the dedicated management
+daemon on 10.0.2.15:22222. System SSH uses a key-authenticated management tunnel
+restricted to the VM's own peer IPv4 and selected guest port. There is no additional
+host publication or network adapter. Management credentials and host keys are
+independent of system SSH and personal preferences; legacy VMs retain their original
+forward to port 22. See [SSH layouts and recovery](nodes.md#shell-and-ssh).
+
 The CLI host and engine may have different filesystems. Control/Hiera directories,
 server mounts and state must be visible at their canonical paths. Mount probes
 inspect visibility without writing markers. Remote-engine path translation is not

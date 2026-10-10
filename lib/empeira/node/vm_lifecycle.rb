@@ -68,15 +68,10 @@ module Empeira
         interactive_vm(name) { |record| @qemu.console(record) }
       end
 
-      def ssh(name:, user: nil, identity: nil)
+      def ssh(name:, user: nil, identity: nil, port: nil)
         interactive_vm(name) do |record|
-          credentials = SSHCredentials.new(context: context, runner: @runner, provider: 'vm',
-                                           hostname: record.fetch('hostname'))
-          UserSSH.new(runner: @runner, credentials: credentials, proxy_command: @peer.ssh_command(record),
-                      default_user: ::Empeira::VM::CloudInit::USER, managed_identity: true,
-                      home: context.locations.home).session(
-                        record, user: user, identity: identity
-                      )
+          ::Empeira::VM::SystemSSH.new(context: context, runner: @runner, management: @ssh, peer: @peer)
+                                  .session(record, user: user, identity: identity, port: port)
         end
       end
 

@@ -18,12 +18,24 @@ module Empeira
         end
       end
 
-      desc 'ssh HOSTNAME', 'Open guest SSH (VM: managed login; container: local user authentication)'
+      desc 'ssh HOSTNAME', 'Open system SSH (VM: managed identity; container: local user authentication)'
       option :user, type: :string, desc: 'Remote login user (overrides personal SSH preferences)'
       option :identity, type: :string, desc: 'SSH identity file (VM default: managed key)'
+      option :port, type: :string, desc: 'System SSH guest port (default: 22)'
       def ssh(hostname)
-        result = application.nodes.ssh(name: hostname, user: options[:user], identity: options[:identity])
+        result = application.nodes.ssh(name: hostname, user: options[:user], identity: options[:identity],
+                                       port: ssh_port)
         raise SystemExit, result.exit_status unless result.success?
+      end
+
+      no_commands do
+        def ssh_port
+          return unless options[:port]
+
+          Configuration::SSHPreferences.port!(Integer(options[:port], 10))
+        rescue ArgumentError
+          raise ConfigurationError, 'SSH port must be an integer from 1 to 65535'
+        end
       end
 
       %w[start stop destroy shell puppet logs].each do |operation|

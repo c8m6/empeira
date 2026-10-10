@@ -17,7 +17,7 @@ module Empeira
       GLOBAL_OPTIONS = %w[--container-engine --help].freeze
       NODE_OPTIONS = %w[--provider --os --version --memory --cpus].freeze
       VALUE_OPTIONS = %w[--container-engine --provider --os --version --memory --cpus --user
-                         --identity].freeze
+                         --identity --port].freeze
 
       def candidates(words, index)
         before = words.take(index)
@@ -131,7 +131,7 @@ module Empeira
       def options(context)
         result = GLOBAL_OPTIONS.dup
         result << '--version' if context.empty?
-        result.push('--user', '--identity') if context == %w[node ssh]
+        result.push('--user', '--identity', '--port') if context == %w[node ssh]
         result.concat(NODE_OPTIONS) if context == %w[node run]
         result
       end

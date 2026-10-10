@@ -37,10 +37,12 @@ images:
 ssh:
   user: empeira
   identity: ~/.ssh/id_ed25519
+  port: 22
   rules:
     - hosts: ["web-*", "app-?.example.net"]
       user: root
       identity: ~/.ssh/id_ed25519_lab
+      port: 2222
     - hosts: ["db-*"]
       user: admin
 ```
@@ -53,18 +55,20 @@ restores Docker Hub resolution. `config show` displays the effective non-sensiti
 There is no separate source-reporting option.
 
 `ssh` is personal configuration for interactive `empeira node ssh` only; it is
-rejected in project YAML. Global `user` and `identity` are independently optional,
+rejected in project YAML. Global `user`, `identity` and `port` are independently optional,
 as is the `rules` array. Each rule requires a nonempty `hosts` array and at least
-one of `user` or `identity`. Unknown keys and passwords are rejected. Patterns match
+one of `user`, `identity` or `port`. Ports must be integers from 1 to 65535.
+Unknown keys and passwords are rejected. Patterns match
 the entire hostname, ignore case and support only `*` and `?`, with the same matching
 semantics as proxy hostname rules. Any pattern can select a rule. All matching
 rules apply in list order; the last rule defining a field wins for that field.
 An omitted field preserves the previous value.
 
-Each field resolves independently: explicit `--user`/`--identity`, then its last
+Each field resolves independently: explicit `--user`/`--identity`/`--port`, then its last
 matching rule, then its global value, then the provider default. Without a configured
 value, VMs use `empeira` and their existing managed key; containers use the local
-username and normal OpenSSH identities/agent/config. Identity paths in this YAML
+username and normal OpenSSH identities/agent/config. Both providers default to system
+SSH guest port 22; this is independent of any private host transport port. Identity paths in this YAML
 must be absolute or start with `~/`, expanded through the platform home. Relative
 CLI identity paths retain their existing meaning relative to the invocation directory.
 Before connecting, the selected external key must be a readable regular file with

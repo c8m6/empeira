@@ -26,6 +26,7 @@ RSpec.describe Empeira::Completion::Catalog do
   it 'completes user SSH options and proxy diagnostics' do
     expect(catalog.candidates(%w[node ssh host1 --u], 3)).to eq(['--user'])
     expect(catalog.candidates(%w[node ssh host1 --i], 3)).to eq(['--identity'])
+    expect(catalog.candidates(%w[node ssh host1 --po], 3)).to eq(['--port'])
     expect(catalog.candidates(%w[proxy s], 1)).to eq(['show'])
   end
 

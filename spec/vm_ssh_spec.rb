@@ -75,6 +75,40 @@ RSpec.describe Empeira::VM::SSH do
       expect(transport.run(record, ['printf', '%s', text]).stdout).to eq(text)
     end
 
+    context 'with separate management SSH' do
+      let(:record) { { 'ssh_layout' => 1 } }
+
+      before do
+        @checker = Pathname(@directory).join('management-check')
+        @checker.write("#!/bin/sh\nexit 0\n")
+        @checker.chmod(0o700)
+        bin = Pathname(@directory).join('bin')
+        bin.join('nsenter').write("#!/bin/sh\nshift 4\nexec \"$@\"\n")
+        bin.join('nsenter').chmod(0o700)
+        allow(runner).to receive(:run) do |_binary, arguments:, timeout:|
+          expect(arguments.last).to include('nsenter --target 1 --mount --')
+          command = arguments.last.gsub(Empeira::VM::Management::CHECK, @checker.to_s)
+          Empeira::Execution::Runner.new.run('/bin/sh', arguments: ['-c', command],
+                                                        environment: { 'PATH' => "#{bin}:#{ENV.fetch('PATH')}" },
+                                                        timeout: timeout)
+        end
+      end
+
+      it 'preserves native command status after verifying management and entering the guest mount namespace' do
+        result = transport.run(record, ['sh', '-c', 'printf native-command; exit 23'])
+        expect(result.stdout).to eq('native-command')
+        expect(result.exit_status).to eq(23)
+      end
+
+      it 'refuses to execute guest operations when the management guard fails' do
+        @checker.write("#!/bin/sh\necho 'changed management policy' >&2\nexit 78\n")
+        result = transport.run(record, %w[printf must-not-run])
+        expect(result.stdout).to be_empty
+        expect(result.exit_status).to eq(78)
+        expect(result.stderr).to include('changed management policy')
+      end
+    end
+
     {
       'Connection reset by peer' => true,
       'ssh: connect to host 127.0.0.1 port 22: Connection refused' => true,
