@@ -39,8 +39,14 @@ module Empeira
       end
 
       def reconcile_guest(record)
+        proxy_changed = reconcile_runtime_proxy(record)
         interfaces_changed = reconcile_interfaces(record)
-        reconcile_command_mocks(record) || interfaces_changed
+        reconcile_command_mocks(record) || interfaces_changed || proxy_changed
+      end
+
+      def reconcile_runtime_proxy(record)
+        RuntimeProxy.new(context: context, record: record, persist: method(:save),
+                         execute: ->(arguments) { @ssh.run(record, arguments) }).reconcile
       end
 
       def reconcile_command_mocks(record)

@@ -8,6 +8,7 @@ module Empeira
       include ContainerPreparation
       include ContainerAgentBootstrap
       include ContainerState
+      include ContainerGuest
 
       attr_reader :context
 
@@ -55,7 +56,7 @@ module Empeira
           network_gateway.route(resource) if resource && resource['state'] == 'running'
           next false unless record['provisioned'] && resource && resource['state'] == 'running'
 
-          reconcile_command_mocks(resource, record)
+          reconcile_guest(resource, record)
         end.any?
       end
 
@@ -79,7 +80,7 @@ module Empeira
         raise Error, 'Node image architecture differs from the runtime; emulation is not enabled'
       end
 
-      # rubocop:disable-next Metrics/AbcSize -- Reserve, start, attach and provision the same owned node.
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Ordered bootstrap cleanup precedes normal guest policy.
       def create_node(definition, record)
         @progress.stage(45, 'Creating isolated container node...')
         resource = @runtime.create_service(definition)
@@ -94,6 +95,7 @@ module Empeira
         save
         apply_bootstrap(resource, record)
         finish_network_bootstrap(record)
+        reconcile_runtime_proxy(resource, record)
         configure(resource, record)
         resource
       end

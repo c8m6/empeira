@@ -477,6 +477,11 @@ vm:
 ```
 
 When `proxy.enabled` is true, every node may use its matching destination policy.
+After bootstrap cleanup, Empeira reconciles normal proxy settings on running,
+provisioned nodes during `up`, `node start` and before managed Puppet runs. No
+node recreation or restart is needed to apply allowlist changes. Disabling the
+proxy removes owned package-manager settings. The owned login environment clears
+stale creation-time container variables; it never retains bootstrap credentials.
 See [proxy policy](proxy.md),
 [Hiera and EYAML](hiera-and-eyaml.md), [DNS](networking.md), and [console recovery](nodes.md#vm-console-recovery).
 Mounts are optional unless `required: true`. The console password is used only on

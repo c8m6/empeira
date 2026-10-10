@@ -129,6 +129,12 @@ or package resources need an enabled proxy and an explicit destination policy as
 [networking](networking.md). Empeira never grants unrestricted Internet access to
 repair package sources.
 
+Normal APT/DNF proxy settings persist across restart and work for Puppet package
+resources. Managed Puppet runs receive the current proxy environment directly,
+without relying on login initialization. Login shells also load the owned
+`/etc/profile.d/90-empeira-proxy.sh`. This file clears stale container environment
+variables when proxy access is disabled; repository files are never replaced.
+
 ## Shell and SSH
 
 | Provider | `node shell` | `node ssh` |

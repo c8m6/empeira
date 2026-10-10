@@ -124,6 +124,20 @@ A separate authenticated /32-source-bound proxy installs packages. Cleanup resto
 package configuration, removes temporary access/credentials and activates final
 runtime policy before enrollment and Puppet. Failed bootstrap stays incomplete.
 
+Normal proxy settings are distinct from that temporary bootstrap transaction.
+Managed Puppet processes receive matching uppercase/lowercase HTTP/HTTPS and
+NO_PROXY variables inside the privileged guest command, including VM `sudo`.
+APT uses `/etc/apt/apt.conf.d/90-empeira-proxy`; DNF receives an owned block in
+the existing `/etc/dnf/dnf.conf` `[main]` section. Direct-egress hosts get native
+APT DIRECT entries unless an explicit host setting already exists. Foreign
+host-specific APT settings and DNF repository overrides remain unchanged.
+Conflicting global settings, modified owned files or unsafe paths fail with a
+diagnosis. APT configurations using `#include`/`#clear` require explicit review.
+DNF repository `proxy=` disables the inherited proxy; `_none_` retains DNF's
+native curl environment semantics (see the [DNF reference](https://dnf.readthedocs.io/en/stable/conf_ref.html#proxy)).
+These settings change client routing only; destination grants and isolation stay
+under the existing gateway and proxy policies.
+
 ## Transparent TCP redirects
 
 `network.redirects` maps exact original IPv4/TCP destination pairs to the current

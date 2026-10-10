@@ -85,7 +85,7 @@ module Empeira
         puppet_run(record)
       end
 
-      # rubocop:disable-next Metrics/AbcSize -- Preserve bootstrap cleanup before runtime activation.
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Preserve bootstrap cleanup before runtime activation.
       def prepare_agent(record, packages)
         execute = ->(arguments) { @ssh.run(record, arguments, timeout: 300) }
         package_configuration(record, execute).preserve do
@@ -101,6 +101,7 @@ module Empeira
         save
         Network::Gateway.new(context: context, runtime: @runtime, state: @state).phase(record, bootstrap: false)
         refresh_dns
+        reconcile_runtime_proxy(record)
         configure_agent(record)
       end
 
@@ -141,7 +142,7 @@ module Empeira
         refresh_environment_cache
         reconcile_guest(record)
         result = @progress.streaming do
-          @ssh.stream(record, PuppetCommand.arguments)
+          @ssh.stream(record, RuntimeProxy.command(context, PuppetCommand.arguments))
         end
         record['last_puppet_exit'] = result.exit_status
         save

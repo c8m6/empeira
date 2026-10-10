@@ -14,6 +14,7 @@ end
 
 RSpec.describe Empeira::Node::VM do
   include CommandMockGuest
+  include RuntimeProxyFixture
 
   let(:runtime) { VMRuntimeFixture.new }
   let(:app) do
@@ -56,6 +57,11 @@ RSpec.describe Empeira::Node::VM do
     prepare_vm_components
   end
 
+  after do
+    cleanup_runtime_proxy_guests
+    runtime.cleanup_runtime_proxy_guests
+  end
+
   def prepare_vm_components
     prepare_image_components
     prepare_disk_component
@@ -74,6 +80,20 @@ RSpec.describe Empeira::Node::VM do
     runtime.services.fetch('server')['labels']['io.empeira.definition'] = 'stale'
     expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
     expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Error, /not ready/)
+  end
+
+  it 'starts Puppet with the normal proxy inside the privileged guest command' do
+    File.write(File.join(@directory, '.empeira.yaml'),
+               YAML.dump('proxy' => { 'enabled' => true, 'global' => ['packages.example'] }))
+    context = app.context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
+    store.with_lock { Empeira::ControlPlane::Controller.new(context: context, runtime: runtime, store: store).up }
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: context, runner: app.runner, backend: engine, runtime: runtime)
+    expect(provider.instance_variable_get(:@ssh)).to receive(:stream).with(
+      anything, array_including('env', 'HTTP_PROXY=http://proxy.empeira.internal:3128',
+                                'https_proxy=http://proxy.empeira.internal:3128', Empeira::Node::Certificates::PUPPET)
+    ).and_return(Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false))
+    provider.run(request)
   end
 
   context 'with VM interface rules' do
@@ -341,7 +361,9 @@ RSpec.describe Empeira::Node::VM do
     allow(Empeira::VM::CloudInit).to receive(:new).and_return(cloud)
     ssh = instance_double(Empeira::VM::SSH, wait: nil)
     success = Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
-    allow(ssh).to receive(:run) do |_record, arguments, **|
+    allow(ssh).to receive(:run) do |record, arguments, **|
+      proxy_result = runtime_proxy_result(arguments, record.fetch('hostname'))
+      next proxy_result if proxy_result
       if arguments == ['stat', '-c', '%a', Empeira::Node::ExternalFact::PATH]
         next Empeira::Execution::Result.new(stdout: "644\n", stderr: '', exit_status: 0,
                                             timed_out: false)

@@ -55,12 +55,20 @@ module Empeira
       private
 
       def reconciliation_providers(records)
-        if !@context.configuration.dig('mocks', 'commands').empty? ||
-           records.any? { |record| !record.fetch('command_mocks', {}).empty? }
+        if runtime_proxy_needed?(records) || command_mocks_needed?(records)
           return records.map { |record| record.fetch('provider') }.uniq
         end
 
         vm_interfaces_needed?(records) ? ['vm'] : []
+      end
+
+      def runtime_proxy_needed?(records)
+        @context.configuration.dig('proxy', 'enabled') || records.any? { |record| record.key?('runtime_proxy') }
+      end
+
+      def command_mocks_needed?(records)
+        !@context.configuration.dig('mocks', 'commands').empty? ||
+          records.any? { |record| !record.fetch('command_mocks', {}).empty? }
       end
 
       def vm_interfaces_needed?(records)

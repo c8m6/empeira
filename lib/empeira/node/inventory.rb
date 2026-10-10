@@ -11,13 +11,18 @@ module Empeira
 
       def self.valid_record?(name, record)
         return false unless record.is_a?(Hash) && record['hostname'] == name && valid_name?(name)
-        return false unless CommandMocks.valid_inventory?(record.fetch('command_mocks', {}))
+        return false unless valid_guest_settings?(record)
 
         case record['provider']
         when 'container' then valid_container?(record)
         when 'vm' then valid_vm?(name, record)
         else false
         end
+      end
+
+      def self.valid_guest_settings?(record)
+        CommandMocks.valid_inventory?(record.fetch('command_mocks', {})) &&
+          (!record.key?('runtime_proxy') || RuntimeProxy.valid_inventory?(record['runtime_proxy']))
       end
 
       def self.valid_container?(record)

@@ -24,6 +24,11 @@ To reproduce either CI test job, activate the corresponding Ruby, install the lo
 bundle and run `bundle exec rspec --exclude-pattern 'spec/integration/**/*_spec.rb'`.
 Runtime and VM compatibility remain separate manual gates.
 
+Runtime proxy regression coverage runs real guest helpers against isolated fake
+guest roots, checks foreign APT/DNF ownership, and exercises privileged VM command
+environment separately from bootstrap. Never execute these helpers against the
+developer's `/etc` in unit tests.
+
 For workflow changes, parse `.github/workflows/*.yml` and run `actionlint` when
 available. Review action pins, triggers and permissions as well as YAML syntax.
 See [contributing](../CONTRIBUTING.md) for review, commit and label conventions.

@@ -73,6 +73,12 @@ immutable base is unchanged. First-boot readiness observes the actual mounted ro
 partition and filesystem after cloud-init growth, before managed package bootstrap.
 Resume and workspace reconciliation preserve existing disk capacities.
 
+Both providers reconcile normal guest proxy intent in the existing node inventory
+after bootstrap cleanup. The shared reconciler uses the public control-plane
+proxy environment, owned APT files and a bounded DNF block; provider transports
+only execute guest operations. Managed Puppet receives explicit `env` arguments
+after VM `sudo`, so privilege separation cannot drop the runtime proxy policy.
+
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle
 operations return `changed: false`; absent start/stop and ownership conflicts fail.

@@ -12,7 +12,8 @@ module CommandMockGuest
 
   def execute_guest_mocks(transport, operation)
     allow(transport).to receive(operation).and_wrap_original do |method, target, arguments, **options|
-      if arguments.first(2) == [Empeira::Node::Certificates::RUBY, '-e'] && arguments.size == 4
+      if arguments.first(2) == [Empeira::Node::Certificates::RUBY, '-e'] && arguments.size == 4 &&
+         arguments[2].include?('class ManagedFile')
         app.runner.run(RbConfig.ruby, arguments: arguments.drop(1))
       else
         method.call(target, arguments, **options)

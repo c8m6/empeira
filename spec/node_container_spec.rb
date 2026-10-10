@@ -33,6 +33,8 @@ end
 RSpec.describe Empeira::Node::Container do
   include CommandMockGuest
 
+  after { runtime.cleanup_runtime_proxy_guests }
+
   let(:runtime) { NodeRuntimeFixture.new }
   let(:app) do
     Empeira::Application.new(project_path: @directory,
@@ -97,6 +99,22 @@ RSpec.describe Empeira::Node::Container do
         'HTTP_PROXY' => 'http://proxy.empeira.internal:3128',
         'HTTPS_PROXY' => 'http://proxy.empeira.internal:3128'
       )
+    end
+
+    it 'reconciles retained nodes on start/up and removes owned proxy settings without recreating them' do
+      provider.run(request)
+      id = store.load.dig('nodes', request.hostname, 'id')
+      expect(provider.start(name: request.hostname).changed).to be(false)
+      store.with_lock { expect(provider.reconcile_all(state: store.load)).to be(false) }
+      File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'enabled' => false }))
+      context = app.context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
+      disabled = described_class.new(context: context, runner: app.runner, backend: runtime)
+      store.with_lock { expect(disabled.reconcile_all(state: store.load)).to be(true) }
+      expect(store.load.dig('nodes', request.hostname, 'runtime_proxy', 'current')).to be_nil
+      store.with_lock { Empeira::ControlPlane::Controller.new(context: context, runtime: runtime, store: store).up }
+      expect(disabled.start(name: request.hostname).changed).to be(false)
+      expect(disabled.puppet(name: request.hostname).exit_status).to eq(0)
+      expect(store.load.dig('nodes', request.hostname, 'id')).to eq(id)
     end
   end
 
@@ -311,8 +329,10 @@ RSpec.describe Empeira::Node::Container do
     allow(Empeira::Node::UserSSH).to receive(:new).and_return(client)
     expect(client).to receive(:session).with(hash_including('id' => record['id']), user: nil, identity: nil)
     provider.ssh(name: 'test-node')
-    expect(runtime).to receive(:stream_service).with(hash_including('id' => record['id']), ['/bin/bash'],
-                                                     interactive: true)
+    expect(runtime).to receive(:stream_service).with(
+      hash_including('id' => record['id']), Empeira::Node::RuntimeProxy.command(app.context, ['/bin/bash']),
+      interactive: true
+    )
     provider.shell(name: 'test-node')
     provider.stop(name: 'test-node')
     expect { provider.ssh(name: 'test-node') }.to raise_error(Empeira::Error, /empeira node start test-node/)
