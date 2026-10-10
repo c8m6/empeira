@@ -62,10 +62,33 @@ module Empeira
           verify_definition!(record, resource)
           raise Providers::OwnershipError, 'VM peer channel is not active' unless healthy?(record)
 
-          ['docker', 'exec', '-i', resource.fetch('id'), '/adapter', 'connect', address, port.to_s]
+          source = system_source(resource, address)
+          [*connector_engine, 'exec', '-i', resource.fetch('id'), '/adapter', 'connect', address, port.to_s, source]
         end
 
         protected
+
+        def connector_engine
+          [runtime.name]
+        end
+
+        def system_source(resource, target)
+          source = resource.dig('networks', network_name, 'IPAddress')
+          unless source.is_a?(String) && IPAddr.new("#{target}/24").include?(IPAddr.new(source))
+            raise Providers::OwnershipError, 'Peer connector address is outside its owned subnet'
+          end
+
+          source
+        rescue IPAddr::InvalidAddressError
+          raise Providers::OwnershipError, 'Peer connector address is unavailable', cause: nil
+        end
+
+        def capless_adapter_definition(record)
+          Services::Definition.new(key: identity(record).key, workspace: context.workspace,
+                                   network: network_name, image: @image.image, memory: 64, cpus: 1,
+                                   command: ['hold'], read_only: true, cap_drop: ['ALL'],
+                                   security_options: ['no-new-privileges'])
+        end
 
         def channel(record)
           Channel.new(context: context, runner: runner, record: record)

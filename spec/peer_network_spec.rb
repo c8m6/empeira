@@ -7,7 +7,7 @@ RSpec.describe 'Production peer network contracts' do
                                                                          environment: {}))
   end
   let(:record) do
-    { 'ssh_layout' => Empeira::VM::Management::VERSION, 'hostname' => 'vm-one', 'ssh_port' => 32_001,
+    { 'management_layout' => Empeira::VM::Management::VERSION, 'hostname' => 'vm-one', 'ssh_port' => 32_001,
       'mac_address' => '52:54:ab:cd:ef:12',
       'peer' => { 'ip' => '10.203.20.32', 'dns' => '10.203.20.130', 'token' => SecureRandom.hex(16),
                   'adapter_id' => nil, 'backend' => 'DockerAdapter' } }
@@ -65,6 +65,30 @@ RSpec.describe 'Production peer network contracts' do
     expect(arguments).not_to include('--privileged', '--publish', '--mount', '--network=host')
     expect(definition.options.fetch('network')).to eq(Empeira::ControlPlane::Plan.new(context: app.context).network)
     expect(definition.options.fetch('sysctls')).to include('net.ipv4.ip_forward' => '0')
+  end
+
+  it 'keeps the rootless Podman system SSH client without capabilities, devices or external exposure' do
+    backend = Empeira::Network::Peer::LinuxPodman.new(context: app.context, runtime: nil, runner: nil, store: nil)
+    backend.instance_variable_set(:@image, Empeira::Network::Peer::AdapterImage.new(context: app.context))
+    definition = backend.send(:adapter_definition, record)
+    arguments = Empeira::Runtime::ServiceArguments.new(definition).build
+    expect(arguments).to include('--cap-drop', 'ALL', '--read-only', '--security-opt', 'no-new-privileges')
+    expect(arguments).not_to include('--cap-add', '--device', '--privileged', '--publish', '--mount')
+    expect(definition.options.fetch('network')).to eq(Empeira::ControlPlane::Plan.new(context: app.context).network)
+    expect(backend.send(:connector_engine)).to eq(%w[podman --remote=false])
+  end
+
+  it 'binds system SSH only to the observed connector address inside the owned guest subnet' do
+    backend = Empeira::Network::Peer::DockerAdapter.new(context: app.context, runtime: nil, runner: nil, store: nil)
+    network = Empeira::ControlPlane::Plan.new(context: app.context).network
+    resource = { 'networks' => { network => { 'IPAddress' => '10.203.20.128' } } }
+    expect(backend.send(:system_source, resource, record.dig('peer', 'ip'))).to eq('10.203.20.128')
+    resource['networks'][network]['IPAddress'] = '192.0.2.1'
+    expect { backend.send(:system_source, resource, record.dig('peer', 'ip')) }
+      .to raise_error(Empeira::Providers::OwnershipError, /outside its owned subnet/)
+    resource['networks'][network]['IPAddress'] = nil
+    expect { backend.send(:system_source, resource, record.dig('peer', 'ip')) }
+      .to raise_error(Empeira::Providers::OwnershipError)
   end
 
   it 'reserves container addresses outside both VM leases and automatic runtime allocation' do
@@ -129,15 +153,12 @@ RSpec.describe 'Production peer network contracts' do
     channel&.destroy
   end
 
-  it 'uses a direct TAP only in the selected rootless namespace and keeps management SSH separate' do
+  it 'uses a direct TAP only in the selected rootless namespace and keeps VirtIO management separate' do
     backend = Empeira::Network::Peer::LinuxPodman.new(context: app.context, runtime: nil, runner: nil, store: nil)
     arguments = backend.arguments(record)
     expect(arguments.join(' ')).to include('tap,id=peer,ifname=et', 'script=no,downscript=no')
     expect(arguments.join(' ')).not_to include('guestfwd', 'hostfwd', 'tcg')
-    management = Empeira::Network::Peer::Management.new(record).arguments.join(' ')
-    expect(management).to include('restrict=on', 'ipv6=off', 'hostfwd=tcp:127.0.0.1:32001-10.0.2.15:22222')
-    expect(management).not_to include('guestfwd', '8140', '3128', ':53')
-    expect(backend.ssh_command(record).take(4)).to eq(%w[podman --remote=false unshare --rootless-netns])
+    expect(backend.arguments(record).join(' ')).not_to include('hostfwd', 'management')
   end
 
   it 'keeps packet sockets private and relays bytes after the launching command exits' do

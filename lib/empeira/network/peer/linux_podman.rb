@@ -3,7 +3,7 @@
 module Empeira
   module Network
     module Peer
-      class LinuxPodman < Backend
+      class LinuxPodman < DockerAdapter
         def preflight(state)
           super
           info = JSON.parse(command('podman', '--remote=false', 'info', '--format', 'json'))
@@ -18,11 +18,15 @@ module Empeira
           verify_forwarding
         end
 
-        def prepare(record, _state)
+        def prepare(record, state)
           check_record(record)
-          links = JSON.parse(namespace('ip', '-j', 'link', 'show'))
-          raise Providers::OwnershipError, 'VM TAP already exists; inspect its owning process' if
-            links.any? { |link| link['ifname'] == tap(record) }
+          verify_tap_absent!(record)
+          @image = AdapterImage.new(context: context)
+          @image.ensure!(runtime)
+          resource = ensure_adapter(record, state)
+          runtime.start_service(resource) unless resource['state'] == 'running'
+          verify_adapter(record)
+          store.write(state)
         end
 
         def arguments(record)
@@ -49,8 +53,11 @@ module Empeira
           raise Error, 'VM TAP is still present after shutdown; refusing to release the node lease'
         end
 
-        def destroy(record, _state)
+        def destroy(record, state)
           stop(record)
+          runtime.remove_service(identity(record), expected_id: record.dig('peer', 'adapter_id'))
+          record.fetch('peer')['adapter_id'] = nil
+          store.write(state)
         end
 
         def healthy?(record)
@@ -66,26 +73,24 @@ module Empeira
           records.to_h { |record| [record.fetch('hostname'), false] }
         end
 
-        def management_port
-          Integer(namespace(RbConfig.ruby, '-rsocket', '-e',
-                            "TCPServer.open('127.0.0.1',0) { |s| puts s.addr[1] }"))
+        protected
+
+        def adapter_definition(record)
+          capless_adapter_definition(record)
         end
 
-        def ssh_command(record)
-          helper = Pathname(__dir__).join('../../../../resources/network/ssh_connect.rb').realpath
-          ['podman', '--remote=false', 'unshare', '--rootless-netns', RbConfig.ruby, helper.to_s,
-           record.fetch('ssh_port').to_s]
-        end
-
-        def system_ssh_command(record, port:)
-          address = system_address(record, port)
-          raise Providers::OwnershipError, 'VM peer attachment is not owned and active' unless healthy?(record)
-
-          helper = Pathname(__dir__).join('../../../../resources/network/ssh_connect.rb').realpath
-          ['podman', '--remote=false', 'unshare', '--rootless-netns', RbConfig.ruby, helper.to_s, address, port.to_s]
+        def connector_engine
+          %w[podman --remote=false]
         end
 
         private
+
+        def verify_tap_absent!(record)
+          links = JSON.parse(namespace('ip', '-j', 'link', 'show'))
+          return unless links.any? { |link| link['ifname'] == tap(record) }
+
+          raise Providers::OwnershipError, 'VM TAP already exists; inspect its owning process'
+        end
 
         def namespace(*, **)
           command('podman', '--remote=false', 'unshare', '--rootless-netns', *, **)

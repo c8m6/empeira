@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe Empeira::VM::RootDisk do
-  let(:ssh) { instance_double(Empeira::VM::SSH) }
+  let(:ssh) { instance_double(Empeira::VM::Guest) }
   let(:record) { { 'hostname' => 'vm-host' } }
   let(:gib) { Empeira::VM::Disk::GIB }
   let(:partitions) do
@@ -26,7 +26,7 @@ RSpec.describe Empeira::VM::RootDisk do
   end
 
   it 'observes the mounted root partition independently of its number and preserves EFI' do
-    expect { described_class.new(ssh: ssh).verify!(record, size_gib: 30) }.not_to raise_error
+    expect { described_class.new(guest: ssh).verify!(record, size_gib: 30) }.not_to raise_error
     expect(partitions.first['mountpoint']).to eq('/boot/efi')
   end
 
@@ -34,8 +34,8 @@ RSpec.describe Empeira::VM::RootDisk do
     data.fetch('blockdevices').first['size'] = (30 * gib).to_s
     partitions.each { |partition| partition['size'] = partition.fetch('size').to_s }
     allow(ssh).to receive(:run).with(record, array_including('lsblk')).and_return(result(JSON.generate(data)))
-    expect { described_class.new(ssh: ssh).verify!(record, size_gib: 30) }.not_to raise_error
-    expect { described_class.new(ssh: ssh).verify!(record, size_gib: 48) }
+    expect { described_class.new(guest: ssh).verify!(record, size_gib: 30) }.not_to raise_error
+    expect { described_class.new(guest: ssh).verify!(record, size_gib: 48) }
       .to raise_error(Empeira::Error, /partition has not grown/)
   end
 
@@ -43,7 +43,7 @@ RSpec.describe Empeira::VM::RootDisk do
     it "rejects malformed or nonpositive byte capacity #{size.inspect}" do
       data.fetch('blockdevices').first['size'] = size
       allow(ssh).to receive(:run).with(record, array_including('lsblk')).and_return(result(JSON.generate(data)))
-      expect { described_class.new(ssh: ssh).verify!(record, size_gib: 30) }
+      expect { described_class.new(guest: ssh).verify!(record, size_gib: 30) }
         .to raise_error(Empeira::Error, /malformed guest disk metadata/)
     end
   end
@@ -51,7 +51,7 @@ RSpec.describe Empeira::VM::RootDisk do
   it 'rejects a root partition that was not grown' do
     partitions.last['size'] = 2 * gib
     allow(ssh).to receive(:run).with(record, array_including('lsblk')).and_return(result(JSON.generate(data)))
-    expect { described_class.new(ssh: ssh).verify!(record, size_gib: 30) }
+    expect { described_class.new(guest: ssh).verify!(record, size_gib: 30) }
       .to raise_error(Empeira::Error, /partition has not grown.*vda5.*unpartitioned=/)
   end
 
@@ -59,19 +59,19 @@ RSpec.describe Empeira::VM::RootDisk do
     let(:filesystem) { 2 * gib }
 
     it 'rejects the original filesystem capacity' do
-      expect { described_class.new(ssh: ssh).verify!(record, size_gib: 30) }
+      expect { described_class.new(guest: ssh).verify!(record, size_gib: 30) }
         .to raise_error(Empeira::Error, /filesystem has not grown.*filesystem=/)
     end
   end
 
   it 'rejects a different disk capacity' do
-    expect { described_class.new(ssh: ssh).verify!(record, size_gib: 48) }
+    expect { described_class.new(guest: ssh).verify!(record, size_gib: 48) }
       .to raise_error(Empeira::Error, /partition has not grown.*expected=/)
   end
 
   it 'fails with native diagnostics when inspection is unsuccessful' do
     allow(ssh).to receive(:run).with(record, array_including('lsblk')).and_return(result('', status: 1))
-    expect { described_class.new(ssh: ssh).verify!(record, size_gib: 30) }
+    expect { described_class.new(guest: ssh).verify!(record, size_gib: 30) }
       .to raise_error(Empeira::Error, /root disk growth.*Exit code: 1.*synthetic disk diagnostic/m)
   end
 
@@ -79,7 +79,7 @@ RSpec.describe Empeira::VM::RootDisk do
     it "fails closed for unrecognizable root layout #{devices.inspect}" do
       data['blockdevices'] = devices
       allow(ssh).to receive(:run).with(record, array_including('lsblk')).and_return(result(JSON.generate(data)))
-      expect { described_class.new(ssh: ssh).verify!(record, size_gib: 30) }.to raise_error(Empeira::Error)
+      expect { described_class.new(guest: ssh).verify!(record, size_gib: 30) }.to raise_error(Empeira::Error)
     end
   end
 end

@@ -22,7 +22,7 @@ RSpec.describe Empeira::VM::Interfaces do
                                                                                'devices' => definitions }] } })
     config['vm']['interfaces'] = [] if definitions.empty?
     context = app.context.with(configuration: config)
-    described_class.new(context: context, record: record, state: state, ssh: guest,
+    described_class.new(context: context, record: record, state: state, guest: guest,
                         persist: -> { saved << Marshal.load(Marshal.dump(record)) }).reconcile
   end
 
@@ -91,7 +91,7 @@ RSpec.describe Empeira::VM::Interfaces do
     expect(guest.links.dig('ens192', 'linkinfo', 'info_kind')).to eq('dummy')
     expect(guest.links).not_to have_key('empeira-vlan')
     expect(reconcile({})).to be(true)
-    expect(guest.links.keys).to contain_exactly('eth0', 'eth1')
+    expect(guest.links.keys).to contain_exactly('eth0')
     expect(record).not_to have_key('network_interfaces')
   end
 
@@ -149,8 +149,8 @@ RSpec.describe Empeira::VM::Interfaces do
   [true, false].each do |after|
     it "recovers a lost alias-setting outcome #{after ? 'after' : 'before'} the guest mutation" do
       guest.failure = { match: ->(arguments) { arguments.first(3) == %w[ip link set] && arguments[5] == 'alias' },
-                        after: after, error: Empeira::VM::SSH::TransportError.new('synthetic lost alias outcome') }
-      expect { reconcile }.to raise_error(Empeira::VM::SSH::TransportError, /lost alias outcome/)
+                        after: after, error: Empeira::VM::Guest::TransportError.new('synthetic lost alias outcome') }
+      expect { reconcile }.to raise_error(Empeira::VM::Guest::TransportError, /lost alias outcome/)
       expect(guest.links.fetch('empeira-vlan')).to have_key('address')
       guest.commands.clear
       expect(reconcile).to be(true)
@@ -179,8 +179,8 @@ RSpec.describe Empeira::VM::Interfaces do
     expect(mutations).to eq([])
   end
 
-  %w[10.203.20.101/32 10.0.2.20/32 10.203.0.10/16].each do |network|
-    it "rejects static workspace/management overlap #{network}" do
+  %w[10.203.20.101/32 10.203.0.10/16].each do |network|
+    it "rejects static workspace overlap #{network}" do
       expect { reconcile('dummy0' => { 'network' => network }) }
         .to raise_error(Empeira::ConfigurationError, /Host web-one.example.test, interface dummy0.*protected route/)
       expect(mutations).to eq([])
@@ -264,8 +264,8 @@ RSpec.describe Empeira::VM::Interfaces do
 
   it 'inspects an atomic owner marker after an unknown SSH create outcome and never replays creation' do
     guest.failure = { match: ->(arguments) { arguments.first(3) == %w[ip link add] }, after: true,
-                      error: Empeira::VM::SSH::TransportError.new('synthetic lost completion') }
-    expect { reconcile }.to raise_error(Empeira::VM::SSH::TransportError, /lost completion/)
+                      error: Empeira::VM::Guest::TransportError.new('synthetic lost completion') }
+    expect { reconcile }.to raise_error(Empeira::VM::Guest::TransportError, /lost completion/)
     guest.commands.clear
     expect(reconcile).to be(true)
     expect(mutations.count do |arguments|
@@ -276,8 +276,8 @@ RSpec.describe Empeira::VM::Interfaces do
   it 'recovers an interrupted revision after configuration changes again and an unknown deletion outcome' do
     reconcile
     guest.failure = { match: ->(arguments) { arguments.first(3) == %w[ip link delete] }, after: true,
-                      error: Empeira::VM::SSH::TransportError.new('synthetic lost deletion') }
-    expect { reconcile('dummy0' => { 'network' => '192.0.2.11/32' }) }.to raise_error(Empeira::VM::SSH::TransportError)
+                      error: Empeira::VM::Guest::TransportError.new('synthetic lost deletion') }
+    expect { reconcile('dummy0' => { 'network' => '192.0.2.11/32' }) }.to raise_error(Empeira::VM::Guest::TransportError)
     expect(described_class.valid_inventory?(record.fetch('network_interfaces'))).to be(true)
     expect(reconcile('dummy0' => { 'network' => '203.0.113.10/32' })).to be(true)
     expect(record.dig('network_interfaces', 'devices', 'dummy0')).not_to have_key('previous')

@@ -113,7 +113,22 @@ func localBridge(name, ethernet string) error {
 	if err = disableUplinkLearning(ethernet); err != nil {
 		return err
 	}
-	// The helper is an L2 switch, not an IP gateway. Remove its runtime IPv4 address.
+	// Keep the runtime-assigned IPv4 as a local peer endpoint on the bridge.
+	// Forwarding stays disabled; SSH needs no host route or external publication.
+	address, err := ifreq(ethernet)
+	if err != nil {
+		return err
+	}
+	if err = ioctl(fd, syscall.SIOCGIFADDR, unsafe.Pointer(&address[0])); err != nil {
+		return err
+	}
+	mask, err := ifreq(ethernet)
+	if err != nil {
+		return err
+	}
+	if err = ioctl(fd, syscall.SIOCGIFNETMASK, unsafe.Pointer(&mask[0])); err != nil {
+		return err
+	}
 	req, err = ifreq(ethernet)
 	if err != nil {
 		return err
@@ -122,8 +137,16 @@ func localBridge(name, ethernet string) error {
 	if err = ioctl(fd, syscall.SIOCSIFADDR, unsafe.Pointer(&req[0])); err != nil {
 		return err
 	}
-
-	return nil
+	bridgeAddress, err := ifreq(name)
+	if err != nil {
+		return err
+	}
+	copy(bridgeAddress[16:32], address[16:32])
+	if err = ioctl(fd, syscall.SIOCSIFADDR, unsafe.Pointer(&bridgeAddress[0])); err != nil {
+		return err
+	}
+	copy(bridgeAddress[16:32], mask[16:32])
+	return ioctl(fd, syscall.SIOCSIFNETMASK, unsafe.Pointer(&bridgeAddress[0]))
 }
 
 func bridgeFrames(read func([]byte) (int, error), write func([]byte) error) error {
@@ -159,13 +182,15 @@ func bridgeFrames(read func([]byte) (int, error), write func([]byte) error) erro
 }
 
 func run() error {
-	if len(os.Args) == 4 && os.Args[1] == "connect" {
+	if len(os.Args) == 5 && os.Args[1] == "connect" {
 		address := net.ParseIP(os.Args[2])
 		port, err := strconv.Atoi(os.Args[3])
-		if address == nil || address.To4() == nil || !address.IsPrivate() || err != nil || port < 1 || port > 65535 {
+		source := net.ParseIP(os.Args[4])
+		if source == nil || source.To4() == nil || !source.IsPrivate() || address == nil || address.To4() == nil || !address.IsPrivate() || err != nil || port < 1 || port > 65535 {
 			return fmt.Errorf("invalid private SSH destination")
 		}
-		connection, err := net.DialTimeout("tcp4", net.JoinHostPort(address.String(), os.Args[3]), 5*time.Second)
+		dialer := net.Dialer{Timeout: 5 * time.Second, LocalAddr: &net.TCPAddr{IP: source}}
+		connection, err := dialer.Dial("tcp4", net.JoinHostPort(address.String(), os.Args[3]))
 		if err != nil {
 			return err
 		}

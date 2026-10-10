@@ -27,23 +27,10 @@ module Empeira
           store.write(state)
         end
 
-        def system_ssh_command(record, port:)
-          address = system_address(record, port)
-          resource = runtime.inspect_service(identity(record), expected_id: record.dig('peer', 'adapter_id'))
-          verify_adapter(record)
-          verify_exported_helper!(record)
-          validate_exposure!(resource)
-          namespace_command(record.fetch('peer').fetch('machine'), helper_path(record).to_s,
-                            'connect', address, port.to_s)
-        end
-
         protected
 
         def adapter_definition(record)
-          Services::Definition.new(key: identity(record).key, workspace: context.workspace,
-                                   network: network_name, image: @image.image, memory: 64, cpus: 1,
-                                   command: ['hold'], read_only: true, cap_drop: ['ALL'],
-                                   security_options: ['no-new-privileges'])
+          capless_adapter_definition(record)
         end
 
         def packet_command(record)
@@ -56,14 +43,6 @@ module Empeira
         end
 
         private
-
-        def verify_exported_helper!(record)
-          path = helper_path(record)
-          digest = record.fetch('peer').fetch('helper_sha256')
-          return if path.file? && !path.symlink? && Digest::SHA256.file(path).hexdigest == digest && healthy?(record)
-
-          raise Providers::OwnershipError, 'Podman Machine peer helper is missing, changed or inactive'
-        end
 
         def bind_machine(record, state)
           if record.dig('peer', 'machine') && record.dig('peer', 'machine') != @machine

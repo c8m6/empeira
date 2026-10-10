@@ -6,6 +6,12 @@ require 'fileutils'
 require 'rbconfig'
 
 module ProjectFixture
+  def vm_guest(application)
+    engine = Empeira::VM.registry.build('qemu', context: application.context, runner: application.runner)
+    qemu = Empeira::VM::QemuRuntime.new(engine: engine, context: application.context, runner: application.runner)
+    Empeira::VM::Guest.new(context: application.context, runner: application.runner, qemu: qemu)
+  end
+
   def initialize_project(directory)
     FileUtils.mkdir_p(directory)
     Empeira::Execution::Runner.new.run('git', arguments: ['init', '--quiet', directory.to_s])

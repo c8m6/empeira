@@ -8,8 +8,8 @@ module Empeira
     class GuestNetwork
       attr_reader :links, :addresses, :routes
 
-      def initialize(ssh:, record:)
-        @ssh = ssh
+      def initialize(guest:, record:)
+        @guest = guest
         @record = record
       end
 
@@ -25,17 +25,17 @@ module Empeira
 
       def load_modules(vlan:)
         # Prevent module autoload from creating an unowned default dummy0.
-        command(%w[modprobe dummy numdummies=0]) unless @ssh.run(@record, %w[test -d /sys/module/dummy]).success?
-        command(%w[modprobe 8021q]) if vlan && !@ssh.run(@record, %w[test -d /sys/module/8021q]).success?
+        command(%w[modprobe dummy numdummies=0]) unless @guest.run(@record, %w[test -d /sys/module/dummy]).success?
+        command(%w[modprobe 8021q]) if vlan && !@guest.run(@record, %w[test -d /sys/module/8021q]).success?
       end
 
       def command(arguments)
-        result = @ssh.run(@record, arguments)
+        result = @guest.run(@record, arguments)
         return result if result.success?
 
         details = Execution::Diagnostics.command(result, operation: operation(arguments), tool: arguments.first)
         raise Error, "Cannot reconcile VM interfaces; guest operation failed\n#{details}", cause: nil
-      rescue SSH::TransportError => e
+      rescue Guest::TransportError => e
         raise e.with_context(operation(arguments)), cause: nil
       end
 

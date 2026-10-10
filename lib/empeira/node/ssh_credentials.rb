@@ -8,7 +8,7 @@ module Empeira
     class SSHCredentials
       def initialize(context:, runner:, provider:, hostname:, purpose: nil)
         @runner = runner
-        raise ArgumentError, 'Unknown SSH credential scope' unless [nil, :management, :system].include?(purpose)
+        raise ArgumentError, 'Unknown SSH credential scope' unless [nil, :system].include?(purpose)
 
         @purpose = purpose
         parent = provider == 'vm' ? 'vms' : 'containers'
@@ -18,7 +18,7 @@ module Empeira
       attr_reader :directory
 
       def key_path
-        directory.join(@purpose == :management ? 'id_management_ed25519' : 'id_ed25519')
+        directory.join('id_ed25519')
       end
 
       def public_path

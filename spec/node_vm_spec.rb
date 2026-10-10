@@ -77,7 +77,7 @@ RSpec.describe Empeira::Node::VM do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
     expect(provider).to receive(:reconcile_guest).and_raise(Empeira::Error, 'guest reconciliation failed')
-    expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
+    expect(provider.instance_variable_get(:@guest)).not_to receive(:stream)
     expect { provider.run(request) }.to raise_error(Empeira::Error, /guest reconciliation failed/)
     expect(store.load.dig('nodes', request.hostname, 'provisioned')).to be(false)
     expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Error, /incomplete/)
@@ -91,10 +91,10 @@ RSpec.describe Empeira::Node::VM do
     expect(runtime).not_to receive(:check_available!)
     expect(runtime).not_to receive(:inspect_service)
     expect(provider).not_to receive(:reconcile_guest)
-    expect(provider.instance_variable_get(:@ssh)).not_to receive(:run)
+    expect(provider.instance_variable_get(:@guest)).not_to receive(:run)
     expect(provider.instance_variable_get(:@disk)).not_to receive(:verify!)
     expect(engine).not_to receive(:preflight!)
-    expect(provider.instance_variable_get(:@ssh)).to receive(:stream).twice.and_return(
+    expect(provider.instance_variable_get(:@guest)).to receive(:stream).twice.and_return(
       Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 2, timed_out: false)
     )
     2.times { expect(provider.puppet(name: request.hostname).exit_status).to eq(2) }
@@ -108,7 +108,7 @@ RSpec.describe Empeira::Node::VM do
     store.with_lock { Empeira::ControlPlane::Controller.new(context: context, runtime: runtime, store: store).up }
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: context, runner: app.runner, backend: engine, runtime: runtime)
-    expect(provider.instance_variable_get(:@ssh)).to receive(:stream).with(
+    expect(provider.instance_variable_get(:@guest)).to receive(:stream).with(
       anything, array_including('env', 'HTTP_PROXY=http://proxy.empeira.internal:3128',
                                 'https_proxy=http://proxy.empeira.internal:3128', Empeira::Node::Certificates::PUPPET)
     ).and_return(Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false))
@@ -163,7 +163,7 @@ RSpec.describe Empeira::Node::VM do
     end
 
     before do
-      ssh = provider.instance_variable_get(:@ssh)
+      ssh = provider.instance_variable_get(:@guest)
       arguments = satisfy do |list|
         %w[ip modprobe].include?(list.first) || list.first == '/opt/puppetlabs/bin/facter' ||
           list.first(2) == %w[test -d]
@@ -174,7 +174,7 @@ RSpec.describe Empeira::Node::VM do
     it 'verifies interfaces after agent installation and before enrollment and the first catalog' do
       agent = provider.instance_variable_get(:@agent)
       expect(agent).to receive(:ensure_installed) { expect(network_guest.links).not_to have_key('ens192') }
-      expect(provider.instance_variable_get(:@ssh)).to receive(:stream) do
+      expect(provider.instance_variable_get(:@guest)).to receive(:stream) do
         expect(network_guest.links.dig('ens192', 'linkinfo', 'info_data', 'id')).to eq(123)
         expect(network_guest.commands).to include(['/opt/puppetlabs/bin/facter', 'networking', '--json'])
         network_guest.result('')
@@ -185,8 +185,8 @@ RSpec.describe Empeira::Node::VM do
     end
 
     it 'verifies disk growth before packages, interfaces, enrollment and the first catalog' do
-      ssh = provider.instance_variable_get(:@ssh)
-      growth = Empeira::VM::RootDisk.new(ssh: ssh)
+      ssh = provider.instance_variable_get(:@guest)
+      growth = Empeira::VM::RootDisk.new(guest: ssh)
       packages = instance_double(Empeira::Node::PackageBootstrap, required?: true)
       allow(Empeira::Node::PackageBootstrap).to receive(:new).and_return(packages)
       expect(growth).to receive(:verify!).with(hash_including('hostname' => 'vm-host'), size_gib: 32).ordered
@@ -205,8 +205,8 @@ RSpec.describe Empeira::Node::VM do
     end
 
     it 'blocks packages and interface reconciliation when root growth fails on the combined configuration' do
-      ssh = provider.instance_variable_get(:@ssh)
-      growth = Empeira::VM::RootDisk.new(ssh: ssh)
+      ssh = provider.instance_variable_get(:@guest)
+      growth = Empeira::VM::RootDisk.new(guest: ssh)
       allow(growth).to receive(:verify!).and_raise(Empeira::Error, 'VM root filesystem has not grown')
       packages = instance_double(Empeira::Node::PackageBootstrap, required?: true)
       allow(Empeira::Node::PackageBootstrap).to receive(:new).and_return(packages)
@@ -246,7 +246,7 @@ RSpec.describe Empeira::Node::VM do
 
     it 'retains an incomplete first boot and blocks the first Puppet run after a Facter failure' do
       network_guest.facter_output = '{}'
-      expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
+      expect(provider.instance_variable_get(:@guest)).not_to receive(:stream)
       expect { provider.run(request) }.to raise_error(Empeira::Error, /Facter.*retained/m)
       expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(false)
     end
@@ -274,8 +274,7 @@ RSpec.describe Empeira::Node::VM do
     it 'uses the shared package bootstrap before the first VM Puppet catalog' do
       packages = instance_double(Empeira::Node::PackageBootstrap, required?: true)
       allow(Empeira::Node::PackageBootstrap).to receive(:new).and_return(packages)
-      ssh = Empeira::VM::SSH.new(context: app.context, runner: app.runner,
-                                 cloud_init: Empeira::VM::CloudInit.new(context: app.context, runner: app.runner))
+      ssh = vm_guest(app)
       events = []
       apt = instance_double(Empeira::Node::AptConfiguration)
       allow(Empeira::Node::AptConfiguration).to receive(:new).and_return(apt)
@@ -299,7 +298,7 @@ RSpec.describe Empeira::Node::VM do
         events << :vm_booted
         12_345
       end
-      growth = Empeira::VM::RootDisk.new(ssh: ssh)
+      growth = Empeira::VM::RootDisk.new(guest: ssh)
       allow(growth).to receive(:verify!) { events << :disk_verified }
       allow(proxy).to receive(:start) { events << :bootstrap_proxy }
       allow(proxy).to receive(:cleanup) { events << :proxy_cleanup }
@@ -312,8 +311,8 @@ RSpec.describe Empeira::Node::VM do
     it 'retains an incomplete VM and blocks package installation and Puppet after failed root growth' do
       engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
       provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
-      ssh = provider.instance_variable_get(:@ssh)
-      growth = Empeira::VM::RootDisk.new(ssh: ssh)
+      ssh = provider.instance_variable_get(:@guest)
+      growth = Empeira::VM::RootDisk.new(guest: ssh)
       allow(growth).to receive(:verify!).and_raise(Empeira::Error, 'VM root filesystem has not grown')
       expect(provider.instance_variable_get(:@agent)).not_to receive(:ensure_installed)
       expect(ssh).not_to receive(:stream)
@@ -336,7 +335,7 @@ RSpec.describe Empeira::Node::VM do
       provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
       proxy = provider.instance_variable_get(:@bootstrap_proxy)
       expect(proxy).to receive(:cleanup).at_least(:once)
-      expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
+      expect(provider.instance_variable_get(:@guest)).not_to receive(:stream)
 
       expect { provider.run(request) }.to raise_error(Empeira::Error, /APT configuration.*Puppet was not run/)
       expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(false)
@@ -358,7 +357,7 @@ RSpec.describe Empeira::Node::VM do
       engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
       provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
       agent = provider.instance_variable_get(:@agent)
-      ssh = provider.instance_variable_get(:@ssh)
+      ssh = provider.instance_variable_get(:@guest)
       expect(agent).to receive(:ensure_installed) { events << :agent }
       allow(ssh).to receive(:stream) do
         events << :puppet
@@ -410,7 +409,7 @@ RSpec.describe Empeira::Node::VM do
       path
     end
     allow(Empeira::VM::CloudInit).to receive(:new).and_return(cloud)
-    ssh = instance_double(Empeira::VM::SSH, wait: nil, system_proxy_command: nil)
+    ssh = instance_double(Empeira::VM::Guest, wait: nil, copy_to: nil)
     success = Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
     allow(ssh).to receive(:run) do |record, arguments, **|
       proxy_result = runtime_proxy_result(arguments, record.fetch('hostname'))
@@ -425,16 +424,15 @@ RSpec.describe Empeira::Node::VM do
                                      exit_status: 0, timed_out: false)
     end
     allow(ssh).to receive(:stream).and_return(success)
-    allow(Empeira::VM::SSH).to receive(:new).and_return(ssh)
-    allow(Empeira::VM::RootDisk).to receive(:new).with(ssh: ssh)
+    allow(Empeira::VM::Guest).to receive(:new).and_return(ssh)
+    allow(Empeira::VM::RootDisk).to receive(:new).with(guest: ssh)
                                                  .and_return(instance_double(Empeira::VM::RootDisk, verify!: nil))
     agent = instance_double(Empeira::VM::Agent, ensure_installed: nil)
     allow(Empeira::VM::Agent).to receive(:new).and_return(agent)
     peer = instance_double(Empeira::Network::Peer::LinuxPodman, preflight: nil, prepare: nil, stop: nil,
                                                                 destroy: nil, healthy?: true, health: {},
-                                                                management_port: 32_005,
                                                                 key: 'LinuxPodman',
-                                                                ssh_command: nil, system_ssh_command: nil)
+                                                                system_ssh_command: nil)
     allow(Empeira::Network::Peer::Backend).to receive(:build).and_return(peer)
   end
 
@@ -466,8 +464,8 @@ RSpec.describe Empeira::Node::VM do
     allow(Empeira::Node::Certificates).to receive(:new).and_return(certificates)
   end
 
-  it 'reconciles mocks through management SSH before Puppet, on restart and on workspace reconcile' do
-    ssh = Empeira::VM::SSH.new
+  it 'reconciles mocks through VirtIO management before Puppet, on restart and on workspace reconcile' do
+    ssh = Empeira::VM::Guest.new
     # The remaining VM guest operations keep the existing synthetic responses.
     mocks = satisfy { |args| args.size == 4 && args[1] == '-e' && args[2].include?('class ManagedFile') }
     allow(ssh).to receive(:run).with(anything, mocks) do |_, args|
@@ -560,7 +558,7 @@ RSpec.describe Empeira::Node::VM do
   it 'does not install the agent or run Puppet when cloud-init missed the VM fact' do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
-    ssh = provider.instance_variable_get(:@ssh)
+    ssh = provider.instance_variable_get(:@guest)
     allow(ssh).to receive(:run).and_return(
       Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 1, timed_out: false)
     )
@@ -572,7 +570,7 @@ RSpec.describe Empeira::Node::VM do
   it 'does not install the agent when the VM bootstrap file has the wrong mode' do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
-    ssh = provider.instance_variable_get(:@ssh)
+    ssh = provider.instance_variable_get(:@guest)
     allow(ssh).to receive(:run) do |_record, arguments, **|
       stdout = case arguments
                when ['cat', Empeira::Node::ExternalFact::PATH] then Empeira::Node::ExternalFact.content('vm')
@@ -590,9 +588,9 @@ RSpec.describe Empeira::Node::VM do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
     agent = provider.instance_variable_get(:@agent)
-    ssh = provider.instance_variable_get(:@ssh)
+    ssh = provider.instance_variable_get(:@guest)
     certificates = Empeira::Node::Certificates.new
-    bootstrap = Empeira::Node::VMBootstrap.new(ssh: ssh)
+    bootstrap = Empeira::Node::VMBootstrap.new(guest: ssh)
     allow(Empeira::Node::VMBootstrap).to receive(:new).and_return(bootstrap)
     expect(bootstrap).to receive(:verify).ordered.and_call_original
     expect(agent).to receive(:ensure_installed).ordered
@@ -659,12 +657,12 @@ RSpec.describe Empeira::Node::VM do
     expect(store.load.dig('nodes', 'vm-host', 'state')).to eq('stopped')
   end
 
-  it 'keeps direct console, user SSH and management SSH separate' do
+  it 'keeps direct console, user SSH and VirtIO management separate' do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
     provider.run(request)
     expect(provider.instance_variable_get(:@qemu)).to receive(:console).with(hash_including('hostname' => 'vm-host'))
-    expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
+    expect(provider.instance_variable_get(:@guest)).not_to receive(:stream)
     provider.shell(name: 'vm-host')
     client = instance_double(Empeira::Node::UserSSH)
     allow(Empeira::Node::UserSSH).to receive(:new).and_return(client)
@@ -683,7 +681,7 @@ RSpec.describe Empeira::Node::VM do
     expect(provider.instance_variable_get(:@cache)).not_to receive(:fetch)
     expect(provider.instance_variable_get(:@source)).not_to receive(:resolve)
     expect(provider.instance_variable_get(:@qemu)).not_to receive(:launch)
-    expect(provider.instance_variable_get(:@peer)).not_to receive(:management_port)
+    expect(provider.instance_variable_get(:@qemu)).not_to receive(:launch)
     expect { provider.run(request) }.to raise_error(Empeira::UnavailableFeature, /xorriso missing/)
     expect(store.load).to eq(previous)
   end

@@ -10,7 +10,7 @@ ip = IPAddr.new(address)
 raise ArgumentError, 'Invalid SSH destination' unless ip.ipv4? && (ip.private? || address == '127.0.0.1')
 
 port = Integer(value, 10)
-raise ArgumentError, 'Invalid management SSH port' unless port.between?(1, 65_535)
+raise ArgumentError, 'Invalid SSH port' unless port.between?(1, 65_535)
 
 begin
   Socket.tcp(address, port, connect_timeout: 5) do |socket|
@@ -26,6 +26,7 @@ begin
       request.kill.join
     end
   end
-rescue IOError, SystemCallError
+rescue IOError, SystemCallError => e
+  warn "System SSH connection failed: #{e.message}"
   exit 1
 end

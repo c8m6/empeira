@@ -51,9 +51,9 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     vm_record = Empeira::Infrastructure::Store.new(context: app.context).load.fetch('nodes').fetch('vm-node')
     expect(JSON.generate(vm_record)).not_to include('lab-key', 'unconfigured-login', @login.identity.to_s)
     verify_disk_capacity(vm_record)
-    expect(management_ssh.run(vm_record, %w[git --version])).to be_success
-    expect(management_ssh.run(vm_record, %w[cat /tmp/empeira-provider]).stdout).to eq('vm')
-    expect(management_ssh.run(vm_record, ['cat', Empeira::Node::ExternalFact::PATH]).stdout)
+    expect(management_guest.run(vm_record, %w[git --version])).to be_success
+    expect(management_guest.run(vm_record, %w[cat /tmp/empeira-provider]).stdout).to eq('vm')
+    expect(management_guest.run(vm_record, ['cat', Empeira::Node::ExternalFact::PATH]).stdout)
       .to eq(Empeira::Node::ExternalFact.content('vm'))
     expect(app.nodes.list).to include(hash_including('hostname' => 'vm-node', 'provider' => 'vm', 'state' => 'running'))
     expect { app.run_node(hostname: 'vm-node', provider: 'container') }
@@ -68,7 +68,7 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     verify_ssh_session(personal, name: 'vm-node', user: 'empeira', identity: managed.key_path, override_user: 'empeira')
     expect([0, 2]).to include(personal.nodes.puppet(name: 'vm-node').exit_status)
     verify_final_isolation
-    management = management_ssh
+    management = management_guest
     record = Empeira::Infrastructure::Store.new(context: app.context).load.fetch('nodes').fetch('vm-node')
     expect(management.run(record, %w[systemctl stop ssh.socket ssh.service])).to be_success
     verify_console_login(app, name: 'vm-node')
@@ -83,18 +83,20 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
                                            overrides: { 'runtime' => { 'container_engine' => engine_name } })
     changed_app.infrastructure.up
     changed_app.nodes.start(name: 'vm-node')
-    verify_disk_capacity(vm_record)
+    record = Empeira::Infrastructure::Store.new(context: app.context).load.fetch('nodes').fetch('vm-node')
+    verify_disk_capacity(record)
     expect(app.nodes.list).to include(hash_including('hostname' => 'vm-node', 'state' => 'running'))
     expect(management.run(record, %w[id -u]).stdout.strip).to eq('0')
     expect(management.run(record, ['sh', '-c',
-                                   'test "$(getent shadow root | cut -d : -f 2)" = "*"'])).to be_success
+                                   'case "$(getent shadow root | cut -d : -f 2)" in ' \
+                                   '\!*|\**) exit 0;; *) exit 1;; esac'])).to be_success
     app.nodes.destroy(name: 'vm-node')
     expect(app.nodes.list).to be_empty
   end
 
-  it 'keeps failed APT cleanup diagnosable through managed SSH and unlocked console access' do
+  it 'keeps failed APT cleanup diagnosable through VirtIO management and configured console access' do
     app.infrastructure.up
-    allow(Empeira::VM::SSH).to receive(:new).and_wrap_original do |constructor, **options|
+    allow(Empeira::VM::Guest).to receive(:new).and_wrap_original do |constructor, **options|
       constructor.call(**options).tap do |ssh|
         allow(ssh).to receive(:run).and_wrap_original do |original, record, arguments, **arguments_options|
           if arguments == ['rm', '--force', '--', Empeira::Node::AptConfiguration::BACKUP]
@@ -113,8 +115,8 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     expect(record['network_phase']).to eq('bootstrap')
     expect(record['last_puppet_exit']).to be_nil
     expect(state).not_to have_key('bootstrap_proxy')
-    expect(management_ssh.run(record, ['tar', '--compare', '--file', Empeira::Node::AptConfiguration::BACKUP,
-                                       '--directory', '/'])).to be_success
+    expect(management_guest.run(record, ['tar', '--compare', '--file', Empeira::Node::AptConfiguration::BACKUP,
+                                         '--directory', '/'])).to be_success
     verify_ssh_session(app, name: 'incomplete-vm', user: 'empeira')
     allow(app.runner).to receive(:console).and_wrap_original do |original, path, **options|
       expect { store.with_lock { nil } }.not_to raise_error
@@ -135,9 +137,8 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     app.nodes.destroy(name: 'incomplete-vm')
   end
 
-  def management_ssh
-    cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
-    Empeira::VM::SSH.new(context: app.context, runner: app.runner, cloud_init: cloud)
+  def management_guest
+    vm_guest(app)
   end
 
   # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Observe virtual, allocated and guest capacities in one real VM gate.
@@ -153,8 +154,8 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
       .to eq(record.fetch('base_image').fetch('checksum'))
     allocated = File.stat(overlay).blocks * 512
     expect(allocated).to be < 8 * Empeira::VM::Disk::GIB
-    Empeira::VM::RootDisk.new(ssh: management_ssh).verify!(record, size_gib: 32)
-    usage = management_ssh.run(record, %w[df -h /])
+    Empeira::VM::RootDisk.new(guest: management_guest).verify!(record, size_gib: 32)
+    usage = management_guest.run(record, %w[df -h /])
     expect(usage).to be_success
     RSpec.configuration.reporter.message(
       "VM disk (#{engine_name}, allocated #{allocated} bytes): #{usage.stdout.strip}"
@@ -167,8 +168,7 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     expect(state).not_to have_key('bootstrap_proxy')
     record = state.fetch('nodes').fetch('vm-node')
     expect(record).not_to have_key('internet')
-    cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
-    ssh = Empeira::VM::SSH.new(context: app.context, runner: app.runner, cloud_init: cloud)
+    ssh = vm_guest(app)
     %w[http://proxy.empeira.internal:3128].each do |proxy|
       expect(ssh.run(record, ['curl', '--fail', '--max-time', '3', '--proxy', proxy,
                               'https://apt.voxpupuli.org'])).not_to be_success

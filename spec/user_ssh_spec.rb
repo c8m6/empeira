@@ -51,7 +51,7 @@ RSpec.describe Empeira::Node::UserSSH do
     end
 
     [{}, { user: 'deploy' }, { identity: '/some/key' }, { user: 'deploy', identity: '/some/key' }].each do |overrides|
-      it "uses existing management authentication with independent overrides #{overrides.keys}" do
+      it "uses existing system SSH authentication with independent overrides #{overrides.keys}" do
         options = overrides.transform_values { |value| value == '/some/key' ? external_key.to_s : value }
         expect(runner).not_to receive(:run)
         expect(runner).to receive(:stream) do |command, arguments:|
@@ -68,14 +68,14 @@ RSpec.describe Empeira::Node::UserSSH do
       end
     end
 
-    it 'rejects missing management keys without generating replacement credentials' do
+    it 'rejects missing system SSH keys without generating replacement credentials' do
       credentials.key_path.unlink
       expect(runner).not_to receive(:stream)
       expect(runner).not_to receive(:run)
       expect { client.session(record) }.to raise_error(Empeira::Error, /key material is missing or unsafe/)
     end
 
-    it 'rejects symlinked management keys' do
+    it 'rejects symlinked system SSH keys' do
       credentials.key_path.unlink
       File.symlink(credentials.public_path, credentials.key_path)
       expect(runner).not_to receive(:stream)

@@ -62,7 +62,7 @@ RSpec.describe Empeira::Configuration::VMInterfaces do
     end
   end
 
-  %w[lo eth0 eth1 peer management empeira-vlan abcdefghijklmnop a:b a/b . .. -option].each do |name|
+  %w[lo eth0 peer empeira-vlan abcdefghijklmnop a:b a/b . .. -option].each do |name|
     it "rejects invalid or reserved interface name #{name}" do
       rules.first['devices'] = { name => { 'network' => '192.0.2.10/32' } }
       expect do

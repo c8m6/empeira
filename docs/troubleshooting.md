@@ -80,33 +80,29 @@ keys before the intended one. For containers, select the identity in your normal
 OpenSSH `Host` configuration and set `IdentitiesOnly yes` there when needed. VM
 access selects its managed or explicit identity and disables password authentication.
 
-New VMs use a dedicated management daemon for internal commands, separate from
-system SSH. A failed system login does not cause Empeira to restart that service or
-replace its authentication. Management failures identify the private service/root authentication;
-inspect `empeira-management-ssh.service` through the serial console and preserved
-logs. Older VM layouts are rejected; preserve the VM and explicitly destroy it with the
-previous Empeira revision before recreating it with root management SSH.
+VM management uses a private VirtIO-Serial execution service, separate from
+system SSH. `node ssh` defaults to guest port 22 and never checks or forwards
+through management. A failed system login reports the native SSH error and does
+not restart the daemon or replace authentication. Root shadow `!`, sudoers, PAM,
+regular accounts and authorized keys do not govern management.
 
-SELinux guests require the existing `semodule` and `restorecon` tools for the scoped
-management port/file labels. Inspect the management journal and AVC messages if
-that endpoint cannot bind or authenticate; do not disable enforcement to repair it.
-
-Current VM management authenticates directly as root and does not depend on
-`empeira`, its home, sudoers or the system daemon/PAM policy. Inspect the private
-service journal, effective `sshd -T` policy in the daemon's private mount namespace,
-root UID/shell and key-file ownership through `node shell`. Root account locking,
-expiry, removal of OpenSSH or changes to the private management files can still
-prevent access. Empeira does not repair these changes or reset console passwords.
-The regular `empeira` account exists only for default `node ssh` sessions.
-Run the policy verifier from a root serial console in the service's namespace:
+For an actual management failure, inspect `node logs` and the private serial
+console. From the guest console run:
 
 ```bash
-pid=$(systemctl show -p MainPID --value empeira-management-ssh.service)
-nsenter --target "$pid" --mount -- /usr/local/libexec/empeira-management-policy
+cloud-init status --long
+journalctl -u empeira-management.service
+ls -l /dev/virtio-ports/org.empeira.management.0
 ```
 
-Running `sshd -T` in PID 1's namespace can fail because the system daemon no longer
-owns `/run/sshd`; the management service deliberately supplies its own private directory.
+The cloud image requires Python 3 before package bootstrap (`/usr/bin/python3`
+or `/usr/libexec/platform-python` on Rocky Linux). Preserve SELinux enforcement
+and inspect AVC messages if it denies a guest operation. Removing the interpreter,
+service, VirtIO port or filesystem can interrupt management. Empeira preserves
+storage, reports unknown completion and uses no authentication fallback. Console
+credentials stay under Puppet's control; there are no later password resets.
+Older VM layouts require explicit destruction with the previous Empeira revision
+and recreation. Existing VMs are never migrated or deleted automatically.
 
 VM creation failures retain the original diagnostic and add the retained node's
 cleanup command. Inspect the underlying failure first; an incomplete VM requires

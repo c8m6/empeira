@@ -65,10 +65,10 @@ module Empeira
       end
 
       def verify_vm_boot(record)
-        @ssh.wait(record, progress: @progress)
-        ::Empeira::VM::RootDisk.new(ssh: @ssh).verify!(record, size_gib: context.configuration.dig('vm', 'disk'))
-        VMBootstrap.new(ssh: @ssh).verify(record: record, bootstrap: Bootstrap.new(provider: 'vm'))
-        @cloud.finish(record, ssh: @ssh)
+        @guest.wait(record, progress: @progress)
+        ::Empeira::VM::RootDisk.new(guest: @guest).verify!(record, size_gib: context.configuration.dig('vm', 'disk'))
+        VMBootstrap.new(guest: @guest).verify(record: record, bootstrap: Bootstrap.new(provider: 'vm'))
+        @cloud.finish(record, guest: @guest)
       end
 
       def finish_vm(record, server, packages)
@@ -76,7 +76,7 @@ module Empeira
         prepare_agent(record, packages)
         reconcile_interfaces(record)
         @progress.stage(85, 'Signing VM certificate...')
-        certificate_runtime = ::Empeira::VM::CertificateRuntime.new(runtime: @runtime, ssh: @ssh, record: record)
+        certificate_runtime = ::Empeira::VM::CertificateRuntime.new(runtime: @runtime, guest: @guest, record: record)
         Certificates.new(runtime: certificate_runtime, server: server).enroll({ 'vm' => true }, record) { save }
         reconcile_guest(record)
         record['provisioned'] = true
@@ -88,7 +88,7 @@ module Empeira
 
       # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Preserve bootstrap cleanup before runtime activation.
       def prepare_agent(record, packages)
-        execute = ->(arguments) { @ssh.run(record, arguments, timeout: 300) }
+        execute = ->(arguments) { @guest.run(record, arguments, timeout: 300) }
         package_configuration(record, execute).preserve do
           if packages.required?
             @progress.stage(75, 'Bootstrapping packages...')
@@ -96,7 +96,7 @@ module Empeira
           end
           @agent.ensure_installed(record, requirements: @requirements, proxy_url: @bootstrap_proxy.url)
         end
-        PackageSources.verify!(execute: ->(arguments) { @ssh.run(record, arguments) })
+        PackageSources.verify!(execute: ->(arguments) { @guest.run(record, arguments) })
         @bootstrap_proxy.cleanup(@state)
         record['network_phase'] = 'runtime'
         save
@@ -116,9 +116,9 @@ module Empeira
 
       def package_bootstrap(record)
         PackageBootstrap.new(config: context.configuration.dig('bootstrap', 'packages'), os: record.fetch('os'),
-                             execute: ->(arguments) { @ssh.run(record, arguments, timeout: 300) },
+                             execute: ->(arguments) { @guest.run(record, arguments, timeout: 300) },
                              copy: lambda { |source, destination, mode|
-                               @ssh.copy_to(record, source, destination, mode: mode)
+                               @guest.copy_to(record, source, destination, mode: mode)
                              },
                              rpm_options: @requirements.rpm_options,
                              progress: @progress.method(:heartbeat))
@@ -132,7 +132,7 @@ module Empeira
       def configure_agent(record)
         { 'certname' => record.fetch('hostname'), 'server' => 'server.empeira.internal',
           'environment' => context.configuration.dig('server', 'environment') }.each do |key, value|
-          result = @ssh.run(record, [Certificates::PUPPET, 'config', 'set', key, value, '--section', 'main'])
+          result = @guest.run(record, [Certificates::PUPPET, 'config', 'set', key, value, '--section', 'main'])
           next if result.success?
 
           details = Execution::Diagnostics.command(result, operation: "VM agent configuration: #{key}", tool: 'puppet')
@@ -142,7 +142,7 @@ module Empeira
 
       def puppet_run(record)
         result = @progress.streaming do
-          @ssh.stream(record, RuntimeProxy.command(context, PuppetCommand.arguments))
+          @guest.stream(record, RuntimeProxy.command(context, PuppetCommand.arguments))
         end
         record['last_puppet_exit'] = result.exit_status
         save

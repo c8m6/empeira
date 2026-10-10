@@ -6,9 +6,9 @@ module Empeira
     class Agent
       PUPPET = Node::Certificates::PUPPET
 
-      def initialize(context:, ssh:, runtime: nil, progress: Progress.new)
+      def initialize(context:, guest:, runtime: nil, progress: Progress.new)
         @context = context
-        @ssh = ssh
+        @guest = guest
         @runtime = runtime
         @progress = progress
       end
@@ -35,7 +35,7 @@ module Empeira
       attr_reader :proxy_url
 
       def verify_existing_agent!(record)
-        result = @ssh.run(record, [PUPPET, '--version'])
+        result = @guest.run(record, [PUPPET, '--version'])
         return if result.success?
 
         details = Execution::Diagnostics.command(result, operation: 'Existing VM Puppet agent verification',
@@ -45,8 +45,8 @@ module Empeira
       end
 
       def install_selected_agent(record, requirements)
-        execute = ->(arguments) { @ssh.run(record, arguments, timeout: 300) }
-        copy = ->(source, destination, mode) { @ssh.copy_to(record, source, destination, mode: mode) }
+        execute = ->(arguments) { @guest.run(record, arguments, timeout: 300) }
+        copy = ->(source, destination, mode) { @guest.copy_to(record, source, destination, mode: mode) }
         @runtime ||= Runtime.registry.build(@context.container_engine, context: @context, runner: Execution::Runner.new)
         installer = Node::AgentInstaller.build(context: @context, runtime: @runtime, requirements: requirements,
                                                execute: execute, copy: copy, progress: @progress)
@@ -55,7 +55,7 @@ module Empeira
       end
 
       def execute!(record, arguments, operation)
-        result = @ssh.run(record, arguments, timeout: 300)
+        result = @guest.run(record, arguments, timeout: 300)
         return if result.success?
 
         details = Execution::Diagnostics.command(result, operation: operation, tool: arguments.first)

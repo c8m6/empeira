@@ -13,7 +13,7 @@ RSpec.describe Empeira::VM::SystemSSH do
     allow(Empeira::Network::Peer::Backend).to receive(:build).and_return(peer)
     allow(Empeira::Node::UserSSH).to receive(:new).with(hash_including(proxy_command: ['owned-peer-tunnel']))
                                                   .and_return(client)
-    expect(Empeira::VM::SSH).not_to receive(:new)
+    expect(Empeira::VM::Guest).not_to receive(:new)
   end
 
   [22, 2222].each do |port|
@@ -23,7 +23,7 @@ RSpec.describe Empeira::VM::SystemSSH do
                                                user: 'admin', identity: '/personal/key')
       system.session(record, user: 'admin', identity: '/personal/key', port: port == 22 ? nil : port)
       expect(record['ssh_port']).to eq(32_123)
-      expect(record).not_to have_key('ssh_layout')
+      expect(record).not_to have_key('management_layout')
     end
   end
 

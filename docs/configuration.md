@@ -510,6 +510,13 @@ initial VM creation. Changing it does not reset an existing node.
 `vm.disk` applies only when creating a VM. Existing disks keep their capacity across
 `up` and `node start`; changing the setting does not resize or migrate them.
 
+VM management uses private VirtIO-Serial with numeric root execution; it does not
+use personal SSH settings, root login or sudo. `node ssh` reaches the regular
+system SSH daemon through the owned peer attachment, with default guest port 22.
+The selected cloud image must include Python 3 before package bootstrap. There is
+no transport selector or additional management YAML configuration. See
+[VM access and recovery](nodes.md#shell-and-ssh).
+
 ## Images and bootstrap
 
 `images.nodes` selects container recipes and base images. VM image sources currently
@@ -764,7 +771,7 @@ to other nodes. No QEMU NIC, DHCP, bridge, forwarding, gateway grant or proxy ru
 is added.
 
 Device names use 1–15 ASCII letters, digits, underscores, dots or hyphens, beginning
-with a letter or digit. `lo`, `eth0`, `eth1`, `peer`, `management` and `empeira-vlan`
+with a letter or digit. `lo`, `eth0`, `peer` and `empeira-vlan`
 are reserved. Unknown keys, IPv6, duplicate addresses/VLAN IDs and overlapping
 device networks are rejected. Network/broadcast addresses within prefixes below
 /31 are rejected, as are subnets overlapping unspecified, loopback, link-local,
@@ -774,7 +781,7 @@ hosts are permitted; separate `prefix`/`netmask` keys are unsupported.
 
 Prefer `/32` for Facter tests. Other prefixes create connected routes, so Empeira
 checks all guest IPv4 routing tables and existing interface addresses first. The
-workspace subnet, QEMU management subnet and `network.redirects` source addresses
+workspace subnet and `network.redirects` source addresses
 are protected even if their routes are absent. Overlap is refused, including a /32
 inside an existing connected network. Automatically generated routes of owned test
 devices are recognized during reconciliation; manually added routes on those devices

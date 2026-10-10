@@ -8,8 +8,8 @@ module Empeira
     class RootDisk
       ALIGNMENT_MARGIN = 16 * (1024**2)
 
-      def initialize(ssh:)
-        @ssh = ssh
+      def initialize(guest:)
+        @guest = guest
       end
 
       def verify!(record, size_gib:)
@@ -36,7 +36,7 @@ module Empeira
       end
 
       def observe(record, arguments)
-        result = @ssh.run(record, arguments)
+        result = @guest.run(record, arguments)
         return result.stdout if result.success?
 
         details = Execution::Diagnostics.command(result, operation: 'Verify VM root disk growth', tool: arguments.first)

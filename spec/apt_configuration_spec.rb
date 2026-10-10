@@ -131,7 +131,7 @@ RSpec.describe Empeira::Node::AptConfiguration do
           removals += 1
           if removals == 1
             execute.call(arguments) if deleted_before_disconnect
-            raise Empeira::VM::SSH::TransportError.new('Connection reset by peer', transient: true)
+            raise Empeira::VM::Guest::TransportError.new('Connection reset by peer', transient: true)
           end
         end
         execute.call(arguments)
@@ -156,7 +156,7 @@ RSpec.describe Empeira::Node::AptConfiguration do
     failing_execute = lambda do |arguments|
       if arguments == ['rm', '--force', '--', backup.to_s]
         removals += 1
-        raise Empeira::VM::SSH::TransportError.new('Connection reset by peer', transient: true)
+        raise Empeira::VM::Guest::TransportError.new('Connection reset by peer', transient: true)
       end
       execute.call(arguments)
     end
@@ -175,7 +175,7 @@ RSpec.describe Empeira::Node::AptConfiguration do
     failing_execute = lambda do |arguments|
       if arguments == ['rm', '--force', '--', backup.to_s]
         removals += 1
-        raise Empeira::VM::SSH::TransportError.new('Timeout: true', timed_out: true)
+        raise Empeira::VM::Guest::TransportError.new('Timeout: true', timed_out: true)
       end
       execute.call(arguments)
     end

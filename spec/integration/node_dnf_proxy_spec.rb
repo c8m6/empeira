@@ -54,7 +54,8 @@ RSpec.describe 'Real DNF runtime proxy', :integration do
       expect(app.nodes.puppet(name: hostname).exit_status).to eq(2)
       if provider == 'vm'
         expect(guest(%w[getenforce]).stdout.strip).to eq('Enforcing')
-        expect(guest(['ls', '-Zd', '/run/empeira-management-ssh']).stdout).to include('sshd_var_run_t')
+        expect(guest(%w[systemctl is-active empeira-management.service])).to be_success
+        expect(guest(['stat', '-c', '%u:%g:%a', Empeira::VM::Management::UPLOADS]).stdout.strip).to eq('0:0:700')
       end
       expect(guest(%w[tree --version])).to be_success
       expect(guest(['test', '!', '-e', Empeira::Node::PackageProxy::DNF_PATH])).to be_success
@@ -112,7 +113,7 @@ RSpec.describe 'Real DNF runtime proxy', :integration do
 
   def guest(arguments)
     if @provider == 'vm'
-      management_ssh.run(record, arguments, timeout: 300)
+      management_guest.run(record, arguments, timeout: 300)
     else
       definition = Empeira::Node::Definition.new(hostname: hostname, workspace: app.context.workspace)
       @runtime.service_exec(@runtime.inspect_service(definition), arguments, timeout: 300)
@@ -123,8 +124,7 @@ RSpec.describe 'Real DNF runtime proxy', :integration do
     Empeira::Infrastructure::Store.new(context: app.context).load.fetch('nodes').fetch(hostname)
   end
 
-  def management_ssh
-    cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
-    Empeira::VM::SSH.new(context: app.context, runner: app.runner, cloud_init: cloud)
+  def management_guest
+    vm_guest(app)
   end
 end

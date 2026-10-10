@@ -49,8 +49,7 @@ RSpec.describe 'Real accelerated VM proxy policy', :integration do
   it 'enforces hostname rules over the direct VM lease and reloads only the proxy for a running VM' do
     state = Empeira::Infrastructure::Store.new(context: app.context).load
     record = state.fetch('nodes').fetch('lab-web-vm.test')
-    cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
-    ssh = Empeira::VM::SSH.new(context: app.context, runner: app.runner, cloud_init: cloud)
+    ssh = vm_guest(app)
     # Add synthetic DNS records through the owned live discovery file without replacing guest DNS bindings.
     files = Empeira::ControlPlane::Files.new(context: app.context)
     hosts = files.directory.join('hosts')

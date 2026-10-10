@@ -4,14 +4,14 @@ module Empeira
   module VM
     # Reuse the same targeted CA enrollment rules as container nodes.
     class CertificateRuntime
-      def initialize(runtime:, ssh:, record:)
+      def initialize(runtime:, guest:, record:)
         @runtime = runtime
-        @ssh = ssh
+        @guest = guest
         @record = record
       end
 
       def service_exec(resource, arguments, timeout: 60)
-        return @ssh.run(@record, arguments, timeout: timeout) if resource['vm']
+        return @guest.run(@record, arguments, timeout: timeout) if resource['vm']
 
         @runtime.service_exec(resource, arguments, timeout: timeout)
       end
@@ -21,7 +21,7 @@ module Empeira
       end
 
       def copy_to(resource, source, destination)
-        return @ssh.copy_to(@record, source, destination) if resource['vm']
+        return @guest.copy_to(@record, source, destination) if resource['vm']
 
         @runtime.copy_to(resource, source, destination)
       end

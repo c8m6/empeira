@@ -91,8 +91,7 @@ module NetworkRedirectFixture
   # rubocop:disable-next Metrics/AbcSize -- Exercise public providers and the server's native transport.
   def redirect_command(source, arguments)
     if source == 'vm'
-      cloud = Empeira::VM::CloudInit.new(context: @app.context, runner: @app.runner)
-      ssh = Empeira::VM::SSH.new(context: @app.context, runner: @app.runner, cloud_init: cloud)
+      ssh = vm_guest(@app)
       ssh.run(redirect_state.fetch('nodes').fetch('vm-redirect'), arguments)
     else
       resource = if source == 'container'

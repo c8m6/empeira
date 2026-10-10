@@ -7,8 +7,8 @@ policy. IPv6 is disabled; external UDP grants are unsupported.
 
 VM-only [additional dummy/VLAN interfaces](configuration.md#additional-vm-interfaces)
 exist entirely inside the guest. They provide ordinary Facter bindings without an
-external VLAN attachment or changes to the peer/management NICs. Their connected
-routes must avoid existing guest routes, the workspace and management subnets,
+external VLAN attachment or changes to the peer NIC. Their connected
+routes must avoid existing guest routes, the workspace subnet,
 and transparent redirect source addresses. `/32` is preferred for isolated fact
 tests. Empeira verifies and preserves default routes, and refuses foreign device
 ownership or dependencies instead of removing them.
@@ -48,7 +48,7 @@ unverifiable capabilities fail closed.
 
 | CLI host/runtime | VM peer attachment |
 | --- | --- |
-| Linux/WSL2, rootless Podman | Nonpersistent TAP in the rootless Netavark namespace |
+| Linux/WSL2, rootless Podman | Nonpersistent TAP in the rootless Netavark namespace; capless peer TCP client |
 | Linux/WSL2, Docker | Private QEMU Ethernet channel and owned bridge adapter |
 | macOS, Podman Machine | QEMU channel through machine SSH and rootless TAP |
 | macOS, Docker Desktop | QEMU channel through runtime exec and owned bridge adapter |
@@ -63,21 +63,21 @@ The static Go adapter is built from packaged source in an isolated, content-hash
 context by the selected runtime. Go is not a host prerequisite. Packet channels
 use private directories/sockets outside the control repository. Adapter helpers
 have no control-code mount or credentials; identity, definition and checksum are
-verified. The VM management NIC has restricted loopback SSH only, separate from
-peer application traffic, DNS and Puppet.
+verified. VM management uses a separate private VirtIO-Serial channel and no
+network NIC, SLIRP forward or TCP listener. Its Unix socket is private to the host
+user and bound to the owned QEMU instance. It adds no route or egress exception.
 
-New VM layouts forward this same private endpoint to the dedicated management
-daemon on 10.0.2.15:22222. System SSH connects directly through the owned peer
-attachment to the VM's verified peer IPv4 and selected guest port (22 by default).
-Native Podman uses its rootless network namespace; Docker and Podman machine
-use the existing peer adapter as a TCP byte connector. The adapter validates
-workspace ownership, attachment and subnet before connecting. System SSH requires
-no management health check or authentication, and adds no host publication or
-network adapter. Management credentials and host keys are
-independent of system SSH and personal preferences. Older VM layouts fail closed
-and require explicit recreation. See [SSH layouts and recovery](nodes.md#shell-and-ssh).
-Root management uses a private key and does not depend on the regular system SSH
-account at `/var/lib/empeira`; it adds no listener, adapter, external publication or destination-policy exception.
+System SSH connects directly through the owned peer attachment to the VM's
+verified peer IPv4 and selected guest port (22 by default). Native Podman uses a
+capless owned peer client on the existing isolated network;
+Docker keeps its existing adapter IP on its local bridge with forwarding disabled.
+Podman machine uses its capless staging adapter. TCP binds the observed internal
+client IP, with no host route or additional VM NIC. Ownership, attachment and subnet
+are verified
+before connecting. User SSH needs no management check or authentication and adds
+no host publication or additional VM NIC. OpenSSH uses private per-node known-host
+state and preserves native connection/authentication errors. See
+[SSH and recovery](nodes.md#shell-and-ssh).
 
 The CLI host and engine may have different filesystems. Control/Hiera directories,
 server mounts and state must be visible at their canonical paths. Mount probes

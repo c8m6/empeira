@@ -4,6 +4,7 @@ require_relative '../../resources/nodes/runtime_proxy'
 require_relative '../support/node_access'
 require_relative '../support/login_fixture'
 require_relative '../support/console_login'
+require_relative '../support/agent_entry_probe'
 
 RSpec.describe 'Real node runtime management', :integration do
   include LiveNodeAccess
@@ -58,14 +59,16 @@ RSpec.describe 'Real node runtime management', :integration do
       Empeira::VM.registry.build('qemu', context: app.context, runner: app.runner).preflight! if provider == 'vm'
       File.write(File.join(project, 'manifests/site.pp'), <<~PUPPET)
         #{@login.manifest}
+        file { '/var/lib/empeira-runtime-fixture': ensure => directory, mode => '0700' }
         #{interface_manifest if provider == 'vm'}
+        service { 'puppet': ensure => stopped, enable => false }
         exec { 'runtime-package-index':
           command => '/usr/bin/apt-get update',
-          unless => '/usr/bin/test -e /tmp/empeira-package-index',
+          unless => '/usr/bin/test -e /var/lib/empeira-runtime-fixture/package-index',
           before => Package['tree'],
         }
         package { 'tree': ensure => installed }
-        file { '/tmp/empeira-package-index': ensure => file, require => Package['tree'] }
+        file { '/var/lib/empeira-runtime-fixture/package-index': ensure => file, require => Package['tree'] }
       PUPPET
       app.infrastructure.up
       app.run_node(hostname: hostname, provider: provider)
@@ -78,6 +81,10 @@ RSpec.describe 'Real node runtime management', :integration do
       expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
       app.nodes.stop(name: hostname)
       app.nodes.start(name: hostname)
+      if provider == 'vm'
+        wait_for_puppet_idle
+        expect([0, 2]).to include(app.nodes.puppet(name: hostname).exit_status)
+      end
       verify_combined_vm if provider == 'vm'
       expect(guest(%w[tree --version])).to be_success
       verify_interactive_tools
@@ -95,11 +102,31 @@ RSpec.describe 'Real node runtime management', :integration do
     end
   end
 
+  it 'preserves VirtIO management and independent user SSH after Puppet locks root' do
+    selected = ENV.fetch('EMPEIRA_RUNTIME_MANAGEMENT_PROVIDERS', 'container,vm').split(',')
+    skip 'Provider vm not selected' unless selected.include?('vm')
+
+    @provider = 'vm'
+    Empeira::VM.registry.build('qemu', context: app.context, runner: app.runner).preflight!
+    File.write(File.join(project, 'manifests/site.pp'), <<~PUPPET)
+      #{@login.manifest}
+      file { '/var/lib/empeira-runtime-fixture': ensure => directory, mode => '0700' }
+      #{interface_manifest}
+      service { 'puppet': ensure => stopped, enable => false }
+    PUPPET
+    app.infrastructure.up
+    app.run_node(hostname: hostname, provider: 'vm')
+    result, output, error = access_session(app, name: hostname, operation: :ssh)
+    expect(result.exit_status).to eq(7), error
+    expect(output).to include('empeira')
+    verify_separate_vm_ssh
+  end
+
   def interface_manifest
     <<~PUPPET
       $dummy = $facts['networking']['interfaces']['dummy0']['bindings'][0]['address']
       $vlan = $facts['networking']['interfaces']['ens192']['bindings'][0]['address']
-      file { '/tmp/empeira-first-interface-facts': content => "${dummy}|${vlan}" }
+      file { '/var/lib/empeira-runtime-fixture/first-interface-facts': content => "${dummy}|${vlan}" }
     PUPPET
   end
 
@@ -113,8 +140,9 @@ RSpec.describe 'Real node runtime management', :integration do
     expect(disk.fetch('virtual-size')).to eq(30 * Empeira::VM::Disk::GIB)
     expect(Digest::SHA256.file(disk.fetch('backing-filename')).hexdigest).to eq(record.dig('base_image', 'checksum'))
     expect(File.stat(overlay).blocks * 512).to be < 8 * Empeira::VM::Disk::GIB
-    Empeira::VM::RootDisk.new(ssh: management_ssh).verify!(record, size_gib: 30)
-    expect(guest(%w[cat /tmp/empeira-first-interface-facts]).stdout).to eq('192.0.2.10|198.51.100.10')
+    Empeira::VM::RootDisk.new(guest: management_guest).verify!(record, size_gib: 30)
+    facts = guest(%w[cat /var/lib/empeira-runtime-fixture/first-interface-facts]).stdout
+    expect(facts).to eq('192.0.2.10|198.51.100.10')
     links = JSON.parse(guest(%w[ip -j -d link show]).stdout).to_h { |entry| [entry.fetch('ifname'), entry] }
     expect(links.dig('dummy0', 'linkinfo', 'info_kind')).to eq('dummy')
     expect(links.dig('ens192', 'linkinfo', 'info_kind')).to eq('vlan')
@@ -142,31 +170,32 @@ RSpec.describe 'Real node runtime management', :integration do
 
   def guest(arguments)
     if @provider == 'vm'
-      management_ssh.run(record, arguments, timeout: 300)
+      management_guest.run(record, arguments, timeout: 300)
     else
       definition = Empeira::Node::Definition.new(hostname: hostname, workspace: app.context.workspace)
       @runtime.service_exec(@runtime.inspect_service(definition), arguments, timeout: 300)
     end
   end
 
-  def management_ssh
-    cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
-    Empeira::VM::SSH.new(context: app.context, runner: app.runner, cloud_init: cloud)
+  def management_guest
+    vm_guest(app)
   end
 
-  # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Follow both real SSH daemons across Puppet and reboot.
+  # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Follow real management and system SSH across Puppet and reboot.
   def verify_separate_vm_ssh
-    expect(record.fetch('ssh_layout')).to eq(Empeira::VM::Management::VERSION)
+    expect(record.fetch('management_layout')).to eq(Empeira::VM::Management::VERSION)
     expect(guest(%w[id -u]).stdout.strip).to eq('0')
-    verify_management_authentication
-    expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
+    verify_management_channel
+    expect(guest(%w[systemctl is-active empeira-management.service])).to be_success
     expect(guest(%w[systemctl is-active ssh.service])).to be_success
+    wait_for_system_login_exit
     original = File.read(File.join(project, 'manifests/site.pp'))
     system_config = "Port 2222\nListenAddress #{record.fetch('peer').fetch('ip')}\n" \
                     "HostKey /etc/ssh/ssh_host_ed25519_key\nUsePAM yes\nPasswordAuthentication no\n" \
                     "KbdInteractiveAuthentication no\nPermitRootLogin no\nSubsystem sftp internal-sftp\n"
     manifest = <<~PUPPET
       #{original}
+      user { 'root': ensure => present, password => '!' }
       file { '/etc/sudoers': ensure => file, owner => 'root', group => 'root', mode => '0440',
         content => "root ALL=(ALL:ALL) ALL\n" }
       file { '/etc/sudoers.d': ensure => directory, recurse => true, purge => true, force => true }
@@ -199,17 +228,22 @@ RSpec.describe 'Real node runtime management', :integration do
     PUPPET
     File.write(File.join(project, 'manifests/site.pp'), manifest)
     expect(app.nodes.puppet(name: hostname).exit_status).to eq(2)
+    expect(guest(['sh', '-c', 'test "$(getent shadow root | cut -d : -f 2)" = "!"'])).to be_success
+    expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
+    verify_failed_catalog_retry(manifest)
+    measure_agent_entry
     result, output, error = access_session(app, name: hostname, operation: :ssh, port: 2222,
                                                 user: @login.username, identity: @login.identity.to_s)
     expect(result.exit_status).to eq(7), error
     expect(output).to include(@login.username)
-    expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
+    verify_system_ssh_without_management
+    expect(guest(%w[systemctl is-active empeira-management.service])).to be_success
     expect(guest(%w[getent passwd empeira])).not_to be_success
     verify_management_upload
     restarted = manifest.sub('Subsystem sftp internal-sftp', "Subsystem sftp internal-sftp\n# Puppet restart probe")
     File.write(File.join(project, 'manifests/site.pp'), restarted)
     expect(app.nodes.puppet(name: hostname).exit_status).to eq(2)
-    expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
+    expect(guest(%w[systemctl is-active empeira-management.service])).to be_success
     manifest = restarted
     manifest = manifest.sub("service { 'ssh': ensure => running, enable => true }",
                             "service { 'ssh': ensure => stopped, enable => false }")
@@ -219,40 +253,112 @@ RSpec.describe 'Real node runtime management', :integration do
                                   user: @login.username, identity: @login.identity.to_s)
     expect(result.exit_status).not_to eq(0)
     expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
+    manifest = manifest.sub("service { 'ssh': ensure => stopped, enable => false }",
+                            "service { 'ssh': ensure => running, enable => true }")
+    File.write(File.join(project, 'manifests/site.pp'), manifest)
+    expect(app.nodes.puppet(name: hostname).exit_status).to eq(2)
+    verify_selected_system_ssh
     app.nodes.stop(name: hostname)
     app.nodes.start(name: hostname)
-    expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
-    expect(guest(%w[systemctl is-enabled empeira-management-ssh.service])).to be_success
-    expect(guest(%w[systemctl is-active ssh.service])).not_to be_success
-    expect(guest(%w[systemctl is-enabled ssh.service])).not_to be_success
+    expect(guest(%w[systemctl is-active empeira-management.service])).to be_success
+    expect(guest(%w[systemctl is-enabled empeira-management.service])).to be_success
+    expect(guest(%w[systemctl is-active ssh.service])).to be_success
+    expect(guest(%w[systemctl is-enabled ssh.service])).to be_success
+    expect(guest(['sh', '-c', 'test "$(getent shadow root | cut -d : -f 2)" = "!"'])).to be_success
+    verify_selected_system_ssh
+    app.infrastructure.up
+    facts = guest(%w[cat /var/lib/empeira-runtime-fixture/first-interface-facts]).stdout
+    expect(facts).to eq('192.0.2.10|198.51.100.10')
+    expect(guest(%w[apt-get update])).to be_success
     wait_for_puppet_idle
     expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
   end
 
-  # rubocop:disable-next Metrics/AbcSize -- Inspect real root transport and reject alternate authentication.
-  def verify_management_authentication
-    ssh = management_ssh
-    options = ssh.send(:options, record)
-    password_only = app.runner.run('ssh', arguments: [*options, '-o', 'PubkeyAuthentication=no',
-                                                      '-o', 'PreferredAuthentications=password,keyboard-interactive',
-                                                      'root@127.0.0.1', 'true'], timeout: 15)
-    expect(password_only).not_to be_success
-    expect(password_only.stderr).to include('Permission denied')
-    expect(guest(['sh', '-c',
-                  'pid=$(systemctl show -p MainPID --value empeira-management-ssh.service); ' \
-                  'exec nsenter --target "$pid" --mount -- /usr/local/libexec/empeira-management-policy']))
-      .to be_success
-    management_key = Empeira::Node::SSHCredentials.new(context: app.context, runner: app.runner, provider: 'vm',
-                                                       hostname: hostname, purpose: :management).public_path.read.strip
-    expect(guest(['grep', '-F', '--', management_key, '/root/.ssh/authorized_keys'])).not_to be_success
+  # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Five real agent-entry samples share one restored disposable instrumentation boundary.
+  def measure_agent_entry
+    script = <<~'SH'
+      set -eu
+      agent=/opt/puppetlabs/bin/puppet
+      backup=/opt/puppetlabs/bin/puppet.empeira-management-original
+      test ! -e "$backup"
+      test -x /opt/puppetlabs/puppet/bin/puppet
+      mv "$agent" "$backup"
+      cat > "$agent" <<'WRAPPER'
+      #!/bin/sh
+      printf 'EMPEIRA_BENCHMARK_AGENT_ENTRY\n'
+      exec /opt/puppetlabs/puppet/bin/puppet "$@"
+      WRAPPER
+      chmod 755 "$agent"
+    SH
+    expect(guest(['sh', '-eu', '-c', script])).to be_success
+    samples = []
+    probe_script = File.expand_path('../support/agent_entry_cli.rb', __dir__)
+    repository = File.expand_path('../..', __dir__)
+    5.times do
+      probe = AgentEntryProbe.new
+      result = app.runner.run(RbConfig.ruby,
+                              arguments: [probe_script, repository, locations.home.to_s, engine_name, hostname],
+                              directory: project, on_stdout: probe.method(:<<), timeout: 300)
+      expect(result).to be_success, result.stderr
+      expect(probe.seconds).not_to be_nil
+      samples << probe.seconds
+    end
+    RSpec.configuration.reporter.message("VirtIO agent entry #{engine_name}: #{JSON.generate(samples)} seconds")
+  ensure
+    restore = 'test ! -e /opt/puppetlabs/bin/puppet.empeira-management-original || ' \
+              'mv -f /opt/puppetlabs/bin/puppet.empeira-management-original /opt/puppetlabs/bin/puppet'
+    expect(guest(['sh', '-eu', '-c', restore])).to be_success
   end
 
-  # rubocop:disable-next Metrics/AbcSize -- Verify actual SCP contents, ownership and staging cleanup.
+  # rubocop:disable-next Metrics/AbcSize -- Inspect the actual private service and persisted ownership.
+  def verify_management_channel
+    expect(record).not_to have_key('ssh_port')
+    expect(record.fetch('management_socket').keys.sort).to eq(%w[device inode])
+    expect(guest(%w[id -u]).stdout.strip).to eq('0')
+    expect(guest(['stat', '-c', '%u:%g:%a', Empeira::VM::Management::UPLOADS]).stdout.strip).to eq('0:0:700')
+    expect(guest(%w[systemctl show -p User -p Group empeira-management.service]).stdout).to include('User=0', 'Group=0')
+    expect(guest(%w[test ! -e /usr/local/libexec/empeira-management-check])).to be_success
+  end
+
+  def verify_selected_system_ssh
+    result, output, error = access_session(app, name: hostname, operation: :ssh, port: 2222,
+                                                user: @login.username, identity: @login.identity.to_s)
+    expect(result.exit_status).to eq(7), error
+    expect(output).to include(@login.username)
+  end
+
+  # rubocop:disable-next Metrics/AbcSize -- Remove only the owned socket path while proving independent native user SSH.
+  def verify_system_ssh_without_management
+    runtime = Empeira::VM::QemuRuntime.new(engine: nil, runner: app.runner, context: app.context)
+    socket = runtime.management_socket(record)
+    hidden = Pathname("#{socket}.detached")
+    File.rename(socket, hidden)
+    expect { management_guest.run(record, ['true']) }.to raise_error(Empeira::VM::Guest::TransportError)
+    verify_selected_system_ssh
+  ensure
+    File.rename(hidden, socket) if hidden&.socket?
+  end
+
+  # rubocop:disable-next Metrics/AbcSize -- Exercise native failure/change exits and provisioned-state retry.
+  def verify_failed_catalog_retry(manifest)
+    marker = File.join(project, 'manifests/site.pp')
+    [4, 6].each do |status|
+      change = status == 6 ? "file { '/tmp/failure-change': content => 'changed' }" : ''
+      File.write(marker, manifest + "\nexec { 'catalog-failure': command => '/bin/false' }\n#{change}\n")
+      expect { app.nodes.puppet(name: hostname) }.to raise_error(Empeira::Error, /exit #{status}/)
+      expect(record.fetch('provisioned')).to be(true)
+      expect(guest(%w[id -u]).stdout.strip).to eq('0')
+      File.write(marker, manifest)
+      expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
+    end
+  end
+
+  # rubocop:disable-next Metrics/AbcSize -- Verify actual upload contents, ownership and staging cleanup.
   def verify_management_upload
     source = File.join(@directory, 'management-upload')
     File.write(source, 'synthetic root upload')
     destination = '/tmp/empeira-management-upload'
-    management_ssh.copy_to(record, source, destination, mode: '0600')
+    management_guest.copy_to(record, source, destination, mode: '0600')
     expect(guest(['cat', destination]).stdout).to eq('synthetic root upload')
     expect(guest(['stat', '-c', '%u:%g:%a', destination]).stdout.strip).to eq('0:0:600')
     expect(guest(['find', Empeira::VM::Management::UPLOADS, '-mindepth', '1']).stdout).to be_empty
@@ -265,6 +371,18 @@ RSpec.describe 'Real node runtime management', :integration do
         return if guest(['test', '!', '-e', lock]).success?
 
         sleep 1
+      end
+    end
+  end
+
+  def wait_for_system_login_exit
+    Timeout.timeout(60) do
+      loop do
+        result = guest(['pgrep', '-u', Empeira::VM::CloudInit::USER])
+        return if result.exit_status == 1
+
+        expect(result).to be_success, result.stderr
+        sleep 0.2
       end
     end
   end

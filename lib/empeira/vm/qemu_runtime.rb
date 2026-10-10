@@ -17,6 +17,7 @@ module Empeira
       end
 
       def launch(record:, overlay:, seed:, network:)
+        Management.validate!(record)
         hostname = record.fetch('hostname')
         monitor = monitor_path(hostname)
         ensure_launchable_monitor!(record, monitor)
@@ -68,8 +69,10 @@ module Empeira
         return unless directory.exist? || directory.symlink?
 
         validate_monitor_directory!(directory)
+        validate_management_cleanup!(record)
         unlink_monitor_socket(directory.join('monitor.sock'))
         unlink_monitor_socket(directory.join('console.sock'))
+        unlink_management_socket(record)
         Dir.rmdir(directory)
       end
 
@@ -108,6 +111,15 @@ module Empeira
         monitor_directory(hostname).join('console.sock')
       end
 
+      def management_socket(record)
+        Management.validate!(record)
+        raise Error, 'VM is stopped; management unavailable' unless running?(record)
+
+        path = management_path(record.fetch('hostname'))
+        verify_management_socket!(record, path)
+        path
+      end
+
       private
 
       def console_guidance(hostname)
@@ -138,6 +150,7 @@ module Empeira
         prepare_monitor_directory(record.fetch('hostname'))
         raise Error, 'Recorded QEMU process is still alive; refusing a second launch' if process_alive?(record)
 
+        unlink_management_socket(record)
         unlink_monitor_socket(console_path(record.fetch('hostname')))
         File.unlink(monitor) if monitor.socket? && !running?(record)
         raise Error, 'VM monitor already exists; inspect the recorded process first' if monitor.exist?
@@ -149,8 +162,10 @@ module Empeira
 
         pid = Integer(File.read(pid_path(record.fetch('hostname'))).strip)
         record['pid'] = pid
+        raise Error, 'QEMU did not create its owned monitor socket' unless running?(record)
+
+        capture_management_socket!(record)
         network.connect
-        raise Error, 'QEMU did not create its monitor socket' unless monitor.socket?
 
         pid
       end
@@ -172,7 +187,54 @@ module Empeira
          '-chardev', console_device(hostname), '-serial', 'chardev:console',
          '-pidfile', pid_path(hostname).to_s,
          '-monitor', "unix:#{escape(monitor)},server=on,wait=off",
-         *boot_drives(overlay, seed), *firmware(arch), *network]
+         *management_devices(hostname), *boot_drives(overlay, seed), *firmware(arch), *network]
+      end
+
+      def management_devices(hostname)
+        ['-device', 'virtio-serial-pci,id=management',
+         '-chardev', "socket,id=management,path=#{escape(management_path(hostname))},server=on,wait=off",
+         '-device', "virtserialport,chardev=management,name=#{Management::CHANNEL}"]
+      end
+
+      def management_path(hostname)
+        monitor_directory(hostname).join('guest.sock')
+      end
+
+      def capture_management_socket!(record)
+        path = management_path(record.fetch('hostname'))
+        validate_monitor_directory!(path.dirname)
+        metadata = path.lstat
+        unless metadata.socket? && metadata.uid == Process.uid
+          raise Providers::OwnershipError, 'QEMU management endpoint is unsafe; VM retained'
+        end
+
+        File.chmod(0o600, path)
+        record['management_socket'] = { 'device' => metadata.dev, 'inode' => metadata.ino }
+        verify_management_socket!(record, path)
+      end
+
+      def verify_management_socket!(record, path)
+        validate_monitor_directory!(path.dirname)
+        metadata = path.lstat
+        expected = record['management_socket']
+        unless metadata.socket? && metadata.uid == Process.uid && metadata.mode.nobits?(0o077) &&
+               expected == { 'device' => metadata.dev, 'inode' => metadata.ino }
+          raise Providers::OwnershipError,
+                'VM management socket ownership or recorded identity changed; operation refused'
+        end
+      end
+
+      def validate_management_cleanup!(record)
+        path = management_path(record.fetch('hostname'))
+        verify_management_socket!(record, path) if path.exist? || path.symlink?
+      end
+
+      def unlink_management_socket(record)
+        path = management_path(record.fetch('hostname'))
+        return unless path.exist? || path.symlink?
+
+        verify_management_socket!(record, path)
+        File.unlink(path)
       end
 
       def console_device(hostname)

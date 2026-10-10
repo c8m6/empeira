@@ -83,14 +83,6 @@ module Empeira
           records.to_h { |record| [record.fetch('hostname'), healthy?(record)] }
         end
 
-        def management_port
-          TCPServer.open('127.0.0.1', 0) { |socket| socket.addr[1] }
-        end
-
-        def ssh_command(_record)
-          nil
-        end
-
         def system_address(record, port)
           Configuration::SSHPreferences.port!(port)
           check_record(record)

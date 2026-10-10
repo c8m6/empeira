@@ -689,7 +689,7 @@ RSpec.describe Empeira::ControlPlane::Controller do
                              'image' => 'example/node:1', 'id' => 'node-id',
                              'definition' => { 'hostname' => 'container-node', 'image' => 'example/node:1',
                                                'ip' => '172.20.0.96' })
-    vm = common.merge('provider' => 'vm', 'ssh_layout' => Empeira::VM::Management::VERSION,
+    vm = common.merge('provider' => 'vm', 'management_layout' => Empeira::VM::Management::VERSION,
                       'hostname' => 'vm-node', 'engine' => 'qemu', 'accelerator' => 'kvm',
                       'memory' => 1024, 'cpus' => 1, 'ssh_port' => 22_000, 'state' => 'running',
                       'overlay' => 'vms/vm-node/disk.qcow2', 'network' => "#{context.workspace.id}:environment",

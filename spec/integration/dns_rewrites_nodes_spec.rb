@@ -23,12 +23,12 @@ RSpec.describe 'DNS rewrites in managed container and VM nodes', :integration do
     node_command(provider, arguments)
   end
 
-  # rubocop:disable-next Metrics/AbcSize -- Run the same wire query through each production node transport.
   def node_command(provider, arguments)
     record = rewrite_state.fetch('nodes').fetch("#{provider}-dns")
     if provider == 'vm'
-      cloud = Empeira::VM::CloudInit.new(context: @app.context, runner: @app.runner)
-      Empeira::VM::SSH.new(context: @app.context, runner: @app.runner, cloud_init: cloud).run(record, arguments)
+      vm_guest(@app).run(
+        record, arguments
+      )
     else
       definition = Empeira::Node::Definition.new(hostname: record.fetch('hostname'), workspace: @app.context.workspace)
       resource = @runtime.inspect_service(definition, expected_id: record.fetch('id'))

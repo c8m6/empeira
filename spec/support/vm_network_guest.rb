@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Stateful guest model: reads observe mutations, including changes whose SSH result is lost.
+# Stateful guest model: reads observe mutations, including changes whose transport result is lost.
 class VMNetworkGuest
   attr_reader :links, :addresses, :routes, :commands
   attr_accessor :failure, :facter_output
@@ -12,7 +12,6 @@ class VMNetworkGuest
     @commands = []
     @next_index = 10
     add_foreign('eth0', '10.203.20.100/24')
-    add_foreign('eth1', '10.0.2.15/24')
     @routes << { 'dst' => 'default', 'gateway' => '10.203.20.1', 'dev' => 'eth0', 'protocol' => 'static' }
   end
 

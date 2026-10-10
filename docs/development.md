@@ -34,27 +34,31 @@ files, covering login/non-login behavior, PATH preservation, duplicate preventio
 and ownership failures. The manual runtime management gate also checks installed
 agent commands on retained guests after restart.
 
-The same manual gate tests dedicated VM management SSH while Puppet changes the
-system daemon port, restarts it and disables it. It checks real `node ssh --port`,
-the failed system login, continued managed Puppet operations and retained service
-states after VM restart. Puppet also replaces sudoers, purges sudoers fragments and
-removes the regular `empeira` account; root management, verified SCP staging and
-subsequent Puppet runs must still work. The gate rejects password-only management
-authentication and checks effective `sshd -T` policy. Root management/system
-credentials and rejection of older layouts have deterministic coverage in `spec/vm_management_spec.rb`.
-`spec/vm_root_authentication_spec.rb` checks initial root-key preparation and
-subsequent fail-closed health checks without real accounts or passwords.
-`spec/vm_system_account_spec.rb` executes the regular SSH account guard against
-synthetic passwd, shadow, UID bounds and home metadata without reading host credentials. The QEMU
-runtime management gate combines a 30-GiB thin disk, first-catalog dummy/VLAN facts,
-normal proxy package installation, the regular locked system SSH account, root
-management, both SSH daemons and restart. Run it with the available runtime and acceleration:
+The manual runtime management gate checks real VirtIO execution while Puppet sets
+root shadow to `!`, replaces sudoers, removes the regular `empeira` account and
+changes, restarts and disables system SSH. It verifies subsequent `node puppet`,
+retry after exits 4/6, user SSH without the management endpoint, verified upload
+cleanup, stop/start, interface facts and normal proxy reconciliation. The gate
+combines a thin disk, first-catalog dummy/VLAN facts and normal proxy package
+installation. `spec/vm_guest_spec.rb` covers streaming, full output, native status,
+interruption, binary upload and operation identity against isolated Unix peers.
+`spec/vm_guest_agent_spec.rb` runs the guest adapter against a synthetic private
+transport and temporary files; its simulated numeric-UID boundary is not a real
+root-lock test. `spec/vm_runtime_spec.rb` verifies ownership and QEMU endpoints.
+`spec/vm_system_account_spec.rb` checks one-time regular account preparation with
+synthetic passwd/shadow data. Run real gates with available runtime and acceleration:
 
 ```bash
 EMPEIRA_RUNTIME_MANAGEMENT_INTEGRATION=1 EMPEIRA_VM_RUNTIME=docker \
   EMPEIRA_RUNTIME_MANAGEMENT_PROVIDERS=vm \
   bundle exec rspec spec/integration/node_runtime_management_spec.rb
 ```
+
+Add `--example 'after Puppet locks root'` for the dedicated account-independent
+management and user SSH acceptance scenario. The fixture uses persistent guest
+files, disables the automatic Puppet service through ordinary Puppet resources,
+and waits for completed user sessions to disappear before deleting their account.
+The CLI agent runs remain real and include native exits 4/6 and retry.
 
 Select `container` and `EMPEIRA_VM_RUNTIME=podman` for the corresponding rootless
 Podman package/PATH/reconciliation gate. These remain manual, capability-dependent
@@ -64,6 +68,19 @@ For available Rocky Linux images, `EMPEIRA_DNF_RUNTIME_INTEGRATION=1` enables
 installs through a Puppet-owned additional signed repository while retaining the
 original sources, then verifies restart and proxy disable/enable reconciliation.
 The gate defaults to Rocky 9; set `EMPEIRA_DNF_GUEST_VERSION=8` to exercise Rocky 8.
+
+Network regression gates exercise both node providers through their production
+transports. The DNS gate checks live rewrite reloads without replacing nodes or
+DNS. The redirect gate checks payload preservation, flow revocation and refusal
+of external fallback under both runtimes. Run them on a capable local host:
+
+```bash
+EMPEIRA_DNS_NODE_INTEGRATION=1 EMPEIRA_VM_RUNTIME=docker \
+  bundle exec rspec spec/integration/dns_rewrites_nodes_spec.rb
+EMPEIRA_INTEGRATION=direct-egress EMPEIRA_REDIRECT_VM=1 \
+  EMPEIRA_REQUIRED_RUNTIMES=docker,podman \
+  bundle exec rspec spec/integration/network_redirects_spec.rb
+```
 
 For workflow changes, parse `.github/workflows/*.yml` and run `actionlint` when
 available. Review action pins, triggers and permissions as well as YAML syntax.
@@ -393,3 +410,15 @@ Preserve package/image notices in locally built helpers. Registry pins establish
 artifact integrity, not a universal signature or vulnerability guarantee.
 See [image provenance](configuration.md#control-plane-images-and-provenance) and
 [node image provenance](nodes.md#node-images-and-fidelity) for component sources.
+
+The private adapter uses Python 3 already supplied by the reviewed cloud images;
+it introduces no Python packages or guest-agent package bootstrap dependency.
+QEMU Guest Agent was evaluated: its `guest-exec-status` returns captured output
+only after exit, may report truncation and offers no command cancellation API.
+The owned VirtIO adapter provides immediate streaming and process-group cleanup.
+See the [QGA protocol reference](https://www.qemu.org/docs/master/interop/qemu-ga-ref.html).
+
+Run `EMPEIRA_INTEGRATION=server-environment bundle exec rspec spec/integration/server_environment_spec.rb`
+to check native timeout 0, live edits, CA retention, PuppetDB and idempotent up
+under Docker/rootless Podman with the default server and a custom entrypoint
+that ignores timeout environment mapping.

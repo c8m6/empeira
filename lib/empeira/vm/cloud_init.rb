@@ -23,13 +23,12 @@ module Empeira
         credentials = Node::SSHCredentials.new(context: @context, runner: @runner, provider: 'vm',
                                                hostname: record.fetch('hostname'))
         credentials.prepare
-        management_credentials(record).prepare
         key = credentials.key_path
         files = seed_files(directory, record, File.read("#{key}.pub").strip)
         create_iso(directory, files)
       end
 
-      def finish(record, ssh:)
+      def finish(record, guest:)
         directory = node_directory(record.fetch('hostname'))
         files = seed_files(directory, record, File.read("#{key_path(record.fetch('hostname'))}.pub").strip,
                            console: false)
@@ -37,7 +36,7 @@ module Empeira
         paths = %w[user-data.txt user-data.txt.i cloud-config.txt obj.pkl].map do |name|
           "/var/lib/cloud/instance/#{name}"
         end
-        result = ssh.run(record, ['rm', '-f', *paths])
+        result = guest.run(record, ['rm', '-f', *paths])
         return if result.success?
 
         details = Execution::Diagnostics.command(result, operation: 'Guest cloud-init credential cleanup', tool: 'rm')
@@ -89,16 +88,8 @@ module Empeira
           'peer' => { 'match' => { 'macaddress' => record.fetch('mac_address') }, 'set-name' => 'eth0',
                       'addresses' => ["#{record.fetch('peer').fetch('ip')}/24"], 'dhcp4' => false, 'dhcp6' => false,
                       'routes' => [{ 'to' => '0.0.0.0/0', 'via' => record.fetch('peer').fetch('gateway') }],
-                      'link-local' => [], 'nameservers' => { 'addresses' => [record.fetch('peer').fetch('dns')] } },
-          'management' => { 'match' => { 'macaddress' => Network::Peer::Management.new(record).mac },
-                            'set-name' => 'eth1', 'dhcp6' => false, 'link-local' => [],
-                            **management_network(record) }
+                      'link-local' => [], 'nameservers' => { 'addresses' => [record.fetch('peer').fetch('dns')] } }
         } }
-      end
-
-      def management_network(record)
-        Management.validate!(record)
-        { 'dhcp4' => false, 'addresses' => ["#{Management::ADDRESS}/24"] }
       end
 
       def cloud_config(record, public_key, console: true)
@@ -132,18 +123,13 @@ module Empeira
         [['sysctl', '--system'], *management, *scripts.map { |entry| [entry.fetch('path')] }]
       end
 
-      def management_credentials(record)
-        Node::SSHCredentials.new(context: @context, runner: @runner, provider: 'vm', purpose: :management,
-                                 hostname: record.fetch('hostname'))
-      end
-
       def system_user
         { 'name' => USER, 'system' => true, 'homedir' => '/var/lib/empeira',
           'lock_passwd' => true, 'shell' => '/bin/bash' }
       end
 
       def management_files(record, public_key)
-        Management.files(record, management_credentials(record).public_path.read.strip, system_key: public_key)
+        Management.files(record, system_key: public_key)
       end
 
       def bootstrap_files

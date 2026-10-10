@@ -11,7 +11,7 @@ module Empeira
         end
 
         def arguments
-          @backend.arguments(@record) + Management.new(@record).arguments
+          @backend.arguments(@record)
         end
 
         def launch(executable, arguments)
@@ -20,27 +20,6 @@ module Empeira
 
         def connect
           @backend.connect(@record, @state)
-        end
-      end
-
-      # Only SSH uses SLIRP. Puppet, DNS, proxy and application traffic use the peer NIC.
-      class Management
-        def initialize(record)
-          @record = record
-        end
-
-        def mac
-          bytes = @record.fetch('mac_address').split(':')
-          bytes[1] = '55'
-          bytes.join(':')
-        end
-
-        def arguments
-          port = @record.fetch('ssh_port')
-          VM::Management.validate!(@record)
-          target = "#{VM::Management::ADDRESS}:#{VM::Management::PORT}"
-          ['-netdev', "user,id=management,restrict=on,ipv6=off,hostfwd=tcp:127.0.0.1:#{port}-#{target}",
-           '-device', "virtio-net-pci,netdev=management,mac=#{mac}"]
         end
       end
     end

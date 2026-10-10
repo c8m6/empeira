@@ -120,14 +120,15 @@ module Empeira
         ensure
           save if record['pid']
         end
-        @progress.stage(80, 'Waiting for VM SSH readiness...')
-        @ssh.wait(record, progress: @progress)
+        @progress.stage(80, 'Waiting for VM management readiness...')
+        @guest.wait(record, progress: @progress)
         record['state'] = 'running'
         save
         @progress.stage(95, 'Virtual machine ready.')
       end
 
       def existing_storage(record)
+        ::Empeira::VM::Management.validate!(record)
         base = base_for(record)
         unless base.file? && !base.symlink? &&
                OpenSSL::Digest::SHA256.file(base).hexdigest == record.dig('base_image', 'checksum')

@@ -1,20 +1,20 @@
 #!/bin/sh
-# Prepare only the private management daemon on a newly seeded VM.
+# Seed management and the ordinary SSH account once, before project bootstrap.
 set -eu
 fail() { echo "VM management setup failed: $1; inspect node shell and serial logs" >&2; exit 1; }
-@ACCOUNT_SETUP@
+interpreter=
+for candidate in /usr/bin/python3 /usr/libexec/platform-python; do
+  if test -x "$candidate" && "$candidate" -c 'import sys; sys.exit(sys.version_info < (3, 5))'; then
+    interpreter="$candidate"
+    break
+  fi
+done
+test -n "$interpreter" || fail 'the selected cloud image requires Python 3 before bootstrap'
+test ! -e /usr/local/libexec/empeira-management-python && test ! -L /usr/local/libexec/empeira-management-python || fail 'preexisting management interpreter'
+ln -s "$interpreter" /usr/local/libexec/empeira-management-python
 @SYSTEM_SETUP@
-command -v nsenter >/dev/null || { echo 'Management SSH requires guest util-linux nsenter' >&2; exit 1; }
-test -x /usr/sbin/sshd
-directory=/etc/empeira/management
-test ! -L "$directory"
-chown root:root "$directory"
-chmod 0755 "$directory"
-test ! -e "$directory/uploads" && test ! -L "$directory/uploads" || fail 'preexisting upload directory'
-install -d -m 0700 -o root -g root "$directory/uploads"
-test ! -e "$directory/ssh_host_ed25519_key"
-ssh-keygen -q -t ed25519 -N '' -f "$directory/ssh_host_ed25519_key"
-chmod 0600 "$directory/ssh_host_ed25519_key"
-@SELINUX_SETUP@
+if test -e /sys/fs/selinux/enforce; then
+  restorecon -R /usr/local/libexec/empeira-management-agent /etc/empeira/management /var/lib/empeira
+fi
 systemctl daemon-reload
-systemctl enable --now empeira-management-ssh.service
+systemctl enable --now empeira-management.service
