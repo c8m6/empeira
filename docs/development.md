@@ -29,6 +29,11 @@ guest roots, checks foreign APT/DNF ownership, and exercises privileged VM comma
 environment separately from bootstrap. Never execute these helpers against the
 developer's `/etc` in unit tests.
 
+`spec/interactive_tools_spec.rb` executes native Bash against synthetic startup
+files, covering login/non-login behavior, PATH preservation, duplicate prevention
+and ownership failures. The manual runtime management gate also checks installed
+agent commands on retained guests after restart.
+
 For workflow changes, parse `.github/workflows/*.yml` and run `actionlint` when
 available. Review action pins, triggers and permissions as well as YAML syntax.
 See [contributing](../CONTRIBUTING.md) for review, commit and label conventions.

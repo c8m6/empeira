@@ -137,6 +137,17 @@ variables when proxy access is disabled; repository files are never replaced.
 
 ## Shell and SSH
 
+After agent installation, Empeira detects the installed `puppet` and `facter`
+directory and exposes it through `/etc/profile.d/90-empeira-tools.sh`. An owned
+block in the existing global Bash initializer covers interactive non-login Bash.
+Login SSH, serial-console logins and container shells share this configuration.
+It preserves existing PATH entries, adds the directory once, and leaves
+non-interactive PATH and personal startup files unchanged. Existing nodes receive
+the setting on `up`, `node start` and before managed Puppet runs. Custom personal
+startup files can still deliberately override their environment; they should
+retain the distribution's global initialization. Modified owned fragments or
+unsafe global paths stop reconciliation with a diagnosis.
+
 | Provider | `node shell` | `node ssh` |
 | --- | --- | --- |
 | Container | Runtime exec into `/bin/bash` | Real OpenSSH to the guest daemon |

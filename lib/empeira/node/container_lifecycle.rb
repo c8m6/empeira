@@ -52,7 +52,8 @@ module Empeira
 
       def shell(name:)
         mutate do
-          @runtime.stream_service(running(fetch(name)), RuntimeProxy.command(context, ['/bin/bash']), interactive: true)
+          @runtime.stream_service(running(fetch(name)), RuntimeProxy.command(context, ['/bin/bash', '-i']),
+                                  interactive: true)
         end
       end
 

@@ -22,7 +22,8 @@ module Empeira
 
       def self.valid_guest_settings?(record)
         CommandMocks.valid_inventory?(record.fetch('command_mocks', {})) &&
-          (!record.key?('runtime_proxy') || RuntimeProxy.valid_inventory?(record['runtime_proxy']))
+          (!record.key?('runtime_proxy') || RuntimeProxy.valid_inventory?(record['runtime_proxy'])) &&
+          (!record.key?('interactive_tools') || InteractiveTools.valid_inventory?(record['interactive_tools']))
       end
 
       def self.valid_container?(record)

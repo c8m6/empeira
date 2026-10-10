@@ -95,7 +95,7 @@ module Empeira
         save
         apply_bootstrap(resource, record)
         finish_network_bootstrap(record)
-        reconcile_runtime_proxy(resource, record)
+        prepare_guest_environment(resource, record)
         configure(resource, record)
         resource
       end

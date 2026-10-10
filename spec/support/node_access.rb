@@ -19,10 +19,10 @@ module LiveNodeAccess
   end
 
   # rubocop:disable-next Metrics/AbcSize -- Redirect only the interactive stream and restore it after the real session.
-  def access_session(app, name:, operation:, **options)
+  def access_session(app, name:, operation:, commands: nil, **options)
     streams = Array.new(3) { Tempfile.new('node-session-') }
     input, output, error = streams
-    input.write("tty\nwhoami\nprintf 'connection=%s\\n' \"$SSH_CONNECTION\"\nexit 7\n")
+    input.write(commands || "tty\nwhoami\nprintf 'connection=%s\\n' \"$SSH_CONNECTION\"\nexit 7\n")
     input.rewind
     allow(app.runner).to receive(:stream).and_wrap_original do |original, executable, **options|
       original.call(executable, **options, environment: { 'SSH_AUTH_SOCK' => nil },

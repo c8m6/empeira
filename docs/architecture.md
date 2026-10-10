@@ -79,6 +79,11 @@ proxy environment, owned APT files and a bounded DNF block; provider transports
 only execute guest operations. Managed Puppet receives explicit `env` arguments
 after VM `sudo`, so privilege separation cannot drop the runtime proxy policy.
 
+Interactive tool PATH uses the same provider guest transports and node inventory.
+Its startup fragments apply only to interactive Bash, with a small owned block
+in the distribution's global initializer. Personal dotfiles and non-interactive
+process environments stay under their existing owners.
+
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle
 operations return `changed: false`; absent start/stop and ownership conflicts fail.

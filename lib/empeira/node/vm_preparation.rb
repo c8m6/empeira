@@ -102,6 +102,7 @@ module Empeira
         Network::Gateway.new(context: context, runtime: @runtime, state: @state).phase(record, bootstrap: false)
         refresh_dns
         reconcile_runtime_proxy(record)
+        reconcile_interactive_tools(record)
         configure_agent(record)
       end
 

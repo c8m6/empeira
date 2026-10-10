@@ -418,7 +418,8 @@ RSpec.describe Empeira::Node::VM do
   it 'reconciles mocks through management SSH before Puppet, on restart and on workspace reconcile' do
     ssh = Empeira::VM::SSH.new
     # The remaining VM guest operations keep the existing synthetic responses.
-    allow(ssh).to receive(:run).with(anything, satisfy { |args| args.size == 4 && args[1] == '-e' }) do |_, args|
+    mocks = satisfy { |args| args.size == 4 && args[1] == '-e' && args[2].include?('class ManagedFile') }
+    allow(ssh).to receive(:run).with(anything, mocks) do |_, args|
       app.runner.run(RbConfig.ruby, arguments: args.drop(1))
     end
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')

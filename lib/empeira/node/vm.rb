@@ -40,8 +40,14 @@ module Empeira
 
       def reconcile_guest(record)
         proxy_changed = reconcile_runtime_proxy(record)
+        tools_changed = reconcile_interactive_tools(record)
         interfaces_changed = reconcile_interfaces(record)
-        reconcile_command_mocks(record) || interfaces_changed || proxy_changed
+        reconcile_command_mocks(record) || interfaces_changed || proxy_changed || tools_changed
+      end
+
+      def reconcile_interactive_tools(record)
+        InteractiveTools.new(record: record, persist: method(:save),
+                             execute: ->(arguments) { @ssh.run(record, arguments) }).reconcile
       end
 
       def reconcile_runtime_proxy(record)

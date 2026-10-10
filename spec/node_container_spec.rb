@@ -330,7 +330,7 @@ RSpec.describe Empeira::Node::Container do
     expect(client).to receive(:session).with(hash_including('id' => record['id']), user: nil, identity: nil)
     provider.ssh(name: 'test-node')
     expect(runtime).to receive(:stream_service).with(
-      hash_including('id' => record['id']), Empeira::Node::RuntimeProxy.command(app.context, ['/bin/bash']),
+      hash_including('id' => record['id']), Empeira::Node::RuntimeProxy.command(app.context, ['/bin/bash', '-i']),
       interactive: true
     )
     provider.shell(name: 'test-node')

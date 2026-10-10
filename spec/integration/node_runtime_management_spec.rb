@@ -1,8 +1,14 @@
 # frozen_string_literal: true
 
 require_relative '../../resources/nodes/runtime_proxy'
+require_relative '../support/node_access'
+require_relative '../support/login_fixture'
+require_relative '../support/console_login'
 
 RSpec.describe 'Real node runtime management', :integration do
+  include LiveNodeAccess
+  include LiveConsoleLogin
+
   let(:engine_name) { ENV.fetch('EMPEIRA_VM_RUNTIME', 'docker') }
   let(:project) { File.join(@directory, 'control') }
   let(:hostname) { 'runtime-node.example.test' }
@@ -28,6 +34,7 @@ RSpec.describe 'Real node runtime management', :integration do
     write_configuration
     @runtime = Empeira::Runtime.registry.build(engine_name, context: app.context, runner: app.runner)
     @runtime.check_available!
+    @login = LoginFixture.new(directory: @directory)
   end
 
   after do
@@ -44,6 +51,7 @@ RSpec.describe 'Real node runtime management', :integration do
       @provider = provider
       Empeira::VM.registry.build('qemu', context: app.context, runner: app.runner).preflight! if provider == 'vm'
       File.write(File.join(project, 'manifests/site.pp'), <<~PUPPET)
+        #{@login.manifest}
         exec { 'runtime-package-index':
           command => '/usr/bin/apt-get update',
           unless => '/usr/bin/test -e /tmp/empeira-package-index',
@@ -55,6 +63,7 @@ RSpec.describe 'Real node runtime management', :integration do
       app.infrastructure.up
       app.run_node(hostname: hostname, provider: provider)
       expect(guest(%w[tree --version]).stdout).to include('tree')
+      verify_interactive_tools
       expect(guest(['test', '!', '-e', Empeira::Node::PackageProxy::APT_PATH])).to be_success
       Empeira::Node::PackageSources.verify!(execute: ->(arguments) { guest(arguments) })
       identity = record.slice('id', 'pid', 'peer', 'overlay')
@@ -62,6 +71,7 @@ RSpec.describe 'Real node runtime management', :integration do
       app.nodes.stop(name: hostname)
       app.nodes.start(name: hostname)
       expect(guest(%w[tree --version])).to be_success
+      verify_interactive_tools
       expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
       @config['proxy']['enabled'] = false
       write_configuration
@@ -95,5 +105,30 @@ RSpec.describe 'Real node runtime management', :integration do
   def management_ssh
     cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
     Empeira::VM::SSH.new(context: app.context, runner: app.runner, cloud_init: cloud)
+  end
+
+  # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Check root/user and provider interactive transports together.
+  def verify_interactive_tools
+    command = 'command -v puppet; command -v facter; puppet --version; facter --version'
+    expect(guest(['bash', '--login', '-ic', command])).to be_success
+    expect(guest(['bash', '-ic', command])).to be_success
+    result = guest(['su', '--login', '--shell', '/bin/bash', '--command', "bash -ic '#{command}'", @login.username])
+    expect(result).to be_success, result.stderr
+    current = app
+    options = { user: @login.username, identity: @login.identity.to_s }
+    commands = "#{command}\nprintf 'tools-exit=%s\\n' \"$?\"\nexit 7\n"
+    status, output, error = access_session(current, name: hostname, operation: :ssh, commands: commands, **options)
+    expect(status.exit_status).to eq(7), error
+    expect(output).to include('/opt/puppetlabs/bin/puppet', '/opt/puppetlabs/bin/facter', 'tools-exit=0')
+    if @provider == 'vm'
+      output = verify_console_login(current, name: hostname,
+                                             commands: "id\n#{command}\nprintf 'tools-exit=%s\\n' \"$?\"\nexit\n")
+      expect(output).to include('/opt/puppetlabs/bin/puppet', '/opt/puppetlabs/bin/facter', 'tools-exit=0')
+      return
+    end
+
+    status, output, error = access_session(current, name: hostname, operation: :shell, commands: commands)
+    expect(status.exit_status).to eq(7), error
+    expect(output).to include('/opt/puppetlabs/bin/puppet', '/opt/puppetlabs/bin/facter', 'tools-exit=0')
   end
 end
