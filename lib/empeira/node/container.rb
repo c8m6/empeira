@@ -3,6 +3,7 @@
 module Empeira
   module Node
     # Container provider owns its workflow; the public service only routes logical providers.
+    # rubocop:disable-next Metrics/ClassLength -- Ordered provisioning and lifecycle share this provider boundary.
     class Container < Interface
       include ContainerLifecycle
       include ContainerPreparation
@@ -34,6 +35,7 @@ module Empeira
           resource = create_node(definition, record)
           @progress.stage(65, 'Preparing node certificate...')
           Certificates.new(runtime: @runtime, server: server).enroll(resource, record) { save }
+          reconcile_guest(resource, record)
           complete_provisioning(record)
           @progress.stage(85, 'Running Puppet agent...')
           agent_run(resource, record)
@@ -74,8 +76,10 @@ module Empeira
 
       def prepare_image(image, record)
         @progress.stage(25, 'Preparing node image...')
-        @runtime.ensure_image(image.reference, recipe: image.recipe, files: image.build_files)
-        return if @runtime.image_architecture(image.reference) == record['architecture']
+        @runtime.with_local_images do
+          @runtime.ensure_image(image.reference, recipe: image.recipe, files: image.build_files)
+          return if @runtime.image_architecture(image.reference) == record['architecture']
+        end
 
         raise Error, 'Node image architecture differs from the runtime; emulation is not enabled'
       end

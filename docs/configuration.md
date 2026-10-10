@@ -335,7 +335,8 @@ with the built-in empty mapping, deleting its project entry is sufficient.
 statuses, relative/traversing paths and overlapping managed destinations fail
 validation.
 
-Mocks reconcile before Puppet, on `node start`, and on `up` for running nodes.
+Mocks reconcile during initial node provisioning, on `node start`, and on `up`
+for running nodes. Repeated `node puppet` runs use the existing guest stubs.
 Stopped nodes retain their files until the next start. Unchanged configuration
 and files preserve file identity and timestamps. Changing a path removes the old
 owned stub; changing `mock_to` or `exit_code` replaces only the affected stub.
@@ -400,8 +401,9 @@ other variable names must override each affected key. Empeira mounts standard
 Puppet configuration, including `puppetdb.conf`, and supplies the configured
 runtime values without inferring them from the image name. Missing or unsafe
 runtime fields fail configuration validation. Managed servers use
-`environment_timeout = unlimited`; Empeira invalidates its environment cache
-when live code inputs change.
+`environment_timeout = 0`: the next catalog request reloads live code without
+an Empeira content scan or admin API invalidation. An explicit `environment.conf`
+can override this server setting; keep its timeout at zero for immediate edits.
 
 `puppetdb.runtime` holds the independent OpenVoxDB process contract. Custom
 images may override its executable, numeric user, Java and main arguments,
@@ -488,7 +490,8 @@ vm:
 
 When `proxy.enabled` is true, every node may use its matching destination policy.
 After bootstrap cleanup, Empeira reconciles normal proxy settings on running,
-provisioned nodes during `up`, `node start` and before managed Puppet runs. No
+provisioned nodes during `up` and `node start`. Repeated Puppet runs use the
+existing guest configuration. No
 node recreation or restart is needed to apply allowlist changes. Disabling the
 proxy removes owned package-manager settings. The owned login environment clears
 stale creation-time container variables; it never retains bootstrap credentials.

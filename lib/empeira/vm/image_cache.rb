@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'net/http'
+require 'openssl'
 require 'tempfile'
 require 'uri'
 
@@ -44,7 +45,7 @@ module Empeira
       end
 
       def verified?(path, checksum)
-        File.file?(path) && !File.symlink?(path) && Digest::SHA256.file(path).hexdigest == checksum
+        File.file?(path) && !File.symlink?(path) && OpenSSL::Digest::SHA256.file(path).hexdigest == checksum
       end
 
       def download(url, file)

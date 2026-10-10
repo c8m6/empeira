@@ -12,6 +12,9 @@ module Empeira
       end
 
       def prepare
+        definitions = @plan.volumes.values.to_h { |definition| [definition.key, definition] }
+        expected = @inventory.fetch('volumes').transform_values { |record| record['id'] }
+        @observed = @runtime.inspect_volumes(definitions, expected_ids: expected)
         @plan.files.credentials(existing: database_recorded?) if @plan.database?
         @plan.volumes.each_value { |definition| ensure_volume(definition) }
         @changed
@@ -19,12 +22,12 @@ module Empeira
 
       def database_recorded?
         definition = @plan.volume('postgres-data')
-        @inventory.fetch('volumes').key?(definition.key) || !@runtime.inspect_volume(definition).nil?
+        @inventory.fetch('volumes').key?(definition.key) || !@observed[definition.key].nil?
       end
 
       def ensure_volume(definition)
         expected = @inventory.fetch('volumes').dig(definition.key, 'id')
-        resource = @runtime.inspect_volume(definition, expected_id: expected)
+        resource = @observed[definition.key]
         if !resource && expected
           raise Error, "Retained volume #{definition.key} is missing; restore it before starting services"
         end

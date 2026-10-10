@@ -70,13 +70,17 @@ module Empeira
         data['Internal'] && data['Driver'] == 'bridge' && isolated_gateways?(data['Options'])
       end
 
+      def normalize_network_binding(data)
+        malformed! unless data['Options'].is_a?(Hash) && [true, false].include?(data['Internal'])
+        Network::Binding.new(id: data['Id'], name: data['Name'], labels: data['Labels'] || {},
+                             isolated: isolated?(data))
+      end
+
       def normalize_network(data)
-        options = data['Options']
-        attachment_count = data['Containers']
-        malformed! unless options.is_a?(Hash) && attachment_count.is_a?(Hash)
-        malformed! unless [true, false].include?(data['Internal'])
-        Network::Resource.new(id: data['Id'], name: data['Name'], labels: data['Labels'] || {},
-                              isolated: isolated?(data), attachment_count: attachment_count.size)
+        binding = normalize_network_binding(data)
+        containers = data['Containers']
+        malformed! unless containers.is_a?(Hash)
+        Network::Resource.new(**binding.to_h, attachment_count: containers.size)
       end
     end
   end

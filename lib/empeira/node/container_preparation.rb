@@ -33,17 +33,12 @@ module Empeira
         server
       end
 
-      def refresh_environment_cache
-        Server::EnvironmentCache.new(plan: ControlPlane::Plan.new(context: context), runtime: @runtime,
-                                     state: @state, persist: method(:save)).refresh(ready_server)
-      end
-
       def ready_network!
         definition = Infrastructure::Definition.new(context: context).network
-        resource = @runtime.inspect_network(identifier: definition.backend_name)
-        definition.verify_ownership!(resource, expected_id: @state.dig('resources', 'network', 'id'))
-        definition.verify_isolation!(resource)
-        definition.verify_definition!(resource)
+        expected = @state&.dig('resources', 'network', 'id')
+        raise Error, 'Control plane is down; run empeira up first' unless expected
+
+        @runtime.verify_isolated_network(definition, expected_id: expected)
       end
 
       def current_server?(server, plan)

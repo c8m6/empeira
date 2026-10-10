@@ -82,6 +82,28 @@ RSpec.describe Empeira::ControlPlane::Controller do
                                     'Dns' => 'running')
   end
 
+  it 'preserves unchanged discovery files and shares lockdown only until policy application' do
+    plane = controller
+    mutate(plane, :up)
+    files = Empeira::ControlPlane::Files.new(context: @contexts.fetch(plane))
+    names = %w[Corefile hosts proxy-rules.conf proxy-clients]
+    inodes = names.to_h { |name| [name, File.stat(files.path(name)).ino] }
+    runtime.calls.clear
+    expect(mutate(plane, :up)).to be(false)
+    expect(names.to_h { |name| [name, File.stat(files.path(name)).ino] }).to eq(inodes)
+    commands = runtime.calls.filter_map do |kind, args|
+      args if kind == :exec && args.first == Empeira::Network::Gateway::EXECUTABLE
+    end
+    expect(commands.map { |args| args[1] }).to eq(%w[lockdown apply])
+    runtime.calls.clear
+    allow(plane).to receive(:prepare_server).and_raise(Empeira::Error, 'synthetic failure after apply')
+    expect { mutate(plane, :up) }.to raise_error(Empeira::Error, /synthetic failure/)
+    commands = runtime.calls.filter_map do |kind, args|
+      args if kind == :exec && args.first == Empeira::Network::Gateway::EXECUTABLE
+    end
+    expect(commands.map { |args| args[1] }).to eq(%w[lockdown apply lockdown])
+  end
+
   it 'reports a service that exits during startup before attempting to join its network namespace' do
     plane = controller('server' => { 'runtime' => { 'startup' => { 'eyaml_keys' => 'staged' } } })
     allow(runtime).to receive(:start_service).and_wrap_original do |method, resource|
@@ -94,6 +116,20 @@ RSpec.describe Empeira::ControlPlane::Controller do
     server_id = runtime.services.fetch('server').fetch('id')
     expect(runtime.calls.none? { |call| call[0] == :route && call[1] == server_id }).to be(true)
     expect(@store.load.dig('control_plane', 'services', 'server', 'id')).to eq(server_id)
+  end
+
+  it 'batches a warm reconcile and refreshes observations after success or failure' do
+    plane = controller
+    mutate(plane, :up)
+    allow(runtime).to receive(:inspect_services).and_call_original
+    expect(mutate(plane, :up)).to be(false)
+    expect(runtime).to have_received(:inspect_services).once
+    runtime.services.fetch('server').fetch('labels')['io.empeira.workspace'] = 'foreign'
+    expect { mutate(plane, :up) }.to raise_error(Empeira::Providers::OwnershipError)
+    runtime.services.fetch('server').fetch('labels')['io.empeira.workspace'] = context.workspace.id
+    runtime.services.delete('server')
+    expect(mutate(plane, :up)).to be(true)
+    expect(runtime.services.fetch('server').fetch('state')).to eq('running')
   end
 
   it 'reports a service exit that races with route installation' do
@@ -173,6 +209,23 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(mutate(plane, :up)).to be(true)
     expect(runtime.calls.count { |call| call == apply })
       .to eq(executions + 1)
+  end
+
+  it 'replaces the server for changed direct-egress bypass destinations but retains it for port changes' do
+    config = { 'puppetdb' => { 'enabled' => false }, 'network' => { 'egress' => [] } }
+    mutate(controller(config), :up)
+    ids = runtime.services.transform_values { |resource| resource.fetch('id') }
+    config['network']['egress'] = [{ 'ip' => '192.0.2.20', 'ports' => [443] }]
+    mutate(controller(config), :up)
+    granted_server = runtime.services.fetch('server').fetch('id')
+    expect(granted_server).not_to eq(ids.fetch('server'))
+    config['network']['egress'].first['ports'] = [8443]
+    expect(mutate(controller(config), :up)).to be(true)
+    expect(runtime.services.fetch('server').fetch('id')).to eq(granted_server)
+    config['network']['egress'] = []
+    mutate(controller(config), :up)
+    expect(runtime.services.fetch('server').fetch('id')).not_to eq(granted_server)
+    %w[gateway dns].each { |key| expect(runtime.services.fetch(key).fetch('id')).to eq(ids.fetch(key)) }
   end
 
   it 'removes direct grants while retaining the shared gateway and checkpoint' do
@@ -326,14 +379,16 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(runtime.services.fetch('gateway').fetch('state')).to eq('stopped')
   end
 
-  it 'rejects malformed persisted environment-cache checkpoints' do
+  it 'disables server environment caching and removes obsolete content checkpoints' do
     mutate(controller, :up)
     state = @store.load
-    original = state.dig('control_plane', 'environment_cache').dup
-    { 'fingerprint' => nil, 'server_id' => nil, 'environment' => '../other' }.each do |key, value|
-      state['control_plane']['environment_cache'] = original.merge(key => value)
-      expect { @store.write(state) }.to raise_error(Empeira::Infrastructure::StateError, /Invalid infrastructure/)
-    end
+    state['control_plane']['environment_cache'] = { 'fingerprint' => 'obsolete' }
+    @store.with_lock { @store.write(state) }
+    expect(mutate(controller, :up)).to be(false)
+    expect(@store.load.fetch('control_plane')).not_to have_key('environment_cache')
+    definition = Empeira::ControlPlane::Plan.new(context: context).definitions.fetch('server')
+    expect(definition.options.fetch('environment')).to include('OPENVOXSERVER_ENVIRONMENT_TIMEOUT' => '0')
+    expect(runtime.calls.none? { |call| call.first == :exec && call.last.include?('DELETE') }).to be(true)
   end
 
   it 'activates the additional resolver only after its service starts and keeps repeated up idle' do
@@ -489,17 +544,49 @@ RSpec.describe Empeira::ControlPlane::Controller do
     mutate(controller('proxy' => { 'enabled' => true }), :up)
   end
 
-  it 'recreates only the proxy when its global destinations or hostname rules change' do
+  it 'reloads proxy policy without replacing services and keeps unchanged policy idle' do
     config = { 'proxy' => { 'enabled' => true, 'global' => ['example.org'] } }
     mutate(controller(config), :up)
-    ids = runtime.services.transform_values { |resource| resource['id'] }
-    config['proxy']['rules'] = [{ 'hosts' => ['*-web-*'], 'allow' => ['example.net'] }]
+    state = @store.load
+    state['nodes'] = rewrite_node_records
+    @store.with_lock { @store.write(state) }
     mutate(controller(config), :up)
-    actual = runtime.services.transform_values { |resource| resource['id'] }
-    expect(actual.except('proxy')).to eq(ids.except('proxy'))
-    expect(actual['proxy']).not_to eq(ids['proxy'])
+    ids = runtime.services.transform_values { |resource| resource['id'] }
+    runtime.calls.clear
+    config['proxy']['rules'] = [{ 'hosts' => ['*-node'], 'allow' => ['example.net'] }]
+    expect(mutate(controller(config), :up)).to be(true)
+    expect(runtime.services.transform_values { |resource| resource['id'] }).to eq(ids)
+    expect(runtime.calls).to include([:reload, ids.fetch('proxy'), 'HUP'])
+    runtime.calls.clear
+    expect(mutate(controller(config), :up)).to be(false)
+    expect(runtime.calls.none? { |call| call.first == :reload }).to be(true)
+    config['proxy']['global'] = ['packages.example.org']
+    expect(mutate(controller(config), :up)).to be(true)
+    expect(runtime.services.transform_values { |resource| resource['id'] }).to eq(ids)
+    expect(runtime.calls).to include([:reload, ids.fetch('proxy'), 'HUP'])
     expect(runtime.networks.size).to eq(1)
     expect(runtime.services.except('gateway').values.map { |item| item['networks'].size }.uniq).to eq([1])
+  end
+
+  it 'retries a failed proxy reload even when the desired files are already current' do
+    config = { 'proxy' => { 'enabled' => true, 'global' => ['example.org'] } }
+    mutate(controller(config), :up)
+    checkpoint = @store.load.dig('control_plane', 'proxy_reload')
+    config['proxy']['global'] = ['example.net']
+    allow(runtime).to receive(:reload_service).and_raise(Empeira::Providers::ExecutionError, 'reload failed')
+    expect { mutate(controller(config), :up) }.to raise_error(Empeira::Providers::ExecutionError, /reload failed/)
+    expect(@store.load.dig('control_plane', 'proxy_reload')).to eq(checkpoint)
+    allow(runtime).to receive(:reload_service).and_call_original
+    runtime.calls.clear
+    mutate(controller(config), :up)
+    expect(runtime.calls).to include([:reload, checkpoint.fetch('id'), 'HUP'])
+    expect(@store.load.dig('control_plane', 'proxy_reload')).not_to eq(checkpoint)
+    runtime.calls.clear
+    expect(mutate(controller(config), :up)).to be(false)
+    expect(runtime.calls.none? { |call| call.first == :reload }).to be(true)
+    state = @store.load
+    state['control_plane']['proxy_reload'] = checkpoint.merge('fingerprint' => 'malformed')
+    expect { @store.with_lock { @store.write(state) } }.to raise_error(Empeira::Infrastructure::StateError)
   end
 
   it 'replaces a proxy with the previous IP restriction on up without changing user policy or other services' do
@@ -507,12 +594,12 @@ RSpec.describe Empeira::ControlPlane::Controller do
     mutate(controller(config), :up)
     current = Empeira::ControlPlane::Plan.new(context: context(config))
     definition = current.definitions.fetch('proxy')
-    previous_policy = definition.options.fetch('configuration')
-                                .sub('http_access deny !Safe_ports',
-                                     "acl forbidden dst #{Empeira::Network::ProxyPolicy::FORBIDDEN}\n" \
-                                     'http_access deny !Safe_ports')
-                                .sub('include /empeira-proxy/proxy-rules.conf',
-                                     "http_access deny forbidden\ninclude /empeira-proxy/proxy-rules.conf")
+    previous_policy = current.files.configuration.fetch('squid.conf')
+                             .sub('http_access deny !Safe_ports',
+                                  "acl forbidden dst #{Empeira::Network::ProxyPolicy::FORBIDDEN}\n" \
+                                  'http_access deny !Safe_ports')
+                             .sub('include /empeira-proxy/proxy-rules.conf',
+                                  "http_access deny forbidden\ninclude /empeira-proxy/proxy-rules.conf")
     previous = Empeira::Services::Definition.new(key: 'proxy', workspace: current.context.workspace,
                                                  **definition.options.merge('configuration' => previous_policy))
     runtime.services.fetch('proxy').fetch('labels')['io.empeira.definition'] = previous.fingerprint

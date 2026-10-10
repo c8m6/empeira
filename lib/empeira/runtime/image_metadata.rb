@@ -55,7 +55,7 @@ module Empeira
       end
 
       def local_image(image)
-        result = runner.run(name, arguments: ['image', 'inspect', image], timeout: 30)
+        result = local_image_inspection(image)
         return unless result.success?
 
         data = parse_json(result.stdout)

@@ -61,6 +61,7 @@ module Empeira
       end
 
       def build_image(image, recipe, files, refresh: false, bases: nil)
+        @local_image_inspections&.delete(image)
         bases ||= base_state(recipe, refresh: refresh)
         Dir.mktmpdir('empeira-image-') do |directory|
           write_build_context(directory, recipe, files)

@@ -147,16 +147,38 @@ as stale-lock recovery. Unsupported state has no automatic migration.
 Canonical SHA-256 fingerprints cover relevant managed definitions, independently
 of application versions, YAML formatting and unrelated node defaults. Component
 fingerprints allow selective service reconciliation while preserving owned storage.
+Each `up` batches service and volume observations and reuses them only within that
+locked transaction. Starts, replacements and network attachments are inspected
+again; destructive operations verify fresh ownership and recorded IDs. Later CLI
+invocations never inherit these observations. Local image inspection results are
+shared by availability, reviewed-recipe, ID and architecture checks within one
+image-preparation block. A pull or build discards the old result before the new
+image is inspected. `up` performs no remote freshness check or full image-content
+hash; native image storage and immutable IDs remain the source of metadata.
+A recorded container is inspected directly by ID; a missing ID falls back to
+name inventory to detect replacements and renamed resources. DNS discovery uses the complete service observation and
+one node snapshot, preserving unchanged generated files. Proxy allowlist changes
+reload Squid after readiness without replacing its container; unchanged policy
+and bindings do not trigger HUP. The existing inventory records a validated
+proxy ID and small-file digest only after native reload success; failed reloads
+are retried even if generated files are already current. Gateway lockdown is
+reused only while the same instance remains locked in that transaction. Policy apply clears that checkpoint
+before execution so every uncertain outcome attempts fresh lockdown. Firewall
+policy and namespace routing are still reconciled on every `up`.
+Node access verifies network ownership and isolation with one bounded native network inspection; membership counts are collected separately
+for lifecycle observations and deletion, never inferred from the access check.
+VM acquisition and restart still read the complete immutable base and verify its
+SHA-256 pin, using the existing OpenSSL implementation. Neither file timestamps
+nor cached fingerprints replace these integrity checks.
 Network changes and unsafe storage transitions require explicit lifecycle operations;
 there are no implicit database-major migrations or automatic node replacements.
 
-A separate environment-cache checkpoint tracks live control code, modules, Hiera
-and server mounts. Changed content invalidates the selected environment through the
-server's authenticated API without restarting it. Unchanged runs reuse loaded code
-while still requesting fresh catalogs. See [nodes](nodes.md#environment-cache-and-live-code).
+Managed servers disable environment caching (`environment_timeout = 0`). Catalog
+requests reload live code without repository hashes or environment-cache checkpoints.
+See [nodes](nodes.md#environment-cache-and-live-code).
 
 Command mocks use the same node inventory, generated-file mechanism and mutation
-lock. They reconcile atomically before Puppet and during start/up, preserving
+lock. They reconcile atomically during initial node provisioning and start/up, preserving
 unchanged files and removing only verified owned stubs.
 
 ## Runtime and update planes

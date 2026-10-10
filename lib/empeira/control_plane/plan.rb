@@ -266,7 +266,7 @@ module Empeira
         server_runtime.environment(
           certname: naming.hostname('server'), dns_alt_names: 'server',
           ca_hostname: naming.hostname('server'), autosign: 'false',
-          server_hostname: naming.hostname('server'), environment_timeout: 'unlimited',
+          server_hostname: naming.hostname('server'), environment_timeout: '0',
           java_args: '-Xms256m -Xmx768m', max_active_instances: '1',
           puppetdb_enabled: database?.to_s, storeconfigs: database?.to_s,
           reports: database? ? 'puppetdb' : 'log',
@@ -333,7 +333,6 @@ module Empeira
           sysctls: { 'net.ipv4.ip_forward' => '0', 'net.ipv6.conf.all.disable_ipv6' => '1',
                      'net.ipv6.conf.default.disable_ipv6' => '1' }, entrypoint: '/usr/sbin/squid-gnutls',
           command: ['-N', '-f', '/empeira-proxy/squid.conf'],
-          configuration: files.configuration.fetch('squid.conf'), policy: config.fetch('proxy'),
           mounts: [bind(files.directory, '/empeira-proxy'),
                    'type=tmpfs,dst=/var/log/squid', 'type=tmpfs,dst=/var/spool/squid']
         }

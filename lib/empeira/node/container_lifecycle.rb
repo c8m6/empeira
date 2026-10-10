@@ -11,7 +11,7 @@ module Empeira
           resource = observed(record)
           raise Error, 'Node is missing; destroy its reservation before recreating it' unless resource
 
-          refresh_environment_cache
+          ready_server
           changed = resource['state'] != 'running'
           @runtime.start_service(resource) if changed
           network_gateway.route(observed(record))
@@ -42,12 +42,13 @@ module Empeira
       end
 
       def puppet(name:)
-        mutate do
+        mutate(availability: false) do
           record = fetch(name)
           require_provisioned!(record)
-          ready_server
+          resource = running(record)
+          ready_network!
           @progress.stage(30, 'Running Puppet agent...')
-          agent_run(running(record), record)
+          agent_run(resource, record)
         end
       end
 
@@ -115,8 +116,6 @@ module Empeira
 
       def agent_run(resource, record)
         require_provisioned!(record)
-        refresh_environment_cache
-        reconcile_guest(resource, record)
         result = @progress.streaming do
           @runtime.stream_service(resource, RuntimeProxy.command(context, PuppetCommand.arguments))
         end

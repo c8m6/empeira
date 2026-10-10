@@ -14,7 +14,7 @@ module Empeira
           end
 
           validate_interfaces(record)
-          refresh_environment_cache
+          ready_server
           return lifecycle_result(name.downcase, :running, changed: reconcile_guest(record)) if @qemu.running?(record)
 
           @progress.stage(1, 'Checking VM control-plane readiness...')
@@ -56,9 +56,8 @@ module Empeira
       end
 
       def puppet(name:)
-        mutate do
+        mutate(availability: false) do
           record = running_vm(name)
-          ready_server
           @progress.stage(30, 'Running Puppet in VM...')
           puppet_run(record)
         end
@@ -131,7 +130,7 @@ module Empeira
       def existing_storage(record)
         base = base_for(record)
         unless base.file? && !base.symlink? &&
-               Digest::SHA256.file(base).hexdigest == record.dig('base_image', 'checksum')
+               OpenSSL::Digest::SHA256.file(base).hexdigest == record.dig('base_image', 'checksum')
           raise Error, 'Pinned VM base image is missing or corrupt; preserve the overlay and restore the cache'
         end
 

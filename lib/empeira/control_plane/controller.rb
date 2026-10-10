@@ -26,6 +26,7 @@ module Empeira
         check_network_architecture!
         check_service_names!
         @gateway_reconciling = true
+        capture_services
         lockdown_existing_gateway
         prepare_files
         @progress.stage(20, 'Preparing persistent storage...')
@@ -49,6 +50,9 @@ module Empeira
         raise
       ensure
         @desired_images = nil
+        @service_snapshot = nil
+        @discovery_nodes = nil
+        @gateway_locked_id = nil
         @gateway_reconciling = false
       end
 
@@ -81,7 +85,7 @@ module Empeira
         @dns = @observed.fetch('dns').dig('networks', @plan.network, 'IPAddress')
         raise Error, 'DNS service has no address in the isolated network' if @dns.nil? || @dns.empty?
 
-        @plan.files.bind_dns(@dns)
+        @proxy_configuration_changed = @plan.files.bind_dns(@dns)
         reconcile_proxy
       end
 
@@ -108,7 +112,7 @@ module Empeira
         return if @state.fetch('nodes', {}).empty?
 
         definition = @plan.definitions.fetch('dns')
-        resource = @runtime.inspect_service(definition, expected_id: recorded('dns'))
+        resource = service_resource(definition, expected_id: recorded('dns'))
         return if resource && !image_changed?(resource, definition) &&
                   resource.dig('labels', 'io.empeira.definition') == definition.fingerprint
 
@@ -221,7 +225,7 @@ module Empeira
           entry.fetch('to').fetch('service')
         end)
         ids = definitions.to_h { |key, _| [key, recorded(key)] }
-        @runtime.inspect_services(definitions, expected_ids: ids)
+        definitions.to_h { |key, definition| [key, service_resource(definition, expected_id: ids[key])] }
       end
 
       def resolved_redirects(resources)
@@ -248,7 +252,7 @@ module Empeira
         return true unless @plan.files.corefile_current?(upstreams: upstreams, routes: routes)
 
         definition = @plan.definitions.fetch('dns')
-        resource = @runtime.inspect_service(definition, expected_id: recorded('dns'))
+        resource = service_resource(definition, expected_id: recorded('dns'))
         resource.nil? || resource['state'] != 'running' || stale?('dns', resource, definition)
       end
 
@@ -256,7 +260,7 @@ module Empeira
         return false if @plan.files.corefile_current?(**@dns_resolution)
 
         definition = @plan.definitions.fetch('dns')
-        @runtime.inspect_service(definition, expected_id: recorded('dns'))&.fetch('state') == 'running'
+        service_resource(definition, expected_id: recorded('dns'))&.fetch('state') == 'running'
       end
 
       def activate_dns
@@ -300,10 +304,13 @@ module Empeira
 
       def check_images(definitions: @plan.definitions)
         @desired_images = {}
-        definitions.each_value do |definition|
-          @runtime.ensure_image(definition.options.fetch('image'), recipe: definition.options['recipe'],
-                                                                   files: definition.options.fetch('build_files', {}))
-          @desired_images[definition.options.fetch('image')] = @runtime.image_id(definition.options.fetch('image'))
+        @runtime.with_local_images do
+          definitions.each_value do |definition|
+            image = definition.options.fetch('image')
+            @runtime.ensure_image(image, recipe: definition.options['recipe'],
+                                         files: definition.options.fetch('build_files', {}))
+            @desired_images[image] = @runtime.image_id(image)
+          end
         end
       end
 
@@ -352,22 +359,17 @@ module Empeira
         update_hosts(reload_proxy: true) if @plan.proxy?
         @inventory['stopped'] = false
         save
-        refresh_environment_cache
         @plan.additional_configurations.prune
-      end
-
-      def refresh_environment_cache
-        refreshed = Server::EnvironmentCache.new(plan: @plan, runtime: @runtime, state: @state,
-                                                 persist: method(:save)).refresh(@observed.fetch('server'))
-        @changed = refreshed || @changed
       end
 
       def load_state(state = @store.load)
         @state = state || {}
         @inventory = @state['control_plane'] || { 'services' => {}, 'volumes' => {}, 'egress' => nil }
+        @inventory.delete('environment_cache')
         @plan.subnet = @state.dig('peer_network', 'subnet')
         @plan.browser_enabled = @inventory.fetch('services').key?('browser')
         @changed = false
+        @proxy_bindings_changed = false
       end
 
       def save
@@ -383,6 +385,24 @@ module Empeira
               'Workspace network architecture changed; destroy this alpha workspace with its previous version first'
       end
 
+      def capture_services
+        definitions = service_keys.to_h { |key| [key, identity(key)] }
+        expected = @inventory.fetch('services').transform_values { |record| record['id'] }
+        @service_snapshot = @runtime.inspect_services(definitions, expected_ids: expected)
+        @observed = @service_snapshot.slice(*@plan.definitions.keys).compact
+      end
+
+      def service_resource(definition, expected_id:)
+        unless @service_snapshot&.key?(definition.key)
+          return @runtime.inspect_service(definition,
+                                          expected_id: expected_id)
+        end
+
+        resource = @service_snapshot[definition.key]
+        definition.verify!(resource, expected_id: expected_id)
+        resource
+      end
+
       def prepare_storage
         storage = Storage.new(runtime: @runtime, plan: @plan, inventory: @inventory, persist: method(:save))
         @changed = storage.prepare || @changed
@@ -390,7 +410,7 @@ module Empeira
 
       def reconcile(key)
         definition = @plan.definitions(dns: @dns).fetch(key)
-        resource = @runtime.inspect_service(definition, expected_id: recorded(key))
+        resource = service_resource(definition, expected_id: recorded(key))
         if resource && stale?(key, resource, definition)
           remove(key)
           resource = nil
@@ -403,7 +423,7 @@ module Empeira
       end
 
       def reconcile_browser(key, definition)
-        resource = @runtime.inspect_service(definition, expected_id: recorded(key))
+        resource = service_resource(definition, expected_id: recorded(key))
         if resource && stale?(key, resource, definition)
           remove(key)
           resource = nil
@@ -438,7 +458,7 @@ module Empeira
 
       def require_running_service!(key)
         definition = @plan.definitions.fetch(key)
-        resource = @runtime.inspect_service(definition, expected_id: recorded(key))
+        resource = service_resource(definition, expected_id: recorded(key))
         require_service_running!(key, resource)
         if resource.dig('labels', 'io.empeira.definition') != definition.fingerprint
           raise Error, "Required service #{key} is stale. Run 'empeira up' first."
@@ -465,10 +485,11 @@ module Empeira
       end
 
       def observe_service(key, definition, id)
-        @observed[key] = @runtime.inspect_service(definition, expected_id: id)
+        @observed[key] = service_resource(definition, expected_id: id)
         require_started!(key, @observed.fetch(key))
         attach_browser_ui_if_needed(key, definition, id)
         verify_networks!(key, @observed.fetch(key))
+        @service_snapshot[key] = @observed.fetch(key) if @service_snapshot
       end
 
       def attach_browser_ui_if_needed(key, definition, id)
@@ -476,7 +497,8 @@ module Empeira
 
         @runtime.attach_egress(Network::Definition.new(workspace: @context.workspace, policy: Network::Policy.new),
                                @observed.fetch(key))
-        @observed[key] = @runtime.inspect_service(definition, expected_id: id)
+        @service_snapshot&.delete(key)
+        @observed[key] = service_resource(definition, expected_id: id)
       end
 
       def require_started!(key, resource)
@@ -488,14 +510,30 @@ module Empeira
 
       def update_hosts(reload_proxy: false)
         # A running container can still be initializing Squid. Defer HUP until its listener is ready.
-        Discovery.new(plan: @plan, runtime: @runtime, state: @state).refresh(services: @observed,
-                                                                             reload_proxy: reload_proxy)
+        changed = Discovery.new(plan: @plan, runtime: @runtime, state: @state).refresh(
+          services: @observed, node_resources: discovery_nodes, reload_proxy: reload_proxy,
+          force_proxy_reload: @proxy_configuration_changed || @proxy_bindings_changed
+        )
+        @proxy_bindings_changed = changed || @proxy_bindings_changed
+        @changed = true if @plan.proxy? && (changed || @proxy_configuration_changed)
+      end
+
+      def discovery_nodes
+        return @discovery_nodes if @discovery_nodes
+
+        records = @state.fetch('nodes', {}).select { |_, record| record['provider'] == 'container' }
+        definitions = records.transform_values do |record|
+          Node::Definition.new(hostname: record.fetch('hostname'), workspace: @context.workspace)
+        end
+        ids = records.transform_values { |record| record['id'] }
+        @discovery_nodes = definitions.empty? ? {} : @runtime.inspect_services(definitions, expected_ids: ids)
       end
 
       def start_service(resource)
         return if resource.fetch('state') == 'running'
 
         @runtime.start_service(resource)
+        @service_snapshot&.delete(resource.dig('labels', 'io.empeira.purpose'))
         @changed = true
       end
 
@@ -515,6 +553,7 @@ module Empeira
       end
 
       def create_service(definition)
+        @service_snapshot&.delete(definition.key)
         @inventory.fetch('services')[definition.key] = { 'id' => nil }
         save
         resource = @runtime.create_service(definition)
@@ -561,7 +600,7 @@ module Empeira
         resource = @runtime.inspect_service(identity('gateway'), expected_id: recorded('gateway'))
         return unless resource && resource['state'] == 'running'
 
-        gateway_command(resource, 'lockdown')
+        lockdown_gateway(resource)
       rescue Error
         @runtime.stop_service(resource) if resource
         raise
@@ -569,12 +608,12 @@ module Empeira
 
       # rubocop:disable-next Metrics/AbcSize -- Uplink attachment is ordered behind verified lockdown.
       def reconcile_gateway
-        resource = @runtime.inspect_service(identity('gateway'), expected_id: recorded('gateway'))
+        resource = service_resource(identity('gateway'), expected_id: recorded('gateway'))
         if resource && resource['state'] != 'running' && resource.fetch('networks').key?(egress.backend_name)
           @runtime.detach_egress(egress, resource)
         end
         reconcile('gateway')
-        gateway_command(@observed.fetch('gateway'), 'lockdown')
+        lockdown_gateway(@observed.fetch('gateway'))
         require_redirect_capability
         attach_gateway('gateway')
         apply_gateway_policy
@@ -582,6 +621,13 @@ module Empeira
         resource = @observed['gateway']
         @runtime.stop_service(resource) if resource
         raise
+      end
+
+      def lockdown_gateway(resource)
+        return if @gateway_locked_id == resource.fetch('id')
+
+        gateway_command(resource, 'lockdown')
+        @gateway_locked_id = resource.fetch('id')
       end
 
       def require_redirect_capability
@@ -596,6 +642,8 @@ module Empeira
       end
 
       def apply_gateway_policy
+        # An uncertain apply must force fresh lockdown during failure recovery.
+        @gateway_locked_id = nil
         gateway_command(@observed.fetch('gateway'), 'apply', '/empeira-gateway/gateway.json')
         record_gateway_policy
       end
@@ -620,6 +668,7 @@ module Empeira
 
         @runtime.attach_egress(egress, resource)
         @observed[key] = @runtime.inspect_service(identity(key), expected_id: recorded(key))
+        @service_snapshot[key] = @observed.fetch(key) if @service_snapshot
         @changed = true
       end
 
@@ -666,7 +715,9 @@ module Empeira
         @changed = @runtime.remove_service(identity(key), expected_id: recorded(key)) || @changed
         @inventory.fetch('services').delete(key)
         @inventory.delete('gateway_policy') if key == 'gateway'
+        @inventory.delete('proxy_reload') if key == 'proxy'
         @observed.delete(key)
+        @service_snapshot&.delete(key)
         save
       end
 

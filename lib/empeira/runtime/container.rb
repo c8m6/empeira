@@ -56,6 +56,18 @@ module Empeira
         inspect_entry(entry)
       end
 
+      # rubocop:disable-next Naming/PredicateMethod -- Verification raises on failure.
+      def verify_isolated_network(definition, expected_id:)
+        data = json_command(['network', 'inspect', definition.backend_name],
+                            operation: 'node network verification')
+        malformed! unless data.is_a?(Array) && data.size == 1 && data.first.is_a?(Hash)
+        binding = normalize_network_binding(data.first)
+        definition.verify_ownership!(binding, expected_id: expected_id)
+        definition.verify_definition!(binding)
+        definition.verify_isolation!(binding)
+        true
+      end
+
       def create_network(definition:)
         definition.policy.require_support!(**capabilities)
         existing = inspect_network(identifier: definition.backend_name)

@@ -48,11 +48,11 @@ module Empeira
         @nodes.select { |_, record| record['provider'] == 'vm' }
       end
 
-      def mutate
+      def mutate(availability: true)
         @build_info.require_compatible!(context.configuration.dig('requirements', 'empeira'))
         @store.with_lock do
           load_state
-          check_runtime!
+          check_runtime!(availability: availability)
           yield
         end
       end
@@ -62,13 +62,13 @@ module Empeira
         @nodes = state&.fetch('nodes', {}) || {}
       end
 
-      def check_runtime!
+      def check_runtime!(availability: true)
         raise Error, 'Control plane is down; run empeira up first' unless @state&.dig('resources', 'network', 'id')
         if @state.fetch('runtime') != context.container_engine
           raise Error, 'Node runtime differs from workspace ownership; restore runtime.container_engine'
         end
 
-        @runtime.check_available!
+        @runtime.check_available! if availability
       end
 
       def save
@@ -95,11 +95,6 @@ module Empeira
         end
 
         server
-      end
-
-      def refresh_environment_cache
-        Server::EnvironmentCache.new(plan: ControlPlane::Plan.new(context: context), runtime: @runtime,
-                                     state: @state, persist: method(:save)).refresh(ready_server)
       end
 
       def reserve_vm(request, identity, accelerator)

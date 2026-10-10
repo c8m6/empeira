@@ -47,11 +47,11 @@ module Empeira
         Providers::Result.new(resource: resource, changed: changed)
       end
 
-      def mutate
+      def mutate(availability: true)
         @build_info.require_compatible!(context.configuration.dig('requirements', 'empeira'))
         @store.with_lock do
           load_state
-          check_runtime!
+          check_runtime!(availability: availability)
           yield
         end
       end
@@ -66,12 +66,12 @@ module Empeira
         @store.write(@state)
       end
 
-      def check_runtime!
+      def check_runtime!(availability: true)
         if @state && @state.fetch('runtime') != context.container_engine
           raise Error, 'Node runtime differs from workspace ownership; restore runtime.container_engine'
         end
 
-        @runtime.check_available!
+        @runtime.check_available! if availability
       end
 
       def fetch(name)

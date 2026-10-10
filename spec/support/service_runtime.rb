@@ -20,6 +20,10 @@ class ServiceRuntime
     true
   end
 
+  def with_local_images
+    yield
+  end
+
   def image_id(_image)
     nil
   end
@@ -42,6 +46,10 @@ class ServiceRuntime
     resource = volumes[definition.key]
     definition.verify!(resource, expected_id: expected_id)
     resource
+  end
+
+  def inspect_volumes(definitions, expected_ids: {})
+    definitions.to_h { |key, definition| [key, inspect_volume(definition, expected_id: expected_ids[key])] }
   end
 
   def create_volume(definition)
@@ -95,7 +103,7 @@ class ServiceRuntime
     proxy_result = runtime_proxy_result(arguments, resource['name'] || resource['id'])
     return proxy_result if proxy_result
 
-    output = arguments.include?('DELETE') ? "HTTP/1.1 204 No Content\r\n\r\n" : ''
+    output = ''
     output = "[main]\ngpgcheck=1\n" if arguments == ['cat', '/etc/dnf/dnf.conf']
     output = "tcp-redirects-v1\n" if arguments == [Empeira::Network::Gateway::EXECUTABLE, 'redirects-capability']
     Empeira::Execution::Result.new(stdout: output, stderr: '', exit_status: 0, timed_out: false)
@@ -111,6 +119,15 @@ class ServiceRuntime
 
   def inspect_network(identifier:)
     networks[identifier]
+  end
+
+  # rubocop:disable-next Naming/PredicateMethod -- Verification raises on failure.
+  def verify_isolated_network(definition, expected_id:)
+    resource = inspect_network(identifier: definition.backend_name)
+    definition.verify_ownership!(resource, expected_id: expected_id)
+    definition.verify_definition!(resource) if resource
+    definition.verify_isolation!(resource)
+    true
   end
 
   def create_network(definition:)

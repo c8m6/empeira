@@ -2,6 +2,7 @@
 
 module Empeira
   module Runtime
+    # rubocop:disable-next Metrics/ModuleLength -- Shared native ownership and snapshot validation boundary.
     module ServiceInspection
       def inspect_services(definitions, expected_ids: {})
         selected = select_services(definitions, expected_ids)
@@ -14,7 +15,37 @@ module Empeira
         end
       end
 
+      def inspect_volumes(definitions, expected_ids: {})
+        resources = inspect_volumes_by_name(select_volume_names(definitions))
+        definitions.to_h do |key, definition|
+          resource = resources[definition.name]
+          definition.verify!(resource, expected_id: expected_ids[key])
+          [key, resource]
+        end
+      end
+
       private
+
+      def select_volume_names(definitions)
+        names = definitions.values.map(&:name)
+        inventory('volume').filter_map { |entry| entry.fetch('name') if names.include?(entry.fetch('name')) }
+      end
+
+      def inspect_volumes_by_name(names)
+        return {} if names.empty?
+
+        data = parse_json(service_command(['volume', 'inspect', *names], operation: 'volume snapshot').stdout)
+        validate_snapshot!(data, names.size)
+        resources = data.map { |entry| normalize_volume(entry) }
+        verify_volume_names!(resources, names)
+        resources.to_h { |entry| [entry.fetch('name'), entry] }
+      rescue KeyError, TypeError, NoMethodError
+        malformed!
+      end
+
+      def verify_volume_names!(resources, names)
+        malformed! unless resources.map { |entry| entry.fetch('name') }.sort == names.sort
+      end
 
       def select_services(definitions, expected_ids)
         entries = inventory('container')
@@ -46,6 +77,21 @@ module Empeira
       end
 
       def inspect_owned(kind, definition, expected_id:)
+        return inspect_named(kind, definition, expected_id: expected_id) unless kind == 'container' && expected_id
+
+        result = runner.run(name, arguments: ['container', 'inspect', expected_id], timeout: 30)
+        return inspect_named(kind, definition, expected_id: expected_id) unless result.success?
+
+        data = parse_json(result.stdout)
+        validate_snapshot!(data, 1)
+        resource = normalize_service(kind, data.first)
+        definition.verify!(resource, expected_id: expected_id)
+        resource
+      rescue KeyError, TypeError, NoMethodError
+        malformed!
+      end
+
+      def inspect_named(kind, definition, expected_id:)
         entries = inventory(kind)
         entry = entries.find { |item| item.fetch('name') == definition.name }
         verify_recorded_name!(kind, entries, entry, expected_id)

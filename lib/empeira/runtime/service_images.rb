@@ -3,9 +3,22 @@
 module Empeira
   module Runtime
     module ServiceImages
+      def with_local_images
+        return yield if @local_image_inspections
+
+        @local_image_inspections = {}
+        begin
+          yield
+        ensure
+          @local_image_inspections = nil
+        end
+      end
+
       def ensure_image(image, recipe: nil, files: {})
-        result = runner.run(name, arguments: ['image', 'inspect', image], timeout: 30)
+        result = local_image_inspection(image)
         return verify_recipe!(result, recipe) if result.success?
+
+        @local_image_inspections&.delete(image)
         return build_image(image, recipe, files) if recipe
 
         update_command(['pull', image], operation: "image pull #{image}", registry: image)
@@ -23,12 +36,13 @@ module Empeira
         return :unchanged if same_remote_image?(image, observed, digest)
 
         progress&.call(:updating)
+        @local_image_inspections&.delete(image)
         update_command(['pull', image], operation: "image pull #{image}", registry: image)
         :updated
       end
 
       def image_id(image)
-        result = service_command(['image', 'inspect', image], operation: 'image identity')
+        result = required_image_inspection(image, operation: 'image identity')
         data = parse_json(result.stdout)
         unless data.is_a?(Array) && data.size == 1 && data.first.is_a?(Hash) && data.first['Id'].is_a?(String)
           malformed!
@@ -37,7 +51,7 @@ module Empeira
       end
 
       def image_architecture(image)
-        result = service_command(['image', 'inspect', image], operation: 'node image architecture')
+        result = required_image_inspection(image, operation: 'node image architecture')
         data = parse_json(result.stdout)
         malformed! unless data.is_a?(Array) && data.size == 1 && data.first.is_a?(Hash)
         architecture = data.first['Architecture']
@@ -46,6 +60,23 @@ module Empeira
       end
 
       private
+
+      def local_image_inspection(image)
+        return @local_image_inspections.fetch(image) if @local_image_inspections&.key?(image)
+
+        result = runner.run(name, arguments: ['image', 'inspect', image], timeout: 30)
+        @local_image_inspections[image] = result if @local_image_inspections
+        result
+      end
+
+      def required_image_inspection(image, operation:)
+        result = local_image_inspection(image)
+        return result if result.success?
+
+        raise Providers::ExecutionError,
+              "#{name} #{operation} failed; run empeira status\n" \
+              "#{Execution::Diagnostics.native(result, operation: operation, tool: name)}", cause: nil
+      end
 
       # rubocop:disable-next Metrics/AbcSize -- Compare all three build inputs before deciding whether to rebuild.
       def refresh_recipe(image, recipe, files, observed)

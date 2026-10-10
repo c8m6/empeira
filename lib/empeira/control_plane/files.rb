@@ -90,8 +90,9 @@ module Empeira
         @context.locations.workspace(@context.workspace).join('database.env').to_s
       end
 
+      # rubocop:disable-next Naming/PredicateMethod -- This atomic write returns whether content changed.
       def write(name, content, mode: 0o644)
-        return if File.file?(path(name)) && File.binread(path(name)) == content
+        return false if File.file?(path(name)) && File.binread(path(name)) == content
 
         Tempfile.create('configuration-', directory) do |file|
           file.chmod(mode)
@@ -99,11 +100,12 @@ module Empeira
           file.flush
           File.rename(file.path, path(name))
         end
+        true
       end
 
       def hosts(resources, network)
         naming = Network::Naming.new
-        entries = resources.filter_map do |key, resource|
+        entries = resources.sort.filter_map do |key, resource|
           address = resource.dig('networks', network, 'IPAddress')
           "#{address} #{naming.aliases(key).join(' ')}" if address && !address.empty?
         end
@@ -113,12 +115,20 @@ module Empeira
       def proxy_clients(resources, network, nodes: {})
         bindings = Network::ProxyBindings.new(context: @context, resources: resources, network: network, nodes: nodes)
         # The workspace parent is private; Squid's mapped service user must read the bind mount.
-        write('proxy-rules.conf', bindings.configuration)
+        rules_changed = write('proxy-rules.conf', bindings.configuration)
         allowed = proxy_allowed(nodes)
         addresses = resources.slice(*allowed).values.filter_map do |resource|
           resource&.dig('networks', network, 'IPAddress')
         end
-        write('proxy-clients', "#{(['127.0.0.1/32'] + addresses.reject(&:empty?).sort).join("\n")}\n")
+        clients_changed = write('proxy-clients', "#{(['127.0.0.1/32'] + addresses.reject(&:empty?).sort).join("\n")}\n")
+        rules_changed || clients_changed
+      end
+
+      def proxy_reload_digest
+        content = %w[squid.conf proxy-rules.conf proxy-clients].to_h do |name|
+          [name, File.binread(path(name))]
+        end
+        Infrastructure::Definition.fingerprint(content)
       end
 
       def proxy_allowed(nodes)

@@ -176,17 +176,16 @@ module Empeira
         flags = [plane['stopped'], plane['bridge_prepared']]
         flags.all? { |flag| [nil, true, false].include?(flag) } &&
           (plane['bridge_image'].nil? || plane['bridge_image'].is_a?(String)) &&
-          valid_environment_cache?(plane['environment_cache']) &&
-          (plane['gateway_policy'].nil? || valid_code_digest?(plane['gateway_policy']))
+          (plane['gateway_policy'].nil? || valid_code_digest?(plane['gateway_policy'])) &&
+          valid_proxy_reload?(plane['proxy_reload'])
       end
 
-      def valid_environment_cache?(entry)
-        return true if entry.nil?
+      def valid_proxy_reload?(checkpoint)
+        return true if checkpoint.nil?
 
-        entry.is_a?(Hash) && entry.keys.sort == %w[environment fingerprint server_id] &&
-          entry['server_id'].is_a?(String) && valid_resource_id?(entry['server_id']) &&
-          Configuration::Schema::CHECKS.fetch(:environment).first.call(entry['environment']) &&
-          valid_code_digest?(entry['fingerprint'])
+        checkpoint.is_a?(Hash) && checkpoint.keys.sort == %w[fingerprint id] &&
+          checkpoint['id'].is_a?(String) && valid_resource_id?(checkpoint['id']) &&
+          valid_code_digest?(checkpoint['fingerprint'])
       end
 
       def valid_code_digest?(value)

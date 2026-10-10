@@ -138,7 +138,7 @@ RSpec.describe 'Real control-plane integration', :integration do
         dns = runtime.service_exec(server, [Empeira::ControlPlane::Health::RUBY, '-rresolv', '-e',
                                             'exit(Resolv.getaddresses("allowed.test").empty? ? 1 : 0)'])
         expect(dns).to be_success
-        ids = %w[server puppetdb postgres dns].to_h { |key| [key, service(key).fetch('id')] }
+        ids = %w[server puppetdb postgres dns proxy].to_h { |key| [key, service(key).fetch('id')] }
         config['proxy']['global'] << 'also.test'
         File.write(File.join(project, '.empeira.yaml'), YAML.dump(config))
         current = Empeira::Application.new(project_path: project, locations: locations,
