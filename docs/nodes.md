@@ -207,7 +207,7 @@ the system daemon on their own peer IP and selected guest port. Native rootless
 Podman accesses the management endpoint through its existing namespace-scoped byte
 tunnel. Application traffic, DNS and Puppet use the peer NIC directly.
 
-New VM records have `ssh_layout: 1`. Cloud-Init starts and enables
+New VM records have `ssh_layout: 2`. Cloud-Init starts and enables
 `empeira-management-ssh.service` before project scripts and package bootstrap. It has
 its own configuration, host key, authorized key, client identity, known-host file and
 runtime directory. Its port 22222 binds only to the restricted management NIC at
@@ -231,6 +231,17 @@ the owned management key/runtime paths, keeping the existing SSH domain confined
 and enforcement enabled. A preexisting module with that name fails before replacement.
 System SSH port labels and foreign policy remain under their original owners.
 
+Cloud-Init creates `empeira` as a Linux system account with a dynamically allocated
+UID below the distribution's `UID_MIN`, a locked password, `/bin/bash` and
+passwordless sudo for managed operations. Empeira explicitly creates its home
+`/var/lib/empeira` with the allocated UID/GID and mode 0700. System SSH uses a
+separate authorized key in that home's private `.ssh` directory; management SSH
+uses the root-owned key file outside the home. Upload staging also uses the recorded
+layout's home. Before bootstrap and every managed command, Empeira checks the
+account, system UID range, locked password, shell, home ownership and permissions.
+Changed metadata fails with a diagnosis rather than silently recreating the account.
+Personal shell files are retained; initial files come from the distribution's skeleton.
+
 Both daemons still share the installed OpenSSH binary, PAM stack and Linux account
 database. Removing these dependencies or explicitly changing the management account
 can break management; Empeira diagnoses failures without repairing system SSH or
@@ -243,6 +254,9 @@ and credentials. They are never migrated or recreated automatically. Their inter
 management still depends on the original daemon; nondefault system ports fail with
 an explicit compatibility diagnosis. Destroy/recreate explicitly to obtain the new
 layout. `ssh_layout` is not a project setting and unsupported versions fail closed.
+Version 1 VMs retain their separated daemons and original regular `empeira` account
+at `/home/empeira`. Neither older layout is automatically converted to a system
+account; explicitly recreate a disposable VM when the new account is required.
 
 Packaged container images install and start OpenSSH, generating host keys at first
 startup. They enable public-key login with `.ssh/authorized_keys`; password and

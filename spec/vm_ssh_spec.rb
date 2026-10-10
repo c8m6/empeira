@@ -42,6 +42,19 @@ RSpec.describe Empeira::VM::SSH do
     expect(transport).to have_received(:run).with(record, array_including('rm', '-f', '--'))
   end
 
+  it 'stages new-layout uploads in the verified system home without changing legacy paths' do
+    modern = { 'ssh_layout' => 2 }
+    path = nil
+    allow(runner).to receive(:run) do |_binary, arguments:, **|
+      path = arguments.last.split(':', 2).last
+      success
+    end
+    transport.copy_to(modern, 'private-source', '/var/tmp/private')
+    expect(transport).to have_received(:run).with(modern, ['true'])
+    expect(path).to start_with('/var/lib/empeira/.empeira-copy-')
+    expect(transport).to have_received(:run).with(modern, ['rm', '-f', '--', path])
+  end
+
   context 'guest command completion' do
     before do
       allow(transport).to receive(:binary).with('ssh').and_return('ssh')

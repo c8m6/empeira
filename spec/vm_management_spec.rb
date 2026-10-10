@@ -45,8 +45,9 @@ RSpec.describe Empeira::VM::Management do
 
   it 'rejects unknown persisted layout versions without rejecting legacy records' do
     expect(Empeira::Node::Inventory.valid_vm_ssh_layout?(record)).to be(true)
+    expect(Empeira::Node::Inventory.valid_vm_ssh_layout?(record.merge('ssh_layout' => 2))).to be(true)
     expect(Empeira::Node::Inventory.valid_vm_ssh_layout?(record.except('ssh_layout'))).to be(true)
-    [nil, 0, 2, '1', true].each do |version|
+    [nil, 0, 3, '1', true].each do |version|
       expect(Empeira::Node::Inventory.valid_vm_ssh_layout?(record.merge('ssh_layout' => version))).to be(false)
     end
   end
@@ -78,6 +79,36 @@ RSpec.describe Empeira::VM::Management do
     expect(config['runcmd']).to include([described_class::SETUP])
     expect(cloud.send(:management_network, record)).to eq('dhcp4' => false, 'addresses' => ['10.0.2.15/24'])
     expect(cloud.send(:management_network, record.except('ssh_layout'))).to include('dhcp4' => true)
+  end
+
+  it 'creates a locked system account and explicitly prepares its private home before management starts' do
+    modern = record.merge('ssh_layout' => 2)
+    cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
+    credentials = Empeira::Node::SSHCredentials.new(context: app.context, runner: app.runner, provider: 'vm',
+                                                    hostname: record.fetch('hostname'), purpose: :management)
+    credentials.prepare
+    config = cloud.send(:cloud_config, modern, 'ssh-ed25519 synthetic-system-public-key')
+    user = config.fetch('users').first
+    expect(user).to include('system' => true, 'homedir' => '/var/lib/empeira', 'lock_passwd' => true,
+                            'shell' => '/bin/bash', 'sudo' => 'ALL=(ALL) NOPASSWD:ALL')
+    expect(user).not_to have_key('ssh_authorized_keys')
+    expect(user).not_to have_key('uid')
+    files = config.fetch('write_files').to_h { |entry| [entry.fetch('path'), entry] }
+    expect(files.fetch("#{described_class::DIRECTORY}/system_authorized_keys").fetch('content'))
+      .to eq("ssh-ed25519 synthetic-system-public-key\n")
+    setup = files.fetch(described_class::SETUP).fetch('content')
+    expect(setup).to include('verify_account creating', 'install -d -m 0700',
+                             '/var/lib/empeira/.ssh/authorized_keys', 'verify_account verified')
+    expect(setup.index('verify_account creating')).to be < setup.index('systemctl enable --now')
+    expect(files.fetch(described_class::CHECK).fetch('content')).to include('verify_account verified')
+  end
+
+  it 'retains the original regular account home for legacy and first separated layouts' do
+    expect(described_class.home(record.except('ssh_layout'))).to eq('/home/empeira')
+    expect(described_class.home(record)).to eq('/home/empeira')
+    expect(described_class.home(record.merge('ssh_layout' => 2))).to eq('/var/lib/empeira')
+    expect(described_class.files(record, 'synthetic-key').map { |entry| entry['content'] }.join)
+      .not_to include('verify_account creating', 'verify_account verified')
   end
 end
 

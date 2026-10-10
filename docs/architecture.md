@@ -92,6 +92,10 @@ system SSH adapter reaches the guest's peer IP through a narrowly allowed manage
 forward. Personal user/key/port resolution happens only in the public `node ssh`
 path. Existing peer adapters, ownership checks, session guards and network policy
 remain responsible for their original boundaries.
+The current layout creates a locked Linux system account through Cloud-Init and
+prepares its private `/var/lib/empeira` home before starting management SSH. Guest
+guards validate its allocated system UID and account metadata before managed work.
+Older inventories preserve their original account and home without automatic migration.
 
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle

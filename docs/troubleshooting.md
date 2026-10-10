@@ -91,6 +91,14 @@ SELinux guests require the existing `semodule` and `restorecon` tools for the sc
 management port/file labels. Inspect the management journal and AVC messages if
 that endpoint cannot bind or authenticate; do not disable enforcement to repair it.
 
+Current VMs require a locked system `empeira` account, `/bin/bash`, passwordless
+sudo and an account-owned 0700 home at `/var/lib/empeira`. A changed UID range,
+password lock, shell, ownership or home mode fails before managed operations.
+Inspect the account and guest serial logs through `node shell`; deliberately repair
+the tested guest policy there or explicitly recreate the disposable VM. Empeira
+does not recreate a removed account, inject keys or reset console passwords.
+Layout version 1 retains its original regular account and `/home/empeira` home.
+
 For a container, shell is runtime exec. For a VM, it is the serial console and
 works with SSH stopped. Press Enter, then use the current console credentials.
 The initial default is `root` / `empeira`, unless disabled/overridden or changed by

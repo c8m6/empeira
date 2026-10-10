@@ -72,6 +72,8 @@ restricted to the VM's own peer IPv4 and selected guest port. There is no additi
 host publication or network adapter. Management credentials and host keys are
 independent of system SSH and personal preferences; legacy VMs retain their original
 forward to port 22. See [SSH layouts and recovery](nodes.md#shell-and-ssh).
+The system-account layout changes guest account storage to `/var/lib/empeira`;
+it adds no listener, adapter, external publication or destination-policy exception.
 
 The CLI host and engine may have different filesystems. Control/Hiera directories,
 server mounts and state must be visible at their canonical paths. Mount probes

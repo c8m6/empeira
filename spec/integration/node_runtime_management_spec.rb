@@ -12,6 +12,10 @@ RSpec.describe 'Real node runtime management', :integration do
   let(:engine_name) { ENV.fetch('EMPEIRA_VM_RUNTIME', 'docker') }
   let(:project) { File.join(@directory, 'control') }
   let(:hostname) { 'runtime-node.example.test' }
+  let(:devices) do
+    { 'dummy0' => { 'network' => '192.0.2.10/32' },
+      'ens192' => { 'network' => '198.51.100.10/24', 'vlan_id' => 123 } }
+  end
   let(:locations) do
     Empeira::Platform::Locations.new(home: File.join(@directory, 'user-home'),
                                      environment: { 'XDG_CACHE_HOME' => File.join(Dir.home, '.cache') })
@@ -29,7 +33,9 @@ RSpec.describe 'Real node runtime management', :integration do
     initialize_project(project)
     FileUtils.mkdir_p(File.join(project, 'manifests'))
     destinations = app.context.configuration.dig('bootstrap', 'guests', 'ubuntu', '24.04', 'destinations')
-    @config = { 'puppetdb' => { 'enabled' => false }, 'vm' => { 'disk' => 30 },
+    @config = { 'puppetdb' => { 'enabled' => false },
+                'vm' => { 'disk' => 30,
+                          'interfaces' => [{ 'hosts' => ['RUNTIME-*.EXAMPLE.TEST'], 'devices' => devices }] },
                 'proxy' => { 'enabled' => true, 'global' => destinations } }
     write_configuration
     @runtime = Empeira::Runtime.registry.build(engine_name, context: app.context, runner: app.runner)
@@ -52,6 +58,7 @@ RSpec.describe 'Real node runtime management', :integration do
       Empeira::VM.registry.build('qemu', context: app.context, runner: app.runner).preflight! if provider == 'vm'
       File.write(File.join(project, 'manifests/site.pp'), <<~PUPPET)
         #{@login.manifest}
+        #{interface_manifest if provider == 'vm'}
         exec { 'runtime-package-index':
           command => '/usr/bin/apt-get update',
           unless => '/usr/bin/test -e /tmp/empeira-package-index',
@@ -62,6 +69,7 @@ RSpec.describe 'Real node runtime management', :integration do
       PUPPET
       app.infrastructure.up
       app.run_node(hostname: hostname, provider: provider)
+      verify_combined_vm if provider == 'vm'
       expect(guest(%w[tree --version]).stdout).to include('tree')
       verify_interactive_tools
       expect(guest(['test', '!', '-e', Empeira::Node::PackageProxy::APT_PATH])).to be_success
@@ -70,6 +78,7 @@ RSpec.describe 'Real node runtime management', :integration do
       expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
       app.nodes.stop(name: hostname)
       app.nodes.start(name: hostname)
+      verify_combined_vm if provider == 'vm'
       expect(guest(%w[tree --version])).to be_success
       verify_interactive_tools
       expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
@@ -84,6 +93,43 @@ RSpec.describe 'Real node runtime management', :integration do
       expect(record.slice('id', 'peer', 'overlay')).to eq(identity.slice('id', 'peer', 'overlay'))
       verify_separate_vm_ssh if provider == 'vm'
     end
+  end
+
+  def interface_manifest
+    <<~PUPPET
+      $dummy = $facts['networking']['interfaces']['dummy0']['bindings'][0]['address']
+      $vlan = $facts['networking']['interfaces']['ens192']['bindings'][0]['address']
+      file { '/tmp/empeira-first-interface-facts': content => "${dummy}|${vlan}" }
+    PUPPET
+  end
+
+  # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Observe the real combined guest and immutable thin disk.
+  def verify_combined_vm
+    overlay = app.context.locations.workspace(app.context.workspace).join(record.fetch('overlay'))
+    engine = Empeira::VM.registry.build('qemu', context: app.context, runner: app.runner)
+    metadata = app.runner.run(engine.image_tool, arguments: ['info', '--force-share', '--output=json', overlay.to_s])
+    expect(metadata).to be_success
+    disk = JSON.parse(metadata.stdout)
+    expect(disk.fetch('virtual-size')).to eq(30 * Empeira::VM::Disk::GIB)
+    expect(Digest::SHA256.file(disk.fetch('backing-filename')).hexdigest).to eq(record.dig('base_image', 'checksum'))
+    expect(File.stat(overlay).blocks * 512).to be < 8 * Empeira::VM::Disk::GIB
+    Empeira::VM::RootDisk.new(ssh: management_ssh).verify!(record, size_gib: 30)
+    expect(guest(%w[cat /tmp/empeira-first-interface-facts]).stdout).to eq('192.0.2.10|198.51.100.10')
+    links = JSON.parse(guest(%w[ip -j -d link show]).stdout).to_h { |entry| [entry.fetch('ifname'), entry] }
+    expect(links.dig('dummy0', 'linkinfo', 'info_kind')).to eq('dummy')
+    expect(links.dig('ens192', 'linkinfo', 'info_kind')).to eq('vlan')
+    expect(links.dig('ens192', 'linkinfo', 'info_data', 'id')).to eq(123)
+    account = guest(%w[getent passwd empeira]).stdout.split(':')
+    expect(account[5..6].map(&:strip)).to eq(['/var/lib/empeira', '/bin/bash'])
+    uid_min = guest(['awk', '$1 == "UID_MIN" { print $2 }', '/etc/login.defs']).stdout.to_i
+    expect(account[2].to_i).to be_between(1, uid_min - 1)
+    expect(guest(['stat', '-c', '%u:%g:%a', '/var/lib/empeira']).stdout.strip).to eq("#{account[2]}:#{account[3]}:700")
+    expect(guest(['sh', '-c',
+                  'case "$(getent shadow empeira | cut -d : -f 2)" in \\!*|\\**) exit 0;; *) exit 1;; esac']))
+      .to be_success
+    result, output, error = access_session(app, name: hostname, operation: :ssh)
+    expect(result.exit_status).to eq(7), error
+    expect(output).to include('empeira')
   end
 
   def write_configuration

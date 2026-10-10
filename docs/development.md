@@ -39,6 +39,26 @@ system daemon port, restarts it and disables it. It checks real `node ssh --port
 the failed system login, continued managed Puppet operations and retained service
 states after VM restart. Management/system credentials and legacy layouts have
 deterministic coverage in `spec/vm_management_spec.rb`.
+`spec/vm_system_account_spec.rb` executes the account guard against synthetic passwd,
+shadow, UID bounds and home metadata without reading host credentials. The QEMU
+runtime management gate combines a 30-GiB thin disk, first-catalog dummy/VLAN facts,
+normal proxy package installation, the locked system account, both SSH daemons and
+restart. Run it with the available runtime and acceleration:
+
+```bash
+EMPEIRA_RUNTIME_MANAGEMENT_INTEGRATION=1 EMPEIRA_VM_RUNTIME=docker \
+  EMPEIRA_RUNTIME_MANAGEMENT_PROVIDERS=vm \
+  bundle exec rspec spec/integration/node_runtime_management_spec.rb
+```
+
+Select `container` and `EMPEIRA_VM_RUNTIME=podman` for the corresponding rootless
+Podman package/PATH/reconciliation gate. These remain manual, capability-dependent
+tests rather than additions to the automatic heavy CI matrix.
+For available Rocky Linux images, `EMPEIRA_DNF_RUNTIME_INTEGRATION=1` enables
+`spec/integration/node_dnf_proxy_spec.rb` for containers and accelerated VMs. It
+installs through a Puppet-owned additional signed repository while retaining the
+original sources, then verifies restart and proxy disable/enable reconciliation.
+The gate defaults to Rocky 9; set `EMPEIRA_DNF_GUEST_VERSION=8` to exercise Rocky 8.
 
 For workflow changes, parse `.github/workflows/*.yml` and run `actionlint` when
 available. Review action pins, triggers and permissions as well as YAML syntax.

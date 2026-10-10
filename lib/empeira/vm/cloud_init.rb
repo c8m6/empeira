@@ -105,10 +105,9 @@ module Empeira
         scripts = bootstrap_files
         { 'hostname' => record.fetch('hostname').split('.').first,
           'fqdn' => record.fetch('hostname'), 'manage_etc_hosts' => true,
-          'users' => [{ 'name' => USER, 'sudo' => 'ALL=(ALL) NOPASSWD:ALL',
-                        'shell' => '/bin/bash', 'ssh_authorized_keys' => [public_key] }],
+          'users' => [management_user(record, public_key)],
           'ssh_pwauth' => false, 'disable_root' => true,
-          'write_files' => cloud_files(scripts) + management_files(record),
+          'write_files' => cloud_files(scripts) + management_files(record, public_key),
           'runcmd' => cloud_commands(scripts, record),
           **(console ? console_password : {}) }
       end
@@ -138,10 +137,17 @@ module Empeira
                                  hostname: record.fetch('hostname'))
       end
 
-      def management_files(record)
+      def management_user(record, public_key)
+        account = { 'name' => USER, 'sudo' => 'ALL=(ALL) NOPASSWD:ALL', 'shell' => '/bin/bash' }
+        return account.merge('ssh_authorized_keys' => [public_key]) unless Management.system_account?(record)
+
+        account.merge('system' => true, 'homedir' => Management.home(record), 'lock_passwd' => true)
+      end
+
+      def management_files(record, public_key)
         return [] unless Management.separate?(record)
 
-        Management.files(record, management_credentials(record).public_path.read.strip)
+        Management.files(record, management_credentials(record).public_path.read.strip, system_key: public_key)
       end
 
       def bootstrap_files
