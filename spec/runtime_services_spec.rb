@@ -214,3 +214,95 @@ RSpec.describe 'Bounded node network verification' do
     end
   end
 end
+
+RSpec.describe 'Local image inspection scopes' do
+  %w[docker podman].each do |engine|
+    context engine do
+      let(:runner) { instance_double(Empeira::Execution::Runner) }
+      let(:app) { Empeira::Application.new(project_path: @directory) }
+      let(:runtime) { Empeira::Runtime.registry.build(engine, context: app.context, runner: runner) }
+      let(:recipe) { 'FROM example.invalid/base:synthetic' }
+      let(:image) { 'example.invalid/fixture:synthetic' }
+      let(:metadata) do
+        [{ 'Id' => 'first', 'Architecture' => 'amd64',
+           'Config' => { 'Labels' => { 'io.empeira.recipe' => Digest::SHA256.hexdigest(recipe) } } }]
+      end
+
+      def image_result(code = 0)
+        Empeira::Execution::Result.new(stdout: JSON.generate(metadata), stderr: '', exit_status: code, timed_out: false)
+      end
+
+      it 'shares reviewed-recipe, ID and architecture reads, then observes new metadata outside the scope' do
+        calls = []
+        allow(runner).to receive(:run) do |_, arguments:, **|
+          calls << arguments
+          image_result
+        end
+        runtime.with_local_images do
+          runtime.ensure_image(image, recipe: recipe)
+          expect(runtime.image_id(image)).to eq('first')
+          expect(runtime.image_architecture(image)).to eq('amd64')
+          runtime.ensure_image(image, recipe: recipe)
+        end
+        expect(calls).to eq([['image', 'inspect', image]])
+        metadata.first['Id'] = 'second'
+        expect(runtime.image_id(image)).to eq('second')
+        expect(calls.size).to eq(2)
+        metadata.first['Config']['Labels']['io.empeira.recipe'] = 'foreign'
+        expect { runtime.with_local_images { runtime.ensure_image(image, recipe: recipe) } }
+          .to raise_error(Empeira::Providers::OwnershipError)
+      end
+
+      it 'discards missing metadata after acquisition and does not reuse an interrupted scope' do
+        present = false
+        inspections = 0
+        allow(runner).to receive(:run) do
+          inspections += 1
+          image_result(present ? 0 : 1)
+        end
+        expect(runtime).to receive(:update_command).with(['pull', image], operation: "image pull #{image}",
+                                                                          registry: image) do
+          present = true
+        end
+        expect do
+          runtime.with_local_images do
+            runtime.ensure_image(image)
+            expect(runtime.image_id(image)).to eq('first')
+            raise Empeira::Error, 'synthetic interruption'
+          end
+        end.to raise_error(Empeira::Error, /synthetic interruption/)
+        expect(inspections).to eq(2)
+        metadata.first['Id'] = 'second'
+        expect(runtime.image_id(image)).to eq('second')
+        expect(inspections).to eq(3)
+      end
+
+      it 'keeps nested scopes together and invalidates metadata before a native refresh' do
+        allow(runner).to receive(:run) { image_result }
+        allow(runtime).to receive(:remote_digest).and_return("sha256:#{'a' * 64}")
+        allow(runtime).to receive(:same_remote_image?).and_return(false)
+        expect(runtime).to receive(:update_command).with(['pull', image], operation: "image pull #{image}",
+                                                                          registry: image) do
+          metadata.first['Id'] = 'second'
+        end
+        runtime.with_local_images do
+          expect(runtime.image_id(image)).to eq('first')
+          runtime.with_local_images { expect(runtime.image_id(image)).to eq('first') }
+          runtime.refresh_image(image)
+          expect(runtime.image_id(image)).to eq('second')
+        end
+        expect(runner).to have_received(:run).twice
+      end
+
+      it 'inspects the new image after a build instead of retaining the failed lookup' do
+        present = false
+        allow(runner).to receive(:run) { image_result(present ? 0 : 1) }
+        expect(runtime).to receive(:build_image).with(image, recipe, {}) { present = true }
+        runtime.with_local_images do
+          runtime.ensure_image(image, recipe: recipe)
+          expect(runtime.image_id(image)).to eq('first')
+        end
+      end
+    end
+  end
+end

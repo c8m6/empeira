@@ -150,8 +150,12 @@ fingerprints allow selective service reconciliation while preserving owned stora
 Each `up` batches service and volume observations and reuses them only within that
 locked transaction. Starts, replacements and network attachments are inspected
 again; destructive operations verify fresh ownership and recorded IDs. Later CLI
-invocations never inherit these observations. A recorded container is inspected
-directly by ID; a missing ID falls back to name inventory to detect replacements
+invocations never inherit these observations. Local image inspection results are
+shared by availability, reviewed-recipe, ID and architecture checks within one
+image-preparation block. A pull or build discards the old result before the new
+image is inspected. `up` performs no remote freshness check or full image-content
+hash; native image storage and immutable IDs remain the source of metadata.
+A recorded container is inspected directly by ID; a missing ID falls back to name inventory to detect replacements
 and renamed resources. Node access verifies network ownership and isolation with
 one bounded native network inspection; membership counts are collected separately
 for lifecycle observations and deletion, never inferred from the access check.

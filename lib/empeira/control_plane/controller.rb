@@ -302,10 +302,13 @@ module Empeira
 
       def check_images(definitions: @plan.definitions)
         @desired_images = {}
-        definitions.each_value do |definition|
-          @runtime.ensure_image(definition.options.fetch('image'), recipe: definition.options['recipe'],
-                                                                   files: definition.options.fetch('build_files', {}))
-          @desired_images[definition.options.fetch('image')] = @runtime.image_id(definition.options.fetch('image'))
+        @runtime.with_local_images do
+          definitions.each_value do |definition|
+            image = definition.options.fetch('image')
+            @runtime.ensure_image(image, recipe: definition.options['recipe'],
+                                         files: definition.options.fetch('build_files', {}))
+            @desired_images[image] = @runtime.image_id(image)
+          end
         end
       end
 

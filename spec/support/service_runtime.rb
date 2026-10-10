@@ -20,6 +20,10 @@ class ServiceRuntime
     true
   end
 
+  def with_local_images
+    yield
+  end
+
   def image_id(_image)
     nil
   end

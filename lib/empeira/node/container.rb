@@ -76,8 +76,10 @@ module Empeira
 
       def prepare_image(image, record)
         @progress.stage(25, 'Preparing node image...')
-        @runtime.ensure_image(image.reference, recipe: image.recipe, files: image.build_files)
-        return if @runtime.image_architecture(image.reference) == record['architecture']
+        @runtime.with_local_images do
+          @runtime.ensure_image(image.reference, recipe: image.recipe, files: image.build_files)
+          return if @runtime.image_architecture(image.reference) == record['architecture']
+        end
 
         raise Error, 'Node image architecture differs from the runtime; emulation is not enabled'
       end
