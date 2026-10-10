@@ -339,7 +339,7 @@ RSpec.describe Empeira::Node::VM do
     client = instance_double(Empeira::Node::UserSSH)
     expect(Empeira::Node::UserSSH).to receive(:new).with(
       runner: app.runner, credentials: an_instance_of(Empeira::Node::SSHCredentials), proxy_command: nil,
-      default_user: 'empeira', managed_identity: true
+      default_user: 'empeira', managed_identity: true, home: app.context.locations.home
     ).twice.and_return(client)
     calls = 0
     allow(client).to receive(:session) do |record, **|

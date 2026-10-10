@@ -155,6 +155,15 @@ also works for incomplete nodes once the VM and SSH daemon are running.
 An authentication failure remains an SSH failure, with the client's output and
 exit status. It never creates a login user, injects keys, or falls back to exec.
 
+Optional personal defaults and hostname rules in `~/.empeira.yaml` apply to this
+interactive command. Each field uses CLI override, last matching rule, global
+preference, then provider default, in that order. Rules match full hostnames with
+case-insensitive `*`/`?` globs; omitted fields preserve their existing value.
+See [personal SSH configuration](configuration.md#optional-user-preferences) for
+the schema and identity-file checks. VM management SSH continues to use its own
+account and managed key for bootstrap, enrollment and Puppet regardless of these
+preferences. Shell/console access is unchanged.
+
 ```console
 empeira node ssh host1
 empeira node ssh host1 --user deploy

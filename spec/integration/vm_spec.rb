@@ -3,10 +3,12 @@
 require_relative '../support/node_access'
 require_relative '../support/login_fixture'
 require_relative '../support/console_login'
+require_relative '../support/personal_ssh'
 
 RSpec.describe 'Real accelerated VM nodes', :integration do
   include LiveNodeAccess
   include LiveConsoleLogin
+  include LivePersonalSSH
 
   let(:engine_name) { ENV.fetch('EMPEIRA_VM_RUNTIME', 'docker') }
   let(:locations) { Empeira::Platform::Locations.new(home: File.join(@directory, 'user-home'), environment: { 'XDG_CACHE_HOME' => File.join(Dir.home, '.cache') }) }
@@ -43,9 +45,11 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
   end
 
   it 'boots, enrolls, reruns Puppet, preserves its disk, and releases its hostname' do
-    app.infrastructure.up
-    app.run_node(hostname: 'vm-node', provider: 'vm')
+    personal = personal_ssh_application(app, locations: locations, login: @login, pattern: 'vm-*')
+    personal.infrastructure.up
+    personal.run_node(hostname: 'vm-node', provider: 'vm')
     vm_record = Empeira::Infrastructure::Store.new(context: app.context).load.fetch('nodes').fetch('vm-node')
+    expect(JSON.generate(vm_record)).not_to include('lab-key', 'unconfigured-login', @login.identity.to_s)
     verify_disk_capacity(vm_record)
     expect(management_ssh.run(vm_record, %w[git --version])).to be_success
     expect(management_ssh.run(vm_record, %w[cat /tmp/empeira-provider]).stdout).to eq('vm')
@@ -58,6 +62,11 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     verify_ssh_session(app, name: 'vm-node', user: 'empeira')
     verify_ssh_session(app, name: 'vm-node', user: @login.username, identity: @login.identity,
                             override_user: @login.username)
+    verify_personal_ssh_sessions(personal, name: 'vm-node', login: @login)
+    managed = Empeira::Node::SSHCredentials.new(context: app.context, runner: app.runner, provider: 'vm',
+                                                hostname: 'vm-node')
+    verify_ssh_session(personal, name: 'vm-node', user: 'empeira', identity: managed.key_path, override_user: 'empeira')
+    expect([0, 2]).to include(personal.nodes.puppet(name: 'vm-node').exit_status)
     verify_final_isolation
     management = management_ssh
     record = Empeira::Infrastructure::Store.new(context: app.context).load.fetch('nodes').fetch('vm-node')

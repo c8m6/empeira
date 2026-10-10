@@ -38,7 +38,8 @@ module Empeira
     end
 
     def nodes
-      Node::Service.new(context: context, runner: runner, **@factories, build_info: @build_info, progress: @progress)
+      Node::Service.new(context: context, runner: runner, **@factories, build_info: @build_info, progress: @progress,
+                        ssh_preferences: @ssh_preferences)
     end
 
     def run_node(hostname:, provider:)
@@ -51,6 +52,7 @@ module Empeira
     def build_context(project:, locations:, platform:, overrides:, recovery:)
       loader = Configuration::Loader.new(project_path: project, locations: locations)
       configuration = load_configuration(loader, overrides, recovery: recovery)
+      @ssh_preferences = loader.ssh_preferences
       workspace = Workspace.new(path: project)
       restore_inventory_settings!(configuration, project:, workspace:, platform:, locations:) if recovery
       Context.new(project: project, workspace: workspace, configuration: Immutable.deep_freeze(configuration),
