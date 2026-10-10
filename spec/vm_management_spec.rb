@@ -108,30 +108,3 @@ RSpec.describe Empeira::VM::Management do
     expect(files.fetch(described_class::POLICY).fetch('content')).to include('sshd -T', "require 'allowusers root'")
   end
 end
-
-RSpec.describe Empeira::VM::SystemSSH do
-  let(:app) { Empeira::Application.new(project_path: @directory) }
-  let(:management) { instance_double(Empeira::VM::SSH) }
-  let(:peer) { instance_double(Empeira::Network::Peer::LinuxPodman) }
-  let(:system) { described_class.new(context: app.context, runner: app.runner, management: management) }
-  let(:record) { { 'hostname' => 'node.example.test', 'ssh_port' => 32_123 } }
-
-  it 'rejects old layouts before opening a session or falling back to shared SSH' do
-    expect(management).not_to receive(:system_proxy_command)
-    expect(peer).not_to receive(:ssh_command)
-    expect { system.session(record) }.to raise_error(Empeira::Error, /Incompatible VM management SSH layout/)
-    expect(record).not_to have_key('ssh_layout')
-  end
-
-  it 'uses the selected guest port for system SSH and keeps the stored management endpoint' do
-    record['ssh_layout'] = Empeira::VM::Management::VERSION
-    expect(management).to receive(:system_proxy_command).with(record, port: 2222).and_return(['private-tunnel'])
-    expect(peer).not_to receive(:ssh_command)
-    client = instance_double(Empeira::Node::UserSSH)
-    allow(Empeira::Node::UserSSH).to receive(:new).with(hash_including(proxy_command: ['private-tunnel']))
-                                                  .and_return(client)
-    expect(client).to receive(:session).with(record.merge('ssh_port' => 2222), user: 'admin', identity: '/personal/key')
-    system.session(record, user: 'admin', identity: '/personal/key', port: 2222)
-    expect(record['ssh_port']).to eq(32_123)
-  end
-end

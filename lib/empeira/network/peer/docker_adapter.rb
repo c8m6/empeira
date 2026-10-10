@@ -4,6 +4,7 @@ module Empeira
   module Network
     module Peer
       # The same whole-NIC transport serves local Docker and Docker Desktop.
+      # rubocop:disable-next Metrics/ClassLength -- Owned NIC and system SSH share adapter security checks.
       class DockerAdapter < Backend
         def preflight(state)
           super
@@ -51,6 +52,17 @@ module Empeira
 
         def healthy?(record)
           channel(record).healthy?
+        end
+
+        def system_ssh_command(record, port:)
+          address = system_address(record, port)
+          @image = AdapterImage.new(context: context)
+          verify_adapter(record)
+          resource = runtime.inspect_service(identity(record), expected_id: record.dig('peer', 'adapter_id'))
+          verify_definition!(record, resource)
+          raise Providers::OwnershipError, 'VM peer channel is not active' unless healthy?(record)
+
+          ['docker', 'exec', '-i', resource.fetch('id'), '/adapter', 'connect', address, port.to_s]
         end
 
         protected

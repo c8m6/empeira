@@ -67,9 +67,13 @@ verified. The VM management NIC has restricted loopback SSH only, separate from
 peer application traffic, DNS and Puppet.
 
 New VM layouts forward this same private endpoint to the dedicated management
-daemon on 10.0.2.15:22222. System SSH uses a key-authenticated management tunnel
-restricted to the VM's own peer IPv4 and selected guest port. There is no additional
-host publication or network adapter. Management credentials and host keys are
+daemon on 10.0.2.15:22222. System SSH connects directly through the owned peer
+attachment to the VM's verified peer IPv4 and selected guest port (22 by default).
+Native Podman uses its rootless network namespace; Docker and Podman machine
+use the existing peer adapter as a TCP byte connector. The adapter validates
+workspace ownership, attachment and subnet before connecting. System SSH requires
+no management health check or authentication, and adds no host publication or
+network adapter. Management credentials and host keys are
 independent of system SSH and personal preferences. Older VM layouts fail closed
 and require explicit recreation. See [SSH layouts and recovery](nodes.md#shell-and-ssh).
 Root management uses a private key and does not depend on the regular system SSH

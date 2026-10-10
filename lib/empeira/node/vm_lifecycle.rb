@@ -69,7 +69,7 @@ module Empeira
 
       def ssh(name:, user: nil, identity: nil, port: nil)
         interactive_vm(name) do |record|
-          ::Empeira::VM::SystemSSH.new(context: context, runner: @runner, management: @ssh)
+          ::Empeira::VM::SystemSSH.new(context: context, runner: @runner, runtime: @runtime, qemu: @qemu)
                                   .session(record, user: user, identity: identity, port: port)
         end
       end

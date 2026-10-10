@@ -90,6 +90,26 @@ module Empeira
         def ssh_command(_record)
           nil
         end
+
+        def system_address(record, port)
+          Configuration::SSHPreferences.port!(port)
+          check_record(record)
+          address = IPAddr.new(record.fetch('peer').fetch('ip'))
+          subnet = system_subnet
+          unless address.ipv4? && address.private? && subnet.include?(address)
+            raise Providers::OwnershipError, 'System SSH target is outside the owned peer subnet'
+          end
+
+          address.to_s
+        end
+
+        def system_subnet
+          state = store.load
+          resource = owned_network(state)
+          subnet = state.fetch('peer_network').fetch('subnet')
+          verify_subnet(runtime.network_details(resource.id), subnet)
+          IPAddr.new(subnet)
+        end
       end
     end
   end

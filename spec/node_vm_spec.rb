@@ -434,7 +434,7 @@ RSpec.describe Empeira::Node::VM do
                                                                 destroy: nil, healthy?: true, health: {},
                                                                 management_port: 32_005,
                                                                 key: 'LinuxPodman',
-                                                                ssh_command: nil)
+                                                                ssh_command: nil, system_ssh_command: nil)
     allow(Empeira::Network::Peer::Backend).to receive(:build).and_return(peer)
   end
 

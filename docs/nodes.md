@@ -202,18 +202,18 @@ Podman publishes SSH on a verified dynamic loopback port. Docker's internal brid
 does not activate published ports, so OpenSSH uses a runtime exec byte tunnel to
 port 22 inside the ownership-checked container. This still carries real SSH traffic.
 An explicit container guest port uses the same ownership-checked runtime tunnel,
-without another host publication. New VMs use a private management SSH tunnel to
-the system daemon on their own peer IP and selected guest port. Native rootless
-Podman accesses the management endpoint through its existing namespace-scoped byte
-tunnel. Application traffic, DNS and Puppet use the peer NIC directly.
+without another host publication. VM SSH connects directly to the system daemon
+on the owned peer IP and selected guest port (22 by default). Native rootless
+Podman uses its existing network namespace; Docker and Podman machine use their
+owned peer adapter. No management command, authentication or forwarding is needed.
+Unavailable system SSH reports the native OpenSSH error without repair or fallback.
 
 New VM records have `ssh_layout: 3`. Cloud-Init starts and enables
 `empeira-management-ssh.service` before project scripts and package bootstrap. It has
 its own configuration, host key, authorized key, client identity, known-host file and
 runtime directory. Its port 22222 binds only to the restricted management NIC at
 10.0.2.15. The existing QEMU loopback forward is the only transport; no NIC or
-external publication is added. `node ssh` reaches only system SSH through this tunnel,
-never the management listener. Puppet may change, restart or disable system SSH
+external publication is added. `node ssh` reaches system SSH independently through the peer attachment. Puppet may change, restart or disable system SSH
 without stopping managed package installation, Puppet, disk or interface operations.
 
 Before each managed command, Empeira verifies the private configuration, unit,
@@ -239,7 +239,7 @@ that home's `.ssh/authorized_keys`. No sudo rule is granted. Puppet may remove o
 change this account and its home without affecting management; the initial account
 checks run only during seed setup. Personal shell files stay under the account owner's control.
 
-Internal SSH, SCP and the system SSH byte tunnel authenticate directly as root
+Internal SSH and SCP authenticate directly as root
 with `id_management_ed25519`. Management health checks do not inspect `empeira` or
 sudoers, and commands use `nsenter` directly without sudo. Uploads use the root-owned
 0700 directory `/etc/empeira/management/uploads`, verify SHA-256 before and after

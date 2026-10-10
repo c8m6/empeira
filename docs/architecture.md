@@ -90,8 +90,9 @@ requires public keys, disables password/keyboard-interactive authentication and 
 and binds only the existing isolated management endpoint. Every managed command
 verifies this boundary, then directly enters the guest's normal mount namespace
 without sudo. Root-owned private upload staging is hash-verified and cleaned up.
-The user system SSH adapter reaches the guest's peer IP through a narrowly allowed
-management forward; personal user/key/port resolution applies only to `node ssh`.
+The user SSH adapter connects directly to the guest's peer IP through the owned
+peer attachment, independently of management. Personal user/key/port resolution
+applies only to `node ssh`; the default guest port is 22.
 Existing peer adapters, ownership checks, session guards and network policy retain
 their responsibilities. No external management port or host privilege is added.
 

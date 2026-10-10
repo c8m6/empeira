@@ -10,8 +10,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -157,6 +159,28 @@ func bridgeFrames(read func([]byte) (int, error), write func([]byte) error) erro
 }
 
 func run() error {
+	if len(os.Args) == 4 && os.Args[1] == "connect" {
+		address := net.ParseIP(os.Args[2])
+		port, err := strconv.Atoi(os.Args[3])
+		if address == nil || address.To4() == nil || !address.IsPrivate() || err != nil || port < 1 || port > 65535 {
+			return fmt.Errorf("invalid private SSH destination")
+		}
+		connection, err := net.DialTimeout("tcp4", net.JoinHostPort(address.String(), os.Args[3]), 5*time.Second)
+		if err != nil {
+			return err
+		}
+		defer connection.Close()
+		go func() {
+			_, err := io.Copy(connection, os.Stdin)
+			if err != nil {
+				connection.Close()
+			} else {
+				connection.(*net.TCPConn).CloseWrite()
+			}
+		}()
+		_, err = io.Copy(os.Stdout, connection)
+		return err
+	}
 	if len(os.Args) == 2 && os.Args[1] == "capabilities" {
 		data, err := os.ReadFile("/proc/self/status")
 		if err != nil {

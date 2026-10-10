@@ -2,18 +2,21 @@
 
 module Empeira
   module VM
-    # User preferences affect only the system daemon; the tunnel uses private management credentials.
+    # Direct peer transport; system login never invokes the privileged management channel.
     class SystemSSH
-      def initialize(context:, runner:, management:)
+      def initialize(context:, runner:, runtime:, qemu:)
         @context = context
         @runner = runner
-        @management = management
+        @qemu = qemu
+        @peer = Network::Peer::Backend.build(context: context, runner: runner, runtime: runtime,
+                                             store: Infrastructure::Store.new(context: context))
       end
 
       def session(record, user: nil, identity: nil, port: nil)
         selected = Configuration::SSHPreferences.port!(port || 22)
-        Management.validate!(record)
-        proxy = @management.system_proxy_command(record, port: selected)
+        raise Error, 'Recorded VM is not running; system SSH refused' unless @qemu.running?(record)
+
+        proxy = @peer.system_ssh_command(record, port: selected)
         endpoint = record.merge('ssh_port' => selected)
         credentials = Node::SSHCredentials.new(context: @context, runner: @runner, provider: 'vm',
                                                hostname: record.fetch('hostname'), purpose: :system)

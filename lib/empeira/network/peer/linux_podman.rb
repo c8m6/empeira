@@ -77,6 +77,14 @@ module Empeira
            record.fetch('ssh_port').to_s]
         end
 
+        def system_ssh_command(record, port:)
+          address = system_address(record, port)
+          raise Providers::OwnershipError, 'VM peer attachment is not owned and active' unless healthy?(record)
+
+          helper = Pathname(__dir__).join('../../../../resources/network/ssh_connect.rb').realpath
+          ['podman', '--remote=false', 'unshare', '--rootless-netns', RbConfig.ruby, helper.to_s, address, port.to_s]
+        end
+
         private
 
         def namespace(*, **)

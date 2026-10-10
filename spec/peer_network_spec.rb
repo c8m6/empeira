@@ -24,6 +24,24 @@ RSpec.describe 'Production peer network contracts' do
     expect { Empeira::Network::Peer::Layout.new('0.0.0.0/0') }.to raise_error(Empeira::Infrastructure::StateError)
   end
 
+  it 'rejects system SSH destinations outside the owned peer subnet before opening a transport' do
+    state = { 'peer_network' => { 'subnet' => '10.203.20.0/24' } }
+    store = instance_double(Empeira::Infrastructure::Store, load: state)
+    runtime = instance_double(Empeira::Runtime::Docker,
+                              network_details: { 'IPAM' => { 'Config' => [{ 'Subnet' => '10.203.20.0/24' }] } })
+    backend = Empeira::Network::Peer::DockerAdapter.new(context: app.context, runtime: runtime,
+                                                        runner: nil, store: store)
+    resource = instance_double(Empeira::Network::Resource, id: 'owned-network')
+    allow(backend).to receive(:owned_network).with(state).and_return(resource)
+    expect(backend.system_address(record, 2222)).to eq('10.203.20.32')
+    record['peer']['ip'] = '192.0.2.20'
+    expect { backend.system_ssh_command(record, port: 22) }
+      .to raise_error(Empeira::Providers::OwnershipError, /outside the owned peer subnet/)
+    record['peer']['backend'] = 'foreign'
+    expect { backend.system_ssh_command(record, port: 22) }
+      .to raise_error(Empeira::Error, /Peer backend differs/)
+  end
+
   it 'retries private subnets around known VPN and runtime overlap' do
     runtime = instance_double(Empeira::Runtime::Podman, network_subnets: ['172.16.0.0/12'])
     runner = instance_double(Empeira::Execution::Runner)
