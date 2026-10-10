@@ -26,6 +26,7 @@ module Empeira
         check_network_architecture!
         check_service_names!
         @gateway_reconciling = true
+        capture_services
         lockdown_existing_gateway
         prepare_files
         @progress.stage(20, 'Preparing persistent storage...')
@@ -49,6 +50,7 @@ module Empeira
         raise
       ensure
         @desired_images = nil
+        @service_snapshot = nil
         @gateway_reconciling = false
       end
 
@@ -108,7 +110,7 @@ module Empeira
         return if @state.fetch('nodes', {}).empty?
 
         definition = @plan.definitions.fetch('dns')
-        resource = @runtime.inspect_service(definition, expected_id: recorded('dns'))
+        resource = service_resource(definition, expected_id: recorded('dns'))
         return if resource && !image_changed?(resource, definition) &&
                   resource.dig('labels', 'io.empeira.definition') == definition.fingerprint
 
@@ -221,7 +223,7 @@ module Empeira
           entry.fetch('to').fetch('service')
         end)
         ids = definitions.to_h { |key, _| [key, recorded(key)] }
-        @runtime.inspect_services(definitions, expected_ids: ids)
+        definitions.to_h { |key, definition| [key, service_resource(definition, expected_id: ids[key])] }
       end
 
       def resolved_redirects(resources)
@@ -248,7 +250,7 @@ module Empeira
         return true unless @plan.files.corefile_current?(upstreams: upstreams, routes: routes)
 
         definition = @plan.definitions.fetch('dns')
-        resource = @runtime.inspect_service(definition, expected_id: recorded('dns'))
+        resource = service_resource(definition, expected_id: recorded('dns'))
         resource.nil? || resource['state'] != 'running' || stale?('dns', resource, definition)
       end
 
@@ -256,7 +258,7 @@ module Empeira
         return false if @plan.files.corefile_current?(**@dns_resolution)
 
         definition = @plan.definitions.fetch('dns')
-        @runtime.inspect_service(definition, expected_id: recorded('dns'))&.fetch('state') == 'running'
+        service_resource(definition, expected_id: recorded('dns'))&.fetch('state') == 'running'
       end
 
       def activate_dns
@@ -377,6 +379,23 @@ module Empeira
               'Workspace network architecture changed; destroy this alpha workspace with its previous version first'
       end
 
+      def capture_services
+        definitions = service_keys.to_h { |key| [key, identity(key)] }
+        expected = @inventory.fetch('services').transform_values { |record| record['id'] }
+        @service_snapshot = @runtime.inspect_services(definitions, expected_ids: expected)
+      end
+
+      def service_resource(definition, expected_id:)
+        unless @service_snapshot&.key?(definition.key)
+          return @runtime.inspect_service(definition,
+                                          expected_id: expected_id)
+        end
+
+        resource = @service_snapshot[definition.key]
+        definition.verify!(resource, expected_id: expected_id)
+        resource
+      end
+
       def prepare_storage
         storage = Storage.new(runtime: @runtime, plan: @plan, inventory: @inventory, persist: method(:save))
         @changed = storage.prepare || @changed
@@ -384,7 +403,7 @@ module Empeira
 
       def reconcile(key)
         definition = @plan.definitions(dns: @dns).fetch(key)
-        resource = @runtime.inspect_service(definition, expected_id: recorded(key))
+        resource = service_resource(definition, expected_id: recorded(key))
         if resource && stale?(key, resource, definition)
           remove(key)
           resource = nil
@@ -397,7 +416,7 @@ module Empeira
       end
 
       def reconcile_browser(key, definition)
-        resource = @runtime.inspect_service(definition, expected_id: recorded(key))
+        resource = service_resource(definition, expected_id: recorded(key))
         if resource && stale?(key, resource, definition)
           remove(key)
           resource = nil
@@ -432,7 +451,7 @@ module Empeira
 
       def require_running_service!(key)
         definition = @plan.definitions.fetch(key)
-        resource = @runtime.inspect_service(definition, expected_id: recorded(key))
+        resource = service_resource(definition, expected_id: recorded(key))
         require_service_running!(key, resource)
         if resource.dig('labels', 'io.empeira.definition') != definition.fingerprint
           raise Error, "Required service #{key} is stale. Run 'empeira up' first."
@@ -459,10 +478,11 @@ module Empeira
       end
 
       def observe_service(key, definition, id)
-        @observed[key] = @runtime.inspect_service(definition, expected_id: id)
+        @observed[key] = service_resource(definition, expected_id: id)
         require_started!(key, @observed.fetch(key))
         attach_browser_ui_if_needed(key, definition, id)
         verify_networks!(key, @observed.fetch(key))
+        @service_snapshot[key] = @observed.fetch(key) if @service_snapshot
       end
 
       def attach_browser_ui_if_needed(key, definition, id)
@@ -470,7 +490,8 @@ module Empeira
 
         @runtime.attach_egress(Network::Definition.new(workspace: @context.workspace, policy: Network::Policy.new),
                                @observed.fetch(key))
-        @observed[key] = @runtime.inspect_service(definition, expected_id: id)
+        @service_snapshot&.delete(key)
+        @observed[key] = service_resource(definition, expected_id: id)
       end
 
       def require_started!(key, resource)
@@ -490,6 +511,7 @@ module Empeira
         return if resource.fetch('state') == 'running'
 
         @runtime.start_service(resource)
+        @service_snapshot&.delete(resource.dig('labels', 'io.empeira.purpose'))
         @changed = true
       end
 
@@ -509,6 +531,7 @@ module Empeira
       end
 
       def create_service(definition)
+        @service_snapshot&.delete(definition.key)
         @inventory.fetch('services')[definition.key] = { 'id' => nil }
         save
         resource = @runtime.create_service(definition)
@@ -563,7 +586,7 @@ module Empeira
 
       # rubocop:disable-next Metrics/AbcSize -- Uplink attachment is ordered behind verified lockdown.
       def reconcile_gateway
-        resource = @runtime.inspect_service(identity('gateway'), expected_id: recorded('gateway'))
+        resource = service_resource(identity('gateway'), expected_id: recorded('gateway'))
         if resource && resource['state'] != 'running' && resource.fetch('networks').key?(egress.backend_name)
           @runtime.detach_egress(egress, resource)
         end
@@ -614,6 +637,7 @@ module Empeira
 
         @runtime.attach_egress(egress, resource)
         @observed[key] = @runtime.inspect_service(identity(key), expected_id: recorded(key))
+        @service_snapshot[key] = @observed.fetch(key) if @service_snapshot
         @changed = true
       end
 
@@ -661,6 +685,7 @@ module Empeira
         @inventory.fetch('services').delete(key)
         @inventory.delete('gateway_policy') if key == 'gateway'
         @observed.delete(key)
+        @service_snapshot&.delete(key)
         save
       end
 

@@ -106,11 +106,16 @@ module Empeira
           data['options']['isolate'] == 'true'
       end
 
-      def normalize_network(data)
+      def normalize_network_binding(data)
         data = data.merge('options' => data['options'] || {})
         malformed! unless [true, false].include?(data['internal']) && data['options'].is_a?(Hash)
-        Network::Resource.new(id: data['id'], name: data['name'], labels: data['labels'] || {},
-                              isolated: isolated?(data), attachment_count: attachment_count(data['id']))
+        Network::Binding.new(id: data['id'], name: data['name'], labels: data['labels'] || {},
+                             isolated: isolated?(data))
+      end
+
+      def normalize_network(data)
+        binding = normalize_network_binding(data)
+        Network::Resource.new(**binding.to_h, attachment_count: attachment_count(binding.id))
       end
     end
   end

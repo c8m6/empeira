@@ -96,6 +96,20 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(@store.load.dig('control_plane', 'services', 'server', 'id')).to eq(server_id)
   end
 
+  it 'batches a warm reconcile and refreshes observations after success or failure' do
+    plane = controller
+    mutate(plane, :up)
+    allow(runtime).to receive(:inspect_services).and_call_original
+    expect(mutate(plane, :up)).to be(false)
+    expect(runtime).to have_received(:inspect_services).once
+    runtime.services.fetch('server').fetch('labels')['io.empeira.workspace'] = 'foreign'
+    expect { mutate(plane, :up) }.to raise_error(Empeira::Providers::OwnershipError)
+    runtime.services.fetch('server').fetch('labels')['io.empeira.workspace'] = context.workspace.id
+    runtime.services.delete('server')
+    expect(mutate(plane, :up)).to be(true)
+    expect(runtime.services.fetch('server').fetch('state')).to eq('running')
+  end
+
   it 'reports a service exit that races with route installation' do
     plane = controller('server' => { 'runtime' => { 'startup' => { 'eyaml_keys' => 'staged' } } })
     allow(runtime).to receive(:configure_workspace_route).and_wrap_original do |method, resource, **options|

@@ -44,6 +44,10 @@ class ServiceRuntime
     resource
   end
 
+  def inspect_volumes(definitions, expected_ids: {})
+    definitions.to_h { |key, definition| [key, inspect_volume(definition, expected_id: expected_ids[key])] }
+  end
+
   def create_volume(definition)
     calls << [:volume, definition.key]
     volumes[definition.key] = identity(definition)
@@ -111,6 +115,15 @@ class ServiceRuntime
 
   def inspect_network(identifier:)
     networks[identifier]
+  end
+
+  # rubocop:disable-next Naming/PredicateMethod -- Verification raises on failure.
+  def verify_isolated_network(definition, expected_id:)
+    resource = inspect_network(identifier: definition.backend_name)
+    definition.verify_ownership!(resource, expected_id: expected_id)
+    definition.verify_definition!(resource) if resource
+    definition.verify_isolation!(resource)
+    true
   end
 
   def create_network(definition:)

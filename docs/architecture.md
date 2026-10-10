@@ -147,6 +147,14 @@ as stale-lock recovery. Unsupported state has no automatic migration.
 Canonical SHA-256 fingerprints cover relevant managed definitions, independently
 of application versions, YAML formatting and unrelated node defaults. Component
 fingerprints allow selective service reconciliation while preserving owned storage.
+Each `up` batches service and volume observations and reuses them only within that
+locked transaction. Starts, replacements and network attachments are inspected
+again; destructive operations verify fresh ownership and recorded IDs. Later CLI
+invocations never inherit these observations. A recorded container is inspected
+directly by ID; a missing ID falls back to name inventory to detect replacements
+and renamed resources. Node access verifies network ownership and isolation with
+one bounded native network inspection; membership counts are collected separately
+for lifecycle observations and deletion, never inferred from the access check.
 Network changes and unsafe storage transitions require explicit lifecycle operations;
 there are no implicit database-major migrations or automatic node replacements.
 
