@@ -27,9 +27,9 @@ module Empeira
         end
       end
 
-      def ssh(name:, user: nil, identity: nil)
+      def ssh(name:, user: nil, identity: nil, port: nil)
         record = Infrastructure::Store.new(context: @context).load&.dig('nodes', name.downcase)
-        options = @ssh_preferences.resolve(hostname: name, user: user, identity: identity)
+        options = @ssh_preferences.resolve(hostname: name, user: user, identity: identity, port: port)
         provider(record&.fetch('provider') || 'container').ssh(name: name, **options)
       end
 
@@ -55,19 +55,7 @@ module Empeira
       private
 
       def reconciliation_providers(records)
-        if !@context.configuration.dig('mocks', 'commands').empty? ||
-           records.any? { |record| !record.fetch('command_mocks', {}).empty? }
-          return records.map { |record| record.fetch('provider') }.uniq
-        end
-
-        vm_interfaces_needed?(records) ? ['vm'] : []
-      end
-
-      def vm_interfaces_needed?(records)
-        rules = @context.configuration.dig('vm', 'interfaces') || []
-        records.any? do |record|
-          record['provider'] == 'vm' && (record.key?('network_interfaces') || !rules.empty?)
-        end
+        records.map { |record| record.fetch('provider') }.uniq
       end
 
       def provider(name)

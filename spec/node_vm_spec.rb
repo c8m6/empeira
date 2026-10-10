@@ -14,6 +14,7 @@ end
 
 RSpec.describe Empeira::Node::VM do
   include CommandMockGuest
+  include RuntimeProxyFixture
 
   let(:runtime) { VMRuntimeFixture.new }
   let(:app) do
@@ -56,6 +57,11 @@ RSpec.describe Empeira::Node::VM do
     prepare_vm_components
   end
 
+  after do
+    cleanup_runtime_proxy_guests
+    runtime.cleanup_runtime_proxy_guests
+  end
+
   def prepare_vm_components
     prepare_image_components
     prepare_disk_component
@@ -74,6 +80,52 @@ RSpec.describe Empeira::Node::VM do
     runtime.services.fetch('server')['labels']['io.empeira.definition'] = 'stale'
     expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
     expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Error, /not ready/)
+  end
+
+  it 'starts Puppet with the normal proxy inside the privileged guest command' do
+    File.write(File.join(@directory, '.empeira.yaml'),
+               YAML.dump('proxy' => { 'enabled' => true, 'global' => ['packages.example'] }))
+    context = app.context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
+    store.with_lock { Empeira::ControlPlane::Controller.new(context: context, runtime: runtime, store: store).up }
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: context, runner: app.runner, backend: engine, runtime: runtime)
+    expect(provider.instance_variable_get(:@ssh)).to receive(:stream).with(
+      anything, array_including('env', 'HTTP_PROXY=http://proxy.empeira.internal:3128',
+                                'https_proxy=http://proxy.empeira.internal:3128', Empeira::Node::Certificates::PUPPET)
+    ).and_return(Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false))
+    provider.run(request)
+  end
+
+  it 'creates a VM with normal proxy enabled and an explicit IPv4 direct-egress destination' do
+    File.write(File.join(@directory, '.empeira.yaml'),
+               YAML.dump('proxy' => { 'enabled' => true },
+                         'network' => { 'egress' => [{ 'ip' => '192.0.2.20', 'ports' => [443] }] }))
+    context = app.context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
+    store.with_lock { Empeira::ControlPlane::Controller.new(context: context, runtime: runtime, store: store).up }
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: context, runner: app.runner, backend: engine, runtime: runtime)
+    expect(provider.run(request).changed).to be(true)
+    expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(true)
+    expect(store.load.dig('nodes', 'vm-host', 'runtime_proxy', 'current', 'direct')).to include('192.0.2.20')
+  end
+
+  it 'preserves unexpected error metadata and its original backtrace when retaining a VM' do
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+    original = nil
+    allow(provider.instance_variable_get(:@agent)).to receive(:ensure_installed) do
+      {}.fetch('synthetic-missing-key')
+    rescue KeyError => e
+      original = e
+      raise
+    end
+    expect { provider.run(request) }.to raise_error(KeyError) { |error|
+      expect(error.key).to eq('synthetic-missing-key')
+      expect(error.backtrace.first).to eq(original.backtrace.first)
+      expect(error.cause).to eq(original)
+      expect(error.message).to include('retained for diagnosis', 'empeira node destroy vm-host')
+    }
+    expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(false)
   end
 
   context 'with VM interface rules' do
@@ -339,9 +391,11 @@ RSpec.describe Empeira::Node::VM do
       path
     end
     allow(Empeira::VM::CloudInit).to receive(:new).and_return(cloud)
-    ssh = instance_double(Empeira::VM::SSH, wait: nil)
+    ssh = instance_double(Empeira::VM::SSH, wait: nil, system_proxy_command: nil)
     success = Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
-    allow(ssh).to receive(:run) do |_record, arguments, **|
+    allow(ssh).to receive(:run) do |record, arguments, **|
+      proxy_result = runtime_proxy_result(arguments, record.fetch('hostname'))
+      next proxy_result if proxy_result
       if arguments == ['stat', '-c', '%a', Empeira::Node::ExternalFact::PATH]
         next Empeira::Execution::Result.new(stdout: "644\n", stderr: '', exit_status: 0,
                                             timed_out: false)
@@ -396,7 +450,8 @@ RSpec.describe Empeira::Node::VM do
   it 'reconciles mocks through management SSH before Puppet, on restart and on workspace reconcile' do
     ssh = Empeira::VM::SSH.new
     # The remaining VM guest operations keep the existing synthetic responses.
-    allow(ssh).to receive(:run).with(anything, satisfy { |args| args.size == 4 && args[1] == '-e' }) do |_, args|
+    mocks = satisfy { |args| args.size == 4 && args[1] == '-e' && args[2].include?('class ManagedFile') }
+    allow(ssh).to receive(:run).with(anything, mocks) do |_, args|
       app.runner.run(RbConfig.ruby, arguments: args.drop(1))
     end
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')

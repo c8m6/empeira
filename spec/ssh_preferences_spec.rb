@@ -10,31 +10,33 @@ RSpec.describe Empeira::Configuration::SSHPreferences do
   let(:preferences) { described_class.new(config) }
 
   it 'keeps provider defaults available without configuration' do
-    expect(described_class.new.resolve(hostname: 'host')).to eq(user: nil, identity: nil)
+    expect(described_class.new.resolve(hostname: 'host')).to eq(user: nil, identity: nil, port: nil)
   end
 
   it 'applies global defaults when no hostname rule matches' do
-    expect(preferences.resolve(hostname: 'app.example.org')).to eq(user: 'global', identity: '/global/key')
+    expect(preferences.resolve(hostname: 'app.example.org')).to eq(user: 'global', identity: '/global/key', port: nil)
   end
 
   it 'matches any pattern in a rule, ignoring hostname and pattern case' do
-    expect(preferences.resolve(hostname: 'DB-ONE')).to eq(user: 'host-user', identity: '/first/key')
+    expect(preferences.resolve(hostname: 'DB-ONE')).to eq(user: 'host-user', identity: '/first/key', port: nil)
   end
 
   it 'applies every matching rule in order, preserving independently omitted fields' do
-    expect(preferences.resolve(hostname: 'Web-A.Example.Net')).to eq(user: 'last-user', identity: '/last/key')
-    expect(preferences.resolve(hostname: 'web-long.example.net')).to eq(user: 'host-user', identity: '/last/key')
+    expect(preferences.resolve(hostname: 'Web-A.Example.Net')).to eq(user: 'last-user', identity: '/last/key',
+                                                                     port: nil)
+    expect(preferences.resolve(hostname: 'web-long.example.net')).to eq(user: 'host-user', identity: '/last/key',
+                                                                        port: nil)
     expect(config['user']).to eq('global')
   end
 
   it 'matches the whole hostname rather than substrings' do
     expect(described_class.new('rules' => [{ 'hosts' => ['web'], 'user' => 'exact' }])
-      .resolve(hostname: 'web.example.net')).to eq(user: nil, identity: nil)
+      .resolve(hostname: 'web.example.net')).to eq(user: nil, identity: nil, port: nil)
   end
 
   [{ user: 'cli-user' }, { identity: '/cli/key' }, { user: 'cli-user', identity: '/cli/key' }].each do |overrides|
     it "resolves CLI #{overrides.keys.join('/')} independently above rules and global defaults" do
-      expected = { user: 'last-user', identity: '/last/key' }.merge(overrides)
+      expected = { user: 'last-user', identity: '/last/key', port: nil }.merge(overrides)
       expect(preferences.resolve(hostname: 'web-a.example.net', **overrides)).to eq(expected)
     end
   end
@@ -67,6 +69,27 @@ RSpec.describe Empeira::Configuration::SSHPreferences do
   it 'accepts independent defaults and rules, without touching identity files during configuration load' do
     [{}, { 'user' => 'root' }, { 'identity' => '~/missing/key' }, { 'rules' => [] }, config].each do |data|
       expect { described_class.validate!(data) }.not_to raise_error
+    end
+  end
+
+  it 'resolves ports independently through global, last matching rule and CLI precedence' do
+    config['port'] = 22
+    config['rules'][0]['port'] = 2222
+    config['rules'] << { 'hosts' => ['*.example.net'], 'port' => 2200 }
+    expect(preferences.resolve(hostname: 'web-a.example.net')).to eq(
+      user: 'last-user', identity: '/last/key', port: 2200
+    )
+    expect(preferences.resolve(hostname: 'web-a.example.net', port: 2223)).to eq(
+      user: 'last-user', identity: '/last/key', port: 2223
+    )
+    expect(preferences.resolve(hostname: 'other')).to include(port: 22)
+    expect { described_class.validate!('rules' => [{ 'hosts' => ['*'], 'port' => 2222 }]) }.not_to raise_error
+  end
+
+  [0, 65_536, '22', nil, true, 22.5].each do |value|
+    it "rejects invalid personal port #{value.inspect} with its full path" do
+      expect { described_class.validate!('rules' => [{ 'hosts' => ['*'], 'port' => value }]) }
+        .to raise_error(Empeira::ConfigurationError, /ssh.rules.0.port/)
     end
   end
 end

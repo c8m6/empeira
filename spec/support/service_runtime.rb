@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
+require_relative 'runtime_proxy_guest'
+
 # rubocop:disable-next Metrics/ClassLength -- Shared observed runtime fixture covers network and service lifecycle.
 class ServiceRuntime
+  include RuntimeProxyFixture
+
   attr_reader :services, :volumes, :networks, :calls
   attr_accessor :failure
 
@@ -86,8 +90,11 @@ class ServiceRuntime
     calls << [:reload, resource.fetch('id'), signal]
   end
 
-  def service_exec(_resource, arguments, **)
+  def service_exec(resource, arguments, **)
     calls << [:exec, arguments]
+    proxy_result = runtime_proxy_result(arguments, resource['name'] || resource['id'])
+    return proxy_result if proxy_result
+
     output = arguments.include?('DELETE') ? "HTTP/1.1 204 No Content\r\n\r\n" : ''
     output = "[main]\ngpgcheck=1\n" if arguments == ['cat', '/etc/dnf/dnf.conf']
     output = "tcp-redirects-v1\n" if arguments == [Empeira::Network::Gateway::EXECUTABLE, 'redirects-capability']

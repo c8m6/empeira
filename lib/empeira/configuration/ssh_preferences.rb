@@ -6,7 +6,7 @@ module Empeira
   module Configuration
     # Personal login preferences are resolved independently of infrastructure definitions.
     class SSHPreferences
-      FIELDS = %w[user identity].freeze
+      FIELDS = %w[user identity port].freeze
       KEYS = [*FIELDS, 'rules'].freeze
       USER = /\A[a-zA-Z0-9_.@-]+\z/
 
@@ -34,6 +34,13 @@ module Empeira
         end
 
         identity!(data['identity'], path) if data.key?('identity')
+        port!(data['port'], "#{path}.port") if data.key?('port')
+      end
+
+      def self.port!(value, path = 'SSH port')
+        return value if value.is_a?(Integer) && value.between?(1, 65_535)
+
+        raise ConfigurationError, "#{path} must be an integer from 1 to 65535"
       end
 
       def self.identity!(value, path)
@@ -47,7 +54,7 @@ module Empeira
         mapping!(rule, [*FIELDS, 'hosts'], path)
         fields!(rule, path)
         unless rule.keys.intersect?(FIELDS)
-          raise ConfigurationError, "#{path} requires at least one of user or identity"
+          raise ConfigurationError, "#{path} requires at least one of user, identity or port"
         end
 
         hosts = rule['hosts']
@@ -60,14 +67,16 @@ module Empeira
         @config = config
       end
 
-      def resolve(hostname:, user: nil, identity: nil)
+      # rubocop:disable-next Metrics/CyclomaticComplexity -- Three independent preference fields share one matcher.
+      def resolve(hostname:, user: nil, identity: nil, port: nil)
+        self.class.port!(port) unless port.nil?
         fields = @config.slice(*FIELDS)
         @config.fetch('rules', []).each do |rule|
           fields.merge!(rule.slice(*FIELDS)) if rule.fetch('hosts').any? do |pattern|
             HostnamePattern.matches?(pattern, hostname)
           end
         end
-        { user: user || fields['user'], identity: identity || fields['identity'] }
+        { user: user || fields['user'], identity: identity || fields['identity'], port: port || fields['port'] }
       end
     end
   end

@@ -11,13 +11,19 @@ module Empeira
 
       def self.valid_record?(name, record)
         return false unless record.is_a?(Hash) && record['hostname'] == name && valid_name?(name)
-        return false unless CommandMocks.valid_inventory?(record.fetch('command_mocks', {}))
+        return false unless valid_guest_settings?(record)
 
         case record['provider']
         when 'container' then valid_container?(record)
         when 'vm' then valid_vm?(name, record)
         else false
         end
+      end
+
+      def self.valid_guest_settings?(record)
+        CommandMocks.valid_inventory?(record.fetch('command_mocks', {})) &&
+          (!record.key?('runtime_proxy') || RuntimeProxy.valid_inventory?(record['runtime_proxy'])) &&
+          (!record.key?('interactive_tools') || InteractiveTools.valid_inventory?(record['interactive_tools']))
       end
 
       def self.valid_container?(record)
@@ -36,7 +42,12 @@ module Empeira
       def self.valid_vm?(name, record)
         valid_vm_image?(record['base_image']) && valid_vm_process?(record) &&
           valid_vm_network?(name, record) && valid_vm_metadata?(record) &&
+          valid_vm_ssh_layout?(record) &&
           (!record.key?('network_interfaces') || ::Empeira::VM::Interfaces.valid_inventory?(record['network_interfaces']))
+      end
+
+      def self.valid_vm_ssh_layout?(record)
+        !record.key?('ssh_layout') || [1, 2].include?(record['ssh_layout'])
       end
 
       def self.valid_vm_image?(image)

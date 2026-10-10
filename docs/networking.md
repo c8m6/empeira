@@ -66,6 +66,15 @@ have no control-code mount or credentials; identity, definition and checksum are
 verified. The VM management NIC has restricted loopback SSH only, separate from
 peer application traffic, DNS and Puppet.
 
+New VM layouts forward this same private endpoint to the dedicated management
+daemon on 10.0.2.15:22222. System SSH uses a key-authenticated management tunnel
+restricted to the VM's own peer IPv4 and selected guest port. There is no additional
+host publication or network adapter. Management credentials and host keys are
+independent of system SSH and personal preferences; legacy VMs retain their original
+forward to port 22. See [SSH layouts and recovery](nodes.md#shell-and-ssh).
+The system-account layout changes guest account storage to `/var/lib/empeira`;
+it adds no listener, adapter, external publication or destination-policy exception.
+
 The CLI host and engine may have different filesystems. Control/Hiera directories,
 server mounts and state must be visible at their canonical paths. Mount probes
 inspect visibility without writing markers. Remote-engine path translation is not
@@ -117,12 +126,28 @@ regardless of target IP range; the temporary authenticated bootstrap proxy retai
 its separate private/reserved-address restrictions.
 `proxy.global` does not grant direct egress. Applications choose DIRECT/proxy using
 their own settings and `NO_PROXY`; direct/proxy selection has no automatic fallback.
+Both explicit hostnames and IPv4 selectors from `network.egress` are included in
+normal proxy bypass settings. The gateway still permits only their configured TCP ports.
 See [proxy policy](proxy.md) for hostname rules and bootstrap destinations.
 
 During bootstrap, a node is excluded from direct egress and normal proxy bindings.
 A separate authenticated /32-source-bound proxy installs packages. Cleanup restores
 package configuration, removes temporary access/credentials and activates final
 runtime policy before enrollment and Puppet. Failed bootstrap stays incomplete.
+
+Normal proxy settings are distinct from that temporary bootstrap transaction.
+Managed Puppet processes receive matching uppercase/lowercase HTTP/HTTPS and
+NO_PROXY variables inside the privileged guest command, including VM `sudo`.
+APT uses `/etc/apt/apt.conf.d/90-empeira-proxy`; DNF receives an owned block in
+the existing `/etc/dnf/dnf.conf` `[main]` section. Direct-egress hosts get native
+APT DIRECT entries unless an explicit host setting already exists. Foreign
+host-specific APT settings and DNF repository overrides remain unchanged.
+Conflicting global settings, modified owned files or unsafe paths fail with a
+diagnosis. APT configurations using `#include`/`#clear` require explicit review.
+DNF repository `proxy=` disables the inherited proxy; `_none_` retains DNF's
+native curl environment semantics (see the [DNF reference](https://dnf.readthedocs.io/en/stable/conf_ref.html#proxy)).
+These settings change client routing only; destination grants and isolation stay
+under the existing gateway and proxy policies.
 
 ## Transparent TCP redirects
 

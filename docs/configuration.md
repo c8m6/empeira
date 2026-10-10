@@ -37,10 +37,12 @@ images:
 ssh:
   user: empeira
   identity: ~/.ssh/id_ed25519
+  port: 22
   rules:
     - hosts: ["web-*", "app-?.example.net"]
       user: root
       identity: ~/.ssh/id_ed25519_lab
+      port: 2222
     - hosts: ["db-*"]
       user: admin
 ```
@@ -53,18 +55,20 @@ restores Docker Hub resolution. `config show` displays the effective non-sensiti
 There is no separate source-reporting option.
 
 `ssh` is personal configuration for interactive `empeira node ssh` only; it is
-rejected in project YAML. Global `user` and `identity` are independently optional,
+rejected in project YAML. Global `user`, `identity` and `port` are independently optional,
 as is the `rules` array. Each rule requires a nonempty `hosts` array and at least
-one of `user` or `identity`. Unknown keys and passwords are rejected. Patterns match
+one of `user`, `identity` or `port`. Ports must be integers from 1 to 65535.
+Unknown keys and passwords are rejected. Patterns match
 the entire hostname, ignore case and support only `*` and `?`, with the same matching
 semantics as proxy hostname rules. Any pattern can select a rule. All matching
 rules apply in list order; the last rule defining a field wins for that field.
 An omitted field preserves the previous value.
 
-Each field resolves independently: explicit `--user`/`--identity`, then its last
+Each field resolves independently: explicit `--user`/`--identity`/`--port`, then its last
 matching rule, then its global value, then the provider default. Without a configured
 value, VMs use `empeira` and their existing managed key; containers use the local
-username and normal OpenSSH identities/agent/config. Identity paths in this YAML
+username and normal OpenSSH identities/agent/config. Both providers default to system
+SSH guest port 22; this is independent of any private host transport port. Identity paths in this YAML
 must be absolute or start with `~/`, expanded through the platform home. Relative
 CLI identity paths retain their existing meaning relative to the invocation directory.
 Before connecting, the selected external key must be a readable regular file with
@@ -75,6 +79,9 @@ Personal SSH preferences are kept outside the effective infrastructure configura
 `config show`, inventory and fingerprints. They do not alter internal VM SSH,
 bootstrap, agent configuration, Puppet, shell/console, start/run or control-plane
 behavior. File checks apply only when an identity is selected for `node ssh`.
+New VMs use the locked system account `empeira` with home `/var/lib/empeira` for
+management and as the default system SSH login. Its UID is allocated by the guest;
+there is no configurable UID or automatic conversion of existing VM accounts.
 
 This file is deliberately not a second project definition. Any other key, including
 `server`, `agent`, `network`, `containers`, `browser`, `images.server`, `images.nodes`, or
@@ -477,6 +484,11 @@ vm:
 ```
 
 When `proxy.enabled` is true, every node may use its matching destination policy.
+After bootstrap cleanup, Empeira reconciles normal proxy settings on running,
+provisioned nodes during `up`, `node start` and before managed Puppet runs. No
+node recreation or restart is needed to apply allowlist changes. Disabling the
+proxy removes owned package-manager settings. The owned login environment clears
+stale creation-time container variables; it never retains bootstrap credentials.
 See [proxy policy](proxy.md),
 [Hiera and EYAML](hiera-and-eyaml.md), [DNS](networking.md), and [console recovery](nodes.md#vm-console-recovery).
 Mounts are optional unless `required: true`. The console password is used only on

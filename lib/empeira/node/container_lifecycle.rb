@@ -2,6 +2,7 @@
 
 module Empeira
   module Node
+    # rubocop:disable-next Metrics/ModuleLength -- Provider lifecycle operations share one ownership boundary.
     module ContainerLifecycle
       def start(name:)
         mutate do
@@ -15,7 +16,7 @@ module Empeira
           @runtime.start_service(resource) if changed
           network_gateway.route(observed(record))
           refresh_dns
-          changed = reconcile_command_mocks(resource, record) || changed
+          changed = reconcile_guest(resource, record) || changed
           lifecycle_result(record['hostname'], :running, changed: changed)
         end
       end
@@ -51,18 +52,28 @@ module Empeira
       end
 
       def shell(name:)
-        mutate { @runtime.stream_service(running(fetch(name)), ['/bin/bash'], interactive: true) }
+        mutate do
+          @runtime.stream_service(running(fetch(name)), RuntimeProxy.command(context, ['/bin/bash', '-i']),
+                                  interactive: true)
+        end
       end
 
-      def ssh(name:, user: nil, identity: nil)
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Verify the owned endpoint before selecting a guest tunnel.
+      def ssh(name:, user: nil, identity: nil, port: nil)
         mutate do
+          port = Configuration::SSHPreferences.port!(port || 22)
           record = fetch(name)
           resource = running(record)
           unless record['ssh_host'] && record['ssh_port']
             raise Error, 'Node has no managed SSH endpoint; destroy and recreate it with the current Empeira image'
           end
 
-          proxy = @runtime.ssh_proxy_command(resource) if record['ssh_transport'] == 'tunnel'
+          proxy = if port != 22
+                    @runtime.ssh_proxy_command(resource, port: port)
+                  elsif record['ssh_transport'] == 'tunnel'
+                    @runtime.ssh_proxy_command(resource)
+                  end
+          record = record.merge('ssh_port' => port) if port != 22
           UserSSH.new(runner: @runner, credentials: ssh_credentials(record.fetch('hostname')),
                       proxy_command: proxy, home: context.locations.home).session(
                         record, user: user, identity: identity
@@ -105,9 +116,9 @@ module Empeira
       def agent_run(resource, record)
         require_provisioned!(record)
         refresh_environment_cache
-        reconcile_command_mocks(resource, record)
+        reconcile_guest(resource, record)
         result = @progress.streaming do
-          @runtime.stream_service(resource, PuppetCommand.arguments)
+          @runtime.stream_service(resource, RuntimeProxy.command(context, PuppetCommand.arguments))
         end
         record['last_puppet_exit'] = result.exit_status
         save

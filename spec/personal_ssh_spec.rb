@@ -24,18 +24,18 @@ RSpec.describe 'Personal SSH application handoff' do
   end
 
   it 'passes resolved preferences to the recorded VM provider' do
-    expect(vm).to receive(:ssh).with(name: 'WEB-A.EXAMPLE.NET', user: 'web-user', identity: '~/host/key')
+    expect(vm).to receive(:ssh).with(name: 'WEB-A.EXAMPLE.NET', user: 'web-user', identity: '~/host/key', port: nil)
     app.nodes.ssh(name: 'WEB-A.EXAMPLE.NET')
   end
 
   it 'passes global preferences to the container provider' do
-    expect(container).to receive(:ssh).with(name: 'db', user: 'global', identity: '~/global/key')
+    expect(container).to receive(:ssh).with(name: 'db', user: 'global', identity: '~/global/key', port: nil)
     app.nodes.ssh(name: 'db')
   end
 
   [{ user: 'cli-user' }, { identity: '/cli/key' }, { user: 'cli-user', identity: '/cli/key' }].each do |overrides|
     it "preserves independent CLI #{overrides.keys.join('/')} precedence through Application" do
-      values = { user: 'web-user', identity: '~/host/key' }.merge(overrides)
+      values = { user: 'web-user', identity: '~/host/key', port: nil }.merge(overrides)
       expect(vm).to receive(:ssh).with(name: 'web-a.example.net', **values)
       app.nodes.ssh(name: 'web-a.example.net', **overrides)
     end

@@ -188,7 +188,7 @@ RSpec.describe Empeira::CLI::Main do
     result = Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 7, timed_out: false)
     nodes = instance_double(Empeira::Node::Service)
     allow(Empeira::Node::Service).to receive(:new).and_return(nodes)
-    expect(nodes).to receive(:ssh).with(name: 'host1', user: nil, identity: nil).and_return(result)
+    expect(nodes).to receive(:ssh).with(name: 'host1', user: nil, identity: nil, port: nil).and_return(result)
     expect(Empeira::CLI::ProgressRenderer).not_to receive(:new)
     expect do
       described_class.start(%w[node ssh host1])
@@ -199,9 +199,26 @@ RSpec.describe Empeira::CLI::Main do
     result = Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
     nodes = instance_double(Empeira::Node::Service)
     allow(Empeira::Node::Service).to receive(:new).and_return(nodes)
-    expect(nodes).to receive(:ssh).with(name: 'host1', user: 'deploy', identity: '/synthetic/key').and_return(result)
+    expect(nodes).to receive(:ssh).with(name: 'host1', user: 'deploy', identity: '/synthetic/key',
+                                        port: nil).and_return(result)
     described_class.start(['node', 'ssh', 'host1', '--user', 'deploy', '--identity', '/synthetic/key'])
     expect(cli('node', 'help', 'ssh').stdout).to include('--user', '--identity')
+  end
+
+  it 'parses an explicit system SSH guest port before dispatch' do
+    result = Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
+    nodes = instance_double(Empeira::Node::Service)
+    allow(Empeira::Node::Service).to receive(:new).and_return(nodes)
+    expect(nodes).to receive(:ssh).with(name: 'host1', user: nil, identity: nil, port: 2222).and_return(result)
+    described_class.start(%w[node ssh host1 --port 2222])
+  end
+
+  %w[0 65536 22.5 invalid].each do |port|
+    it "rejects invalid CLI SSH port #{port} without connecting" do
+      result = cli('node', 'ssh', 'host1', '--port', port)
+      expect(result).not_to be_success
+      expect(result.stderr).to include('SSH port must be an integer from 1 to 65535')
+    end
   end
 
   it 'explains additive proxy policy without requiring a running node' do

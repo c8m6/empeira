@@ -66,11 +66,12 @@ For a VM, `node ssh` defaults to `empeira` and the existing managed private key,
 including when bootstrap is incomplete. For containers, it uses the local user's
 name and normal OpenSSH keys/agent/config. Neither path injects a replacement key
 or provisions a login user. Verify your Puppet-created account,
-authorized keys, home permissions, daemon, PAM and login profile. Use `--user` and
-`--identity` independently when appropriate:
+authorized keys, home permissions, daemon, PAM and login profile. Use `--user`,
+`--identity` and `--port` independently when appropriate:
 
 ```console
 empeira node ssh host1 --user deploy --identity ~/.ssh/test_ed25519
+empeira node ssh host1 --port 2222
 empeira node shell host1
 ```
 
@@ -78,6 +79,29 @@ If SSH reports `Too many authentication failures`, your agent may offer too many
 keys before the intended one. For containers, select the identity in your normal
 OpenSSH `Host` configuration and set `IdentitiesOnly yes` there when needed. VM
 access selects its managed or explicit identity and disables password authentication.
+
+New VMs use a dedicated management daemon for internal commands, separate from
+system SSH. A failed system login does not cause Empeira to restart that service or
+replace its authentication. Management failures identify the private service/account;
+inspect `empeira-management-ssh.service` through the serial console and preserved
+logs. Legacy VMs without a layout version retain their shared daemon and support
+only system port 22; explicitly recreate them to obtain the new separation.
+
+SELinux guests require the existing `semodule` and `restorecon` tools for the scoped
+management port/file labels. Inspect the management journal and AVC messages if
+that endpoint cannot bind or authenticate; do not disable enforcement to repair it.
+
+Current VMs require a locked system `empeira` account, `/bin/bash`, passwordless
+sudo and an account-owned 0700 home at `/var/lib/empeira`. A changed UID range,
+password lock, shell, ownership or home mode fails before managed operations.
+Inspect the account and guest serial logs through `node shell`; deliberately repair
+the tested guest policy there or explicitly recreate the disposable VM. Empeira
+does not recreate a removed account, inject keys or reset console passwords.
+Layout version 1 retains its original regular account and `/home/empeira` home.
+
+VM creation failures retain the original diagnostic and add the retained node's
+cleanup command. Inspect the underlying failure first; an incomplete VM requires
+explicit node destruction and recreation after the cause is corrected.
 
 For a container, shell is runtime exec. For a VM, it is the serial console and
 works with SSH stopped. Press Enter, then use the current console credentials.

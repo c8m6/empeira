@@ -280,7 +280,7 @@ module Empeira
       end
 
       def proxy_environment_for(url)
-        bypass = Array(config.dig('network', 'egress')).filter_map { |entry| entry['host'] if entry.is_a?(Hash) }
+        bypass = Network::DirectEgress.destinations(config.dig('network', 'egress'))
         no_proxy = naming.no_proxy(bypass)
         { 'http_proxy' => url, 'https_proxy' => url, 'HTTP_PROXY' => url, 'HTTPS_PROXY' => url,
           'all_proxy' => '', 'ALL_PROXY' => '', 'no_proxy' => no_proxy, 'NO_PROXY' => no_proxy }

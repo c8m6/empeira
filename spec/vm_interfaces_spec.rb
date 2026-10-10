@@ -309,7 +309,7 @@ RSpec.describe Empeira::Node::Service do
   let(:service) { described_class.new(context: context, runner: Empeira::Execution::Runner.new, providers: providers) }
 
   [true, false].each do |configured|
-    it "reconciles only VM nodes for #{configured ? 'configured' : 'removed'} interface rules in a mixed workspace" do
+    it "reconciles shared guest settings and #{configured ? 'configured' : 'removed'} VM interfaces by provider" do
       if configured
         configuration['vm']['interfaces'] = [{ 'hosts' => ['*'],
                                                'devices' => { 'dummy0' => { 'network' => '192.0.2.10/32' } } }]
@@ -318,7 +318,9 @@ RSpec.describe Empeira::Node::Service do
       record['network_interfaces'] = {} unless configured
       state = { 'nodes' => { 'one' => { 'provider' => 'container' }, 'two' => record } }
       vm = instance_double(Empeira::Node::VM)
-      expect(providers).not_to receive(:build).with('container', anything)
+      container = instance_double(Empeira::Node::Container)
+      expect(providers).to receive(:build).with('container', anything).and_return(container)
+      expect(container).to receive(:reconcile_all).with(state: state).and_return(false)
       expect(providers).to receive(:build).with('vm', anything).and_return(vm)
       expect(vm).to receive(:reconcile_all).with(state: state).and_return(true)
       expect(service.reconcile(state: state)).to be(true)

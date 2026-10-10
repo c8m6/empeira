@@ -73,6 +73,30 @@ immutable base is unchanged. First-boot readiness observes the actual mounted ro
 partition and filesystem after cloud-init growth, before managed package bootstrap.
 Resume and workspace reconciliation preserve existing disk capacities.
 
+Both providers reconcile normal guest proxy intent in the existing node inventory
+after bootstrap cleanup. The shared reconciler uses the public control-plane
+proxy environment, owned APT files and a bounded DNF block; provider transports
+only execute guest operations. Managed Puppet receives explicit `env` arguments
+after VM `sudo`, so privilege separation cannot drop the runtime proxy policy.
+
+Interactive tool PATH uses the same provider guest transports and node inventory.
+Its startup fragments apply only to interactive Bash, with a small owned block
+in the distribution's global initializer. Personal dotfiles and non-interactive
+process environments stay under their existing owners.
+
+Versioned VM SSH layouts keep existing nodes compatible without migrating their
+keys or accounts. New nodes seed an independent management daemon through Cloud-Init,
+with private configuration, keys, runtime and service state. Every managed command
+verifies this boundary, then enters the guest's normal mount namespace. The user
+system SSH adapter reaches the guest's peer IP through a narrowly allowed management
+forward. Personal user/key/port resolution happens only in the public `node ssh`
+path. Existing peer adapters, ownership checks, session guards and network policy
+remain responsible for their original boundaries.
+The current layout creates a locked Linux system account through Cloud-Init and
+prepares its private `/var/lib/empeira` home before starting management SSH. Guest
+guards validate its allocated system UID and account metadata before managed work.
+Older inventories preserve their original account and home without automatic migration.
+
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle
 operations return `changed: false`; absent start/stop and ownership conflicts fail.

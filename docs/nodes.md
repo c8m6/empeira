@@ -129,7 +129,24 @@ or package resources need an enabled proxy and an explicit destination policy as
 [networking](networking.md). Empeira never grants unrestricted Internet access to
 repair package sources.
 
+Normal APT/DNF proxy settings persist across restart and work for Puppet package
+resources. Managed Puppet runs receive the current proxy environment directly,
+without relying on login initialization. Login shells also load the owned
+`/etc/profile.d/90-empeira-proxy.sh`. This file clears stale container environment
+variables when proxy access is disabled; repository files are never replaced.
+
 ## Shell and SSH
+
+After agent installation, Empeira detects the installed `puppet` and `facter`
+directory and exposes it through `/etc/profile.d/90-empeira-tools.sh`. An owned
+block in the existing global Bash initializer covers interactive non-login Bash.
+Login SSH, serial-console logins and container shells share this configuration.
+It preserves existing PATH entries, adds the directory once, and leaves
+non-interactive PATH and personal startup files unchanged. Existing nodes receive
+the setting on `up`, `node start` and before managed Puppet runs. Custom personal
+startup files can still deliberately override their environment; they should
+retain the distribution's global initialization. Modified owned fragments or
+unsafe global paths stop reconciliation with a diagnosis.
 
 | Provider | `node shell` | `node ssh` |
 | --- | --- | --- |
@@ -149,7 +166,8 @@ through Puppet or guest configuration.
 For VM nodes, the default is the existing Cloud-Init account `empeira` and its
 managed private key. Password and keyboard-interactive authentication are disabled;
 the client selects the supplied identity without offering unrelated agent keys.
-`--user` and `--identity` independently override these defaults. Missing or unsafe
+`--user`, `--identity` and `--port` independently override these defaults. The guest
+system SSH port defaults to 22. Missing or unsafe
 managed keys fail before connection, without generating a replacement. This access
 also works for incomplete nodes once the VM and SSH daemon are running.
 An authentication failure remains an SSH failure, with the client's output and
@@ -169,9 +187,10 @@ empeira node ssh host1
 empeira node ssh host1 --user deploy
 empeira node ssh host1 --identity ~/.ssh/test_ed25519
 empeira node ssh host1 --user deploy --identity ~/.ssh/test_ed25519
+empeira node ssh host1 --port 2222
 ```
 
-`--user` and `--identity` are independent. The logical hostname can select a `Host`
+The three SSH overrides are independent. The logical hostname can select a `Host`
 section in SSH configuration. Empeira fixes the host, port and transport to the owned
 node, disables connection sharing and forwarding, and uses a private per-node
 `known_hosts` file with `accept-new` checking. User settings cannot redirect the
@@ -182,9 +201,62 @@ are removed with the node and do not pollute `~/.ssh/known_hosts`.
 Podman publishes SSH on a verified dynamic loopback port. Docker's internal bridge
 does not activate published ports, so OpenSSH uses a runtime exec byte tunnel to
 port 22 inside the ownership-checked container. This still carries real SSH traffic.
-VM SSH uses a restricted management NIC and QEMU's loopback forward. Native rootless
-Podman accesses it through a namespace-scoped byte tunnel. Application traffic, DNS
-and Puppet use the separate peer NIC directly.
+An explicit container guest port uses the same ownership-checked runtime tunnel,
+without another host publication. New VMs use a private management SSH tunnel to
+the system daemon on their own peer IP and selected guest port. Native rootless
+Podman accesses the management endpoint through its existing namespace-scoped byte
+tunnel. Application traffic, DNS and Puppet use the peer NIC directly.
+
+New VM records have `ssh_layout: 2`. Cloud-Init starts and enables
+`empeira-management-ssh.service` before project scripts and package bootstrap. It has
+its own configuration, host key, authorized key, client identity, known-host file and
+runtime directory. Its port 22222 binds only to the restricted management NIC at
+10.0.2.15. The existing QEMU loopback forward is the only transport; no NIC or
+external publication is added. `node ssh` reaches only system SSH through this tunnel,
+never the management listener. Puppet may change, restart or disable system SSH
+without stopping managed package installation, Puppet, disk or interface operations.
+
+Before each managed command, Empeira verifies the private configuration, unit,
+ownership and service state. Management SSH uses public-key authentication only;
+it forbids root/password login, user startup hooks and agent/X11 forwarding. Separate
+host-key stores preserve strict rejection of changed host keys for both daemons.
+OpenSSH's compiled privilege-separation directories and their runtime parents have
+private mounts so stopping the system unit cannot remove them. Only the management
+PID directory and existing systemd/PAM runtime paths are bound into this namespace.
+Privileged guest commands enter PID 1's mount
+namespace, ensuring Puppet still manages the real guest filesystem and mounts.
+No network namespace or firewall policy is changed.
+SELinux guests load a private `empeira_management` module for TCP port 22222 and
+the owned management key/runtime paths, keeping the existing SSH domain confined
+and enforcement enabled. A preexisting module with that name fails before replacement.
+System SSH port labels and foreign policy remain under their original owners.
+
+Cloud-Init creates `empeira` as a Linux system account with a dynamically allocated
+UID below the distribution's `UID_MIN`, a locked password, `/bin/bash` and
+passwordless sudo for managed operations. Empeira explicitly creates its home
+`/var/lib/empeira` with the allocated UID/GID and mode 0700. System SSH uses a
+separate authorized key in that home's private `.ssh` directory; management SSH
+uses the root-owned key file outside the home. Upload staging also uses the recorded
+layout's home. Before bootstrap and every managed command, Empeira checks the
+account, system UID range, locked password, shell, home ownership and permissions.
+Changed metadata fails with a diagnosis rather than silently recreating the account.
+Personal shell files are retained; initial files come from the distribution's skeleton.
+
+Both daemons still share the installed OpenSSH binary, PAM stack and Linux account
+database. Removing these dependencies or explicitly changing the management account
+can break management; Empeira diagnoses failures without repairing system SSH or
+injecting authentication. Serial `node shell` and `node logs` remain available for
+recovery even if management is broken. Root-console authentication remains the
+configured/Puppet-managed policy, with no password reset.
+
+Existing VM records without `ssh_layout` retain the original shared port-22 layout
+and credentials. They are never migrated or recreated automatically. Their internal
+management still depends on the original daemon; nondefault system ports fail with
+an explicit compatibility diagnosis. Destroy/recreate explicitly to obtain the new
+layout. `ssh_layout` is not a project setting and unsupported versions fail closed.
+Version 1 VMs retain their separated daemons and original regular `empeira` account
+at `/home/empeira`. Neither older layout is automatically converted to a system
+account; explicitly recreate a disposable VM when the new account is required.
 
 Packaged container images install and start OpenSSH, generating host keys at first
 startup. They enable public-key login with `.ssh/authorized_keys`; password and
@@ -192,7 +264,7 @@ keyboard-interactive login are initially disabled. They do not provision develop
 accounts or authorized keys. Puppet may manage the daemon and authentication policy.
 Custom node images must provide the corresponding startup and package-manager contract.
 
-Empeira also uses the VM account and managed key internally to install the agent,
+Empeira uses the private management account and identity internally to install the agent,
 enroll certificates and run Puppet. User-facing SSH opens an ordinary interactive
 login without the internal provisioning command or automatic sudo.
 
@@ -258,6 +330,8 @@ Cloud-init grows the actual root partition and filesystem while preserving boot/
 partitions. Empeira verifies disk, partition and filesystem capacity after cloud-init
 and before managed package installation; failed growth retains an incomplete VM for
 diagnosis and prevents enrollment and Puppet. Check `df -h /` through `node ssh`.
+The checks support both integer and decimal-string byte counts from supported
+guest `lsblk` versions, with identical partition and filesystem growth requirements.
 Changing `vm.disk` affects only subsequently created VMs; `up` and `node start`
 preserve existing disks. Container nodes do not use this setting.
 

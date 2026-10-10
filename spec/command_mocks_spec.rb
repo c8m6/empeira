@@ -252,9 +252,9 @@ RSpec.describe Empeira::Node::Service do
   let(:providers) { instance_double(Empeira::Providers::Registry) }
   let(:service) { described_class.new(context: context, runner: Empeira::Execution::Runner.new, providers: providers) }
 
-  it 'does not construct providers when there are no configured or managed mocks' do
+  it 'does not construct providers when there are no nodes to reconcile' do
     expect(providers).not_to receive(:build)
-    expect(service.reconcile(state: { 'nodes' => { 'one' => { 'provider' => 'vm' } } })).to be(false)
+    expect(service.reconcile(state: { 'nodes' => {} })).to be(false)
   end
 
   it 'routes cleanup to both recorded providers without short-circuiting after a change' do

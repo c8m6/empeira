@@ -22,6 +22,7 @@ module Empeira
         credentials = Node::SSHCredentials.new(context: @context, runner: @runner, provider: 'vm',
                                                hostname: record.fetch('hostname'))
         credentials.prepare
+        management_credentials(record).prepare if Management.separate?(record)
         key = credentials.key_path
         files = seed_files(directory, record, File.read("#{key}.pub").strip)
         create_iso(directory, files)
@@ -89,19 +90,25 @@ module Empeira
                       'routes' => [{ 'to' => '0.0.0.0/0', 'via' => record.fetch('peer').fetch('gateway') }],
                       'link-local' => [], 'nameservers' => { 'addresses' => [record.fetch('peer').fetch('dns')] } },
           'management' => { 'match' => { 'macaddress' => Network::Peer::Management.new(record).mac },
-                            'set-name' => 'eth1', 'dhcp4' => true, 'dhcp6' => false, 'link-local' => [],
-                            'dhcp4-overrides' => { 'use-dns' => false, 'use-routes' => false } }
+                            'set-name' => 'eth1', 'dhcp6' => false, 'link-local' => [],
+                            **management_network(record) }
         } }
+      end
+
+      def management_network(record)
+        return { 'dhcp4' => false, 'addresses' => ["#{Management::ADDRESS}/24"] } if Management.separate?(record)
+
+        { 'dhcp4' => true, 'dhcp4-overrides' => { 'use-dns' => false, 'use-routes' => false } }
       end
 
       def cloud_config(record, public_key, console: true)
         scripts = bootstrap_files
         { 'hostname' => record.fetch('hostname').split('.').first,
           'fqdn' => record.fetch('hostname'), 'manage_etc_hosts' => true,
-          'users' => [{ 'name' => USER, 'sudo' => 'ALL=(ALL) NOPASSWD:ALL',
-                        'shell' => '/bin/bash', 'ssh_authorized_keys' => [public_key] }],
+          'users' => [management_user(record, public_key)],
           'ssh_pwauth' => false, 'disable_root' => true,
-          'write_files' => cloud_files(scripts), 'runcmd' => cloud_commands(scripts),
+          'write_files' => cloud_files(scripts) + management_files(record, public_key),
+          'runcmd' => cloud_commands(scripts, record),
           **(console ? console_password : {}) }
       end
 
@@ -120,8 +127,27 @@ module Empeira
                  'content' => "net.ipv6.conf.all.disable_ipv6=1\nnet.ipv6.conf.default.disable_ipv6=1\n" }] + scripts
       end
 
-      def cloud_commands(scripts)
-        [['sysctl', '--system'], *scripts.map { |entry| [entry.fetch('path')] }]
+      def cloud_commands(scripts, record)
+        management = Management.separate?(record) ? [[Management::SETUP]] : []
+        [['sysctl', '--system'], *management, *scripts.map { |entry| [entry.fetch('path')] }]
+      end
+
+      def management_credentials(record)
+        Node::SSHCredentials.new(context: @context, runner: @runner, provider: 'vm', purpose: :management,
+                                 hostname: record.fetch('hostname'))
+      end
+
+      def management_user(record, public_key)
+        account = { 'name' => USER, 'sudo' => 'ALL=(ALL) NOPASSWD:ALL', 'shell' => '/bin/bash' }
+        return account.merge('ssh_authorized_keys' => [public_key]) unless Management.system_account?(record)
+
+        account.merge('system' => true, 'homedir' => Management.home(record), 'lock_passwd' => true)
+      end
+
+      def management_files(record, public_key)
+        return [] unless Management.separate?(record)
+
+        Management.files(record, management_credentials(record).public_path.read.strip, system_key: public_key)
       end
 
       def bootstrap_files

@@ -21,6 +21,7 @@ module Empeira
 
         ['-F', File::NULL, '-i', @credentials.key_path.to_s, '-p', record.fetch('ssh_port').to_s,
          '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'PasswordAuthentication=no',
+         '-o', 'KbdInteractiveAuthentication=no',
          '-o', 'StrictHostKeyChecking=accept-new', '-o', known_hosts_option,
          '-o', "GlobalKnownHostsFile=#{File::NULL}", '-o', 'ConnectTimeout=5', '-o', 'ForwardAgent=no',
          '-o', 'ClearAllForwardings=yes', *proxy_options]

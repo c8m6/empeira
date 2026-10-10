@@ -6,8 +6,11 @@ module Empeira
   module Node
     # Per-node credentials and known hosts stay in private workspace storage.
     class SSHCredentials
-      def initialize(context:, runner:, provider:, hostname:)
+      def initialize(context:, runner:, provider:, hostname:, purpose: nil)
         @runner = runner
+        raise ArgumentError, 'Unknown SSH credential scope' unless [nil, :management, :system].include?(purpose)
+
+        @purpose = purpose
         parent = provider == 'vm' ? 'vms' : 'containers'
         @directory = context.locations.workspace(context.workspace).join(parent, hostname)
       end
@@ -15,15 +18,15 @@ module Empeira
       attr_reader :directory
 
       def key_path
-        directory.join('id_ed25519')
+        directory.join(@purpose == :management ? 'id_management_ed25519' : 'id_ed25519')
       end
 
       def public_path
-        directory.join('id_ed25519.pub')
+        Pathname("#{key_path}.pub")
       end
 
       def known_hosts
-        directory.join('known_hosts')
+        directory.join(@purpose ? "#{@purpose}_known_hosts" : 'known_hosts')
       end
 
       def prepare
@@ -65,7 +68,8 @@ module Empeira
       end
 
       def generate
-        result = @runner.run('ssh-keygen', arguments: ['-q', '-t', 'ed25519', '-N', '', '-f', key_path.to_s],
+        result = @runner.run('ssh-keygen', arguments: ['-q', '-t', 'ed25519', '-C', 'empeira-managed',
+                                                       '-N', '', '-f', key_path.to_s],
                                            timeout: 15)
         raise Error, 'Cannot create managed SSH key; install openssh-client on the CLI host' unless result.success?
       end
