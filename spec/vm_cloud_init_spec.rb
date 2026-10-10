@@ -41,7 +41,8 @@ RSpec.describe Empeira::VM::CloudInit do
       success
     end
     cloud = described_class.new(context: app.context, runner: runner, executable_path: @directory)
-    record = { 'os' => 'ubuntu', 'version' => '24.04', 'hostname' => 'host1', 'mac_address' => '52:54:00:12:34:56',
+    record = { 'os' => 'ubuntu', 'version' => '24.04', 'ssh_layout' => Empeira::VM::Management::VERSION,
+               'hostname' => 'host1', 'mac_address' => '52:54:00:12:34:56',
                'peer' => { 'gateway' => '10.200.30.2', 'ip' => '10.203.20.32', 'dns' => '10.203.20.130' } }
     captured = nil
     allow(cloud).to receive(:create_iso).and_wrap_original do |original, directory, files|
@@ -69,7 +70,8 @@ RSpec.describe Empeira::VM::CloudInit do
     expect(captured.values.join).not_to include('/srv/server-only.sh')
     network = YAML.safe_load(captured.fetch('network-config'))
     expect(network.dig('ethernets', 'peer', 'nameservers', 'addresses')).to eq(['10.203.20.130'])
-    expect(network.dig('ethernets', 'management', 'dhcp4-overrides', 'use-dns')).to be(false)
+    expect(network.dig('ethernets', 'management', 'dhcp4')).to be(false)
+    expect(network.dig('ethernets', 'management', 'addresses')).to eq(['10.0.2.15/24'])
   end
 
   it 'rejects bootstrap scripts that resolve outside the project' do

@@ -63,7 +63,7 @@ RSpec.describe 'Real accelerated VM proxy policy', :integration do
     response = ssh.run(record, [*curl, 'http://denied.test'])
     expect(response).to be_success, response.stderr
     expect(response.stdout).to eq('fixture')
-    ca_path = "#{Empeira::VM::Management.home(record)}/fixture-ca.pem"
+    ca_path = "#{Empeira::VM::Management::UPLOADS}/fixture-ca.pem"
     ssh.copy_to(record, @fixture.ca_path, ca_path)
     expect(ssh.run(record,
                    [*curl, '--cacert', ca_path, 'https://allowed.test']).stdout).to eq('fixture')

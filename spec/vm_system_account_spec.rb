@@ -81,7 +81,7 @@ RSpec.describe 'Dedicated system account guard' do
     allow(self).to receive(:account).and_return('')
     result = verify
     expect(result).not_to be_success
-    expect(result.stderr).to include('missing management account empeira')
+    expect(result.stderr).to include('missing system SSH account empeira')
   end
   it 'rejects a home symlink without modifying its target' do
     FileUtils.remove_dir(home)
@@ -97,6 +97,6 @@ RSpec.describe 'Dedicated system account guard' do
     root.join('login.defs').write("UID_MIN 1000\nUID_MIN 2000\nGID_MIN 3000\n")
     result = verify
     expect(result).not_to be_success
-    expect(result.stderr).to include('unverifiable management UID/GID range')
+    expect(result.stderr).to include('unverifiable system SSH UID/GID range')
   end
 end

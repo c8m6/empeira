@@ -37,8 +37,8 @@ module Empeira
 
         def arguments
           port = @record.fetch('ssh_port')
-          separate = VM::Management.separate?(@record)
-          target = separate ? "#{VM::Management::ADDRESS}:#{VM::Management::PORT}" : ':22'
+          VM::Management.validate!(@record)
+          target = "#{VM::Management::ADDRESS}:#{VM::Management::PORT}"
           ['-netdev', "user,id=management,restrict=on,ipv6=off,hostfwd=tcp:127.0.0.1:#{port}-#{target}",
            '-device', "virtio-net-pci,netdev=management,mac=#{mac}"]
         end

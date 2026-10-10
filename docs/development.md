@@ -37,13 +37,18 @@ agent commands on retained guests after restart.
 The same manual gate tests dedicated VM management SSH while Puppet changes the
 system daemon port, restarts it and disables it. It checks real `node ssh --port`,
 the failed system login, continued managed Puppet operations and retained service
-states after VM restart. Management/system credentials and legacy layouts have
-deterministic coverage in `spec/vm_management_spec.rb`.
-`spec/vm_system_account_spec.rb` executes the account guard against synthetic passwd,
-shadow, UID bounds and home metadata without reading host credentials. The QEMU
+states after VM restart. Puppet also replaces sudoers, purges sudoers fragments and
+removes the regular `empeira` account; root management, verified SCP staging and
+subsequent Puppet runs must still work. The gate rejects password-only management
+authentication and checks effective `sshd -T` policy. Root management/system
+credentials and rejection of older layouts have deterministic coverage in `spec/vm_management_spec.rb`.
+`spec/vm_root_authentication_spec.rb` checks initial root-key preparation and
+subsequent fail-closed health checks without real accounts or passwords.
+`spec/vm_system_account_spec.rb` executes the regular SSH account guard against
+synthetic passwd, shadow, UID bounds and home metadata without reading host credentials. The QEMU
 runtime management gate combines a 30-GiB thin disk, first-catalog dummy/VLAN facts,
-normal proxy package installation, the locked system account, both SSH daemons and
-restart. Run it with the available runtime and acceleration:
+normal proxy package installation, the regular locked system SSH account, root
+management, both SSH daemons and restart. Run it with the available runtime and acceleration:
 
 ```bash
 EMPEIRA_RUNTIME_MANAGEMENT_INTEGRATION=1 EMPEIRA_VM_RUNTIME=docker \

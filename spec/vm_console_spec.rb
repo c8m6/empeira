@@ -93,7 +93,11 @@ RSpec.describe 'VM console configuration' do
                  YAML.dump('vm' => { 'console' => { 'root_password' => password } }))
       app = Empeira::Application.new(project_path: @directory)
       cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
-      record = { 'hostname' => 'node', 'os' => 'ubuntu', 'version' => '24.04' }
+      record = { 'hostname' => 'node', 'os' => 'ubuntu', 'version' => '24.04',
+                 'ssh_layout' => Empeira::VM::Management::VERSION, 'peer' => { 'ip' => '10.203.20.32' } }
+      credentials = Empeira::Node::SSHCredentials.new(context: app.context, runner: app.runner, provider: 'vm',
+                                                      hostname: 'node', purpose: :management)
+      credentials.prepare
       data = cloud.send(:cloud_config, record, 'synthetic-public-key')
       expect(data['ssh_pwauth']).to be(false)
       if password
