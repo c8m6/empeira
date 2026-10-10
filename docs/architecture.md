@@ -45,6 +45,16 @@ flowchart TD
 | Image source | Upstream metadata, integrity verification and immutable VM base images |
 | Execution | Argument-array processes, timeouts, streaming and diagnostic redaction |
 
+VM interface rules resolve through Configuration using the shared hostname glob
+matcher. The VM provider invokes the guest interface reconciler through its existing
+management SSH channel after agent installation, on start/up and before managed
+Puppet runs. Device intent and recovery definitions live in the locked node inventory;
+atomically assigned locally administered MAC addresses and verified aliases bind
+devices to workspace/node ownership. Guest observations establish device type,
+parent, address and routes before mutation. The VM engine,
+QEMU NIC topology, peer adapters and gateway policy remain independent of these
+guest-only devices. See [interface lifecycle](nodes.md#additional-vm-interface-lifecycle).
+
 OpenVox is the default software. `images.server`, `images.puppetdb` and
 `images.postgres` select OCI images independently. `server.runtime` and
 `puppetdb.runtime` describe compatible startup contracts without classifying image

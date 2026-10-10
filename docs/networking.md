@@ -5,6 +5,14 @@ and arbitrary internal TCP/UDP. They have no unrestricted host-network or Intern
 attachment. External traffic requires an explicit TCP grant or allowlisted proxy
 policy. IPv6 is disabled; external UDP grants are unsupported.
 
+VM-only [additional dummy/VLAN interfaces](configuration.md#additional-vm-interfaces)
+exist entirely inside the guest. They provide ordinary Facter bindings without an
+external VLAN attachment or changes to the peer/management NICs. Their connected
+routes must avoid existing guest routes, the workspace and management subnets,
+and transparent redirect source addresses. `/32` is preferred for isolated fact
+tests. Empeira verifies and preserves default routes, and refuses foreign device
+ownership or dependencies instead of removing them.
+
 ```mermaid
 flowchart LR
     subgraph Lab[Isolated Empeira workspace]

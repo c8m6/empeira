@@ -7,6 +7,7 @@ module Empeira
 
       def preflight_vm(request)
         reject_vm_name!(request.hostname.downcase)
+        ::Empeira::VM::Interfaces.validate_static!(context, request.hostname, @state)
         accelerator = @engine.preflight!(progress: @progress)
         @progress.stage(15, 'Validating guest image and bootstrap requirements...')
         validate_bootstrap(request)

@@ -55,6 +55,7 @@ proxy:
   rules: []
 vm:
   disk: 30
+  interfaces: []
   console:
     root_password: empeira
 dns:

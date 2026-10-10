@@ -271,6 +271,76 @@ Incomplete bootstrap retains the VM for `node logs`, `node shell`, inspection an
 explicit `node destroy`. An incomplete VM must be destroyed and recreated before
 it can be started as a ready node. Preflight failures retain no new node.
 
+## Additional VM interface lifecycle
+
+Configure [additional VM interfaces](configuration.md#additional-vm-interfaces)
+when a production manifest expects a named interface in ordinary networking facts.
+After agent installation and bootstrap cleanup, Empeira creates and verifies the
+matched dummy/VLAN devices before enrollment and the first catalog. Before every
+managed `node puppet` invocation, it reconciles devices and verifies Facter again.
+Container provisioning and facts are unaffected.
+
+`vm.disk` and `vm.interfaces` are independent settings and can be used together.
+On a new VM, root disk growth is verified before package bootstrap, agent installation
+and interface reconciliation. Failed growth retains an incomplete VM without creating
+the additional interfaces or enrolling it. Updating interface rules on an existing VM
+preserves its original disk capacity, even when `vm.disk` has changed.
+
+`node start` restores ephemeral interfaces after a VM stop/start, and reconciles an
+already running VM. `empeira up` applies edits to running, provisioned VMs without
+recreating them or invoking Puppet. Stopped VMs take the current rules on their next
+start; incomplete nodes remain blocked. Changing patterns, IPs, prefixes or VLAN
+IDs updates only owned devices. A changed definition recreates that device, while
+unchanged devices keep their Linux identity. Removed rules remove owned devices;
+the parent is removed only after the last VLAN child. No guest network-manager
+configuration or Puppet service configuration is installed. Direct/manual Puppet
+and independently enabled Puppet services follow the existing access contract:
+after a guest reboot, use `node start` or `up` before running them. Empeira guarantees
+restoration before its own managed catalog requests.
+
+Ownership combines the workspace and node identities, a random instance token in
+the existing locked inventory, and a definition fingerprint. A derived locally
+administered unicast MAC is assigned in the same netlink request as device creation;
+Linux does not apply the alias at that stage. Empeira then sets and verifies the
+full ownership alias. A missing alias is recoverable only when the recorded intent
+and atomic MAC witness match; a conflicting alias or MAC is refused. Before
+changing or removing a link, Empeira checks that marker, its type, VLAN ID, parent,
+addresses and dependencies. Foreign devices, foreign child links, unexpected
+addresses, renamed links and links attached to another network block reconciliation.
+Names alone confer no ownership. Keep Puppet/network managers from managing these
+test devices concurrently. The shared lab remains a cooperative environment.
+
+Each new definition and the accepted previous definition are saved before mutation.
+An SSH timeout or lost completion leaves this intent available for the next `up`,
+`node start` or `node puppet`, which inspects the guest before continuing. Completed
+deletions are observed before ownership is released. A failure during initial
+provisioning retains an incomplete VM and prevents the first catalog; inspect it
+through SSH/console, then destroy/recreate. A later reconcile failure blocks the
+requested operation and keeps the provisioned VM available for repair and retry.
+
+To inspect regular facts and Linux VLAN metadata:
+
+```console
+empeira node ssh web-one.example.test
+sudo /opt/puppetlabs/bin/facter networking --json
+ip -j -d link show ens192
+ip -j address show ens192
+```
+
+Empeira verifies `networking.interfaces.DEVICE.bindings[0].address` and `netmask`
+against the configured IPv4 CIDR. The ordinary Puppet expression works unchanged:
+
+```puppet
+$node_src_ip = $facts['networking']['interfaces'][$vlan]['bindings'][0]['address']
+```
+
+The [Facter networking contract](https://help.puppet.com/core/current/Content/PuppetCore/Markdown/core_facts.htm)
+documents IPv4 `bindings`; a VLAN-ID fact is not assumed. VLAN ID and 802.1Q protocol
+are checked separately in `ip -j -d link` output. The managed parent can also appear
+in Facter, without an IPv4 binding. Linux dummy devices can have operational state
+`UNKNOWN` while administratively `UP`; Empeira accepts `UP`/`UNKNOWN`, rejects `DOWN`,
+and checks the exact address and device type.
+
 ## Node images and fidelity
 
 | OS catalog key | Versions | Build source |

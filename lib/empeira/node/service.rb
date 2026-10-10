@@ -47,15 +47,28 @@ module Empeira
         return false unless state
 
         records = state.fetch('nodes', {}).values
-        return false if @context.configuration.dig('mocks', 'commands').empty? &&
-                        records.all? { |record| record.fetch('command_mocks', {}).empty? }
-
-        records.map { |record| record.fetch('provider') }.uniq.map do |name|
+        reconciliation_providers(records).map do |name|
           provider(name).reconcile_all(state: state)
         end.any?
       end
 
       private
+
+      def reconciliation_providers(records)
+        if !@context.configuration.dig('mocks', 'commands').empty? ||
+           records.any? { |record| !record.fetch('command_mocks', {}).empty? }
+          return records.map { |record| record.fetch('provider') }.uniq
+        end
+
+        vm_interfaces_needed?(records) ? ['vm'] : []
+      end
+
+      def vm_interfaces_needed?(records)
+        rules = @context.configuration.dig('vm', 'interfaces') || []
+        records.any? do |record|
+          record['provider'] == 'vm' && (record.key?('network_interfaces') || !rules.empty?)
+        end
+      end
 
       def provider(name)
         @providers.build(name, **@dependencies)

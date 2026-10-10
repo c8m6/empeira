@@ -38,9 +38,10 @@ RSpec.describe Empeira::Configuration do
     expect(Empeira::ControlPlane::Plan.new(context: context)).to be_proxy
   end
 
-  it 'merges VM disk capacity independently of console configuration' do
+  it 'merges VM disk capacity independently of interfaces and console configuration' do
     write_config('vm: {disk: 48}')
-    expect(load_config.fetch('vm')).to eq('disk' => 48, 'console' => { 'root_password' => 'empeira' })
+    expect(load_config.fetch('vm')).to eq('disk' => 48, 'interfaces' => [],
+                                          'console' => { 'root_password' => 'empeira' })
   end
 
   [nil, 0, -1, 1.5, '30', true, 2049].each do |size|

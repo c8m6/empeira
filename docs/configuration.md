@@ -146,6 +146,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `proxy.global` | DNS destination array, `[]` |
 | `proxy.rules` | Additive hostname-glob rules with `hosts` and `allow` arrays, `[]` |
 | `vm.disk` | New VM virtual disk capacity in GiB, integer `1`–`2048`, default `30`; must accommodate the base image |
+| `vm.interfaces` | VM-only hostname rules defining dummy/VLAN devices with explicit IPv4 CIDR host addresses, `[]` |
 | `vm.console.root_password` | Initial console password, `empeira`; a string overrides it and `null` disables it |
 | `dns.upstream` | `mode: host` and empty `servers` by default; explicit mode requires resolver IPs |
 | `dns.additional_resolver` | Optional DNS name or IP address queried before the existing upstream for non-Empeira names; NXDOMAIN/NODATA fall through |
@@ -691,6 +692,76 @@ network:
 Named direct destinations enter generated `NO_PROXY`; applications choose DIRECT
 or proxy themselves. See [networking](networking.md#one-gateway-one-direct-egress-policy)
 for routing, revocation and privilege boundaries.
+
+## Additional VM interfaces
+
+`vm.interfaces` supplies real Linux devices for ordinary Facter and Puppet network
+lookups. Container nodes ignore these rules. Arrays replace earlier arrays through
+the normal configuration merge; there is no automatic address assignment. Configure
+`vm.disk` independently in the same mapping; growth is verified before package
+bootstrap and interface creation on new VMs.
+
+```yaml
+vm:
+  disk: 32
+  interfaces:
+    - hosts: ["web-*.example.test", "app-*"]
+      devices:
+        ens192:
+          network: 192.0.2.10/32
+          vlan_id: 123
+        ens224:
+          network: 198.51.100.10/24
+          vlan_id: 456
+        dummy0:
+          network: 203.0.113.10/32
+    - hosts: ["db-*"]
+      devices:
+        ens192:
+          network: 192.0.2.20/32
+```
+
+Patterns use the same `*`/`?` glob matcher as `proxy.rules`, against the full stored
+node hostname, case-insensitively. Patterns within a rule are alternatives. All
+matching rules contribute devices; identical definitions merge once. A conflicting
+definition names the hostname, device and both configuration paths. No match creates
+no devices. A short pattern does not implicitly match a fully qualified hostname.
+
+Each device requires `network`: a canonical IPv4 **host** address with a CIDR
+prefix from 0 through 32, subject to the unicast/routing checks below. `vlan_id` is
+optional, and must be an integer from 1 through 4094. Without it, Empeira creates a
+Linux dummy device. With it, Empeira creates an 802.1Q VLAN over its private dummy
+parent `empeira-vlan`. Each VLAN ID may occur only once on this shared parent.
+The parent has no IP addresses or external attachment. These are real VLAN devices,
+but they do not simulate a connected production VLAN segment or transmit packets
+to other nodes. No QEMU NIC, DHCP, bridge, forwarding, gateway grant or proxy rule
+is added.
+
+Device names use 1–15 ASCII letters, digits, underscores, dots or hyphens, beginning
+with a letter or digit. `lo`, `eth0`, `eth1`, `peer`, `management` and `empeira-vlan`
+are reserved. Unknown keys, IPv6, duplicate addresses/VLAN IDs and overlapping
+device networks are rejected. Network/broadcast addresses within prefixes below
+/31 are rejected, as are subnets overlapping unspecified, loopback, link-local,
+shared-address, protocol-assignment, deprecated relay, multicast or reserved ranges.
+Private and RFC documentation addresses are permitted. `/31` endpoints and `/32`
+hosts are permitted; separate `prefix`/`netmask` keys are unsupported.
+
+Prefer `/32` for Facter tests. Other prefixes create connected routes, so Empeira
+checks all guest IPv4 routing tables and existing interface addresses first. The
+workspace subnet, QEMU management subnet and `network.redirects` source addresses
+are protected even if their routes are absent. Overlap is refused, including a /32
+inside an existing connected network. Automatically generated routes of owned test
+devices are recognized during reconciliation; manually added routes on those devices
+block mutation. Default routes are compared after reconciliation and never edited.
+
+The guest requires JSON-capable `iproute2`, `modprobe` when modules are not already
+loaded, and kernel `dummy`/`8021q` support. Empeira loads an absent dummy module with
+`numdummies=0` to avoid creating an unowned default `dummy0`. An already existing
+device, including a kernel-created `dummy0`, is a collision and is never adopted.
+Failures preserve the VM and report native guest diagnostics.
+
+See [VM interface lifecycle](nodes.md#additional-vm-interface-lifecycle) for updates,
+ownership, recovery and the regular Facter structure.
 
 ## Transparent TCP redirects
 
