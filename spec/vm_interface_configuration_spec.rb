@@ -11,7 +11,17 @@ RSpec.describe Empeira::Configuration::VMInterfaces do
   it 'loads the empty default and validates fragments through the existing loader' do
     expect(Empeira::Configuration::Loader.new(project_path: @directory).load.dig('vm', 'interfaces')).to eq([])
     File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('vm' => { 'interfaces' => rules }))
-    expect(Empeira::Configuration::Loader.new(project_path: @directory).load.dig('vm', 'interfaces')).to eq(rules)
+    config = Empeira::Configuration::Loader.new(project_path: @directory).load
+    expect(config.dig('vm', 'interfaces')).to eq(rules)
+    expect(config.dig('vm', 'disk')).to eq(30)
+  end
+
+  it 'loads disk capacity and interface rules together without replacing console defaults' do
+    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('vm' => { 'disk' => 32, 'interfaces' => rules }))
+    config = Empeira::Configuration::Loader.new(project_path: @directory).load
+    expect(config.fetch('vm')).to eq('disk' => 32, 'interfaces' => rules,
+                                     'console' => { 'root_password' => 'empeira' })
+    expect(described_class.resolve(config.dig('vm', 'interfaces'), 'WEB-A.EXAMPLE.TEST')).to eq(devices)
   end
 
   it 'matches full hostnames case-insensitively using the proxy glob semantics' do

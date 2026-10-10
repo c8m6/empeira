@@ -88,7 +88,7 @@ RSpec.describe Empeira::Node::VM do
 
     def write_vm_interfaces(definitions)
       rules = definitions.empty? ? [] : [{ 'hosts' => ['VM-*'], 'devices' => definitions }]
-      File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('vm' => { 'interfaces' => rules }))
+      File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('vm' => { 'disk' => 32, 'interfaces' => rules }))
     end
 
     before do
@@ -111,6 +111,43 @@ RSpec.describe Empeira::Node::VM do
       expect(provider.run(request).changed).to be(true)
       expect(store.load.dig('nodes', 'vm-host', 'network_interfaces', 'devices', 'ens192',
                             'definition')).to eq(devices['ens192'])
+    end
+
+    it 'verifies disk growth before packages, interfaces, enrollment and the first catalog' do
+      ssh = provider.instance_variable_get(:@ssh)
+      growth = Empeira::VM::RootDisk.new(ssh: ssh)
+      packages = instance_double(Empeira::Node::PackageBootstrap, required?: true)
+      allow(Empeira::Node::PackageBootstrap).to receive(:new).and_return(packages)
+      expect(growth).to receive(:verify!).with(hash_including('hostname' => 'vm-host'), size_gib: 32).ordered
+      expect(packages).to receive(:run).with(proxy_url: /bootstrap/).ordered do
+        expect(network_guest.links).not_to have_key('ens192')
+      end
+      expect(provider.instance_variable_get(:@agent)).to receive(:ensure_installed).ordered
+      certificates = Empeira::Node::Certificates.new
+      expect(certificates).to receive(:enroll).ordered do
+        expect(network_guest.links.dig('ens192', 'linkinfo', 'info_data', 'id')).to eq(123)
+        expect(network_guest.commands).to include(['/opt/puppetlabs/bin/facter', 'networking', '--json'])
+      end
+      expect(ssh).to receive(:stream).ordered.and_return(network_guest.result(''))
+      expect(provider.run(request).changed).to be(true)
+      expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(true)
+    end
+
+    it 'blocks packages and interface reconciliation when root growth fails on the combined configuration' do
+      ssh = provider.instance_variable_get(:@ssh)
+      growth = Empeira::VM::RootDisk.new(ssh: ssh)
+      allow(growth).to receive(:verify!).and_raise(Empeira::Error, 'VM root filesystem has not grown')
+      packages = instance_double(Empeira::Node::PackageBootstrap, required?: true)
+      allow(Empeira::Node::PackageBootstrap).to receive(:new).and_return(packages)
+      expect(packages).not_to receive(:run)
+      expect(provider.instance_variable_get(:@agent)).not_to receive(:ensure_installed)
+      expect(Empeira::Node::Certificates.new).not_to receive(:enroll)
+      expect(ssh).not_to receive(:stream)
+      expect { provider.run(request) }.to raise_error(Empeira::Error, /root filesystem.*retained for diagnosis/m)
+      expect(network_guest.commands).to be_empty
+      expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(false)
+      expect { provider.start(name: 'vm-host') }.to raise_error(Empeira::Error, /incomplete/)
+      expect { provider.puppet(name: 'vm-host') }.to raise_error(Empeira::Error, /incomplete/)
     end
 
     it 'restores after start, reconciles running nodes through the node service, and removes changed rules' do
@@ -191,10 +228,30 @@ RSpec.describe Empeira::Node::VM do
         events << :vm_booted
         12_345
       end
+      growth = Empeira::VM::RootDisk.new(ssh: ssh)
+      allow(growth).to receive(:verify!) { events << :disk_verified }
       allow(proxy).to receive(:start) { events << :bootstrap_proxy }
       allow(proxy).to receive(:cleanup) { events << :proxy_cleanup }
       provider.run(request)
-      expect(events.first(6)).to eq(%i[vm_booted bootstrap_proxy packages apt_restored proxy_cleanup puppet])
+      expect(events.first(7)).to eq(
+        %i[vm_booted disk_verified bootstrap_proxy packages apt_restored proxy_cleanup puppet]
+      )
+    end
+
+    it 'retains an incomplete VM and blocks package installation and Puppet after failed root growth' do
+      engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+      provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+      ssh = provider.instance_variable_get(:@ssh)
+      growth = Empeira::VM::RootDisk.new(ssh: ssh)
+      allow(growth).to receive(:verify!).and_raise(Empeira::Error, 'VM root filesystem has not grown')
+      expect(provider.instance_variable_get(:@agent)).not_to receive(:ensure_installed)
+      expect(ssh).not_to receive(:stream)
+      packages = instance_double(Empeira::Node::PackageBootstrap, required?: true)
+      allow(Empeira::Node::PackageBootstrap).to receive(:new).and_return(packages)
+      expect(packages).not_to receive(:run)
+      expect { provider.run(request) }.to raise_error(Empeira::Error, /root filesystem.*retained for diagnosis/m)
+      expect(store.load.dig('nodes', 'vm-host', 'provisioned')).to be(false)
+      expect { provider.puppet(name: 'vm-host') }.to raise_error(Empeira::Error, /incomplete/)
     end
 
     it 'does not run Puppet and cleans up bootstrap access when APT restoration fails' do
@@ -257,7 +314,8 @@ RSpec.describe Empeira::Node::VM do
   # rubocop:disable-next Metrics/AbcSize -- Disk behavior remains observable through real files.
   def prepare_disk_component
     disk = instance_double(Empeira::VM::Disk)
-    allow(disk).to receive(:create) do |hostname:, base:|
+    allow(disk).to receive(:create) do |hostname:, base:, size_gib:|
+      expect(size_gib).to eq(app.context.configuration.dig('vm', 'disk'))
       path = app.context.locations.workspace(app.context.workspace).join('vms', hostname, 'disk.qcow2')
       FileUtils.mkdir_p(path.dirname)
       File.write(path, "overlay for #{base}")
@@ -295,6 +353,8 @@ RSpec.describe Empeira::Node::VM do
     end
     allow(ssh).to receive(:stream).and_return(success)
     allow(Empeira::VM::SSH).to receive(:new).and_return(ssh)
+    allow(Empeira::VM::RootDisk).to receive(:new).with(ssh: ssh)
+                                                 .and_return(instance_double(Empeira::VM::RootDisk, verify!: nil))
     agent = instance_double(Empeira::VM::Agent, ensure_installed: nil)
     allow(Empeira::VM::Agent).to receive(:new).and_return(agent)
     peer = instance_double(Empeira::Network::Peer::LinuxPodman, preflight: nil, prepare: nil, stop: nil,
@@ -397,7 +457,7 @@ RSpec.describe Empeira::Node::VM do
     client = instance_double(Empeira::Node::UserSSH)
     expect(Empeira::Node::UserSSH).to receive(:new).with(
       runner: app.runner, credentials: an_instance_of(Empeira::Node::SSHCredentials), proxy_command: nil,
-      default_user: 'empeira', managed_identity: true
+      default_user: 'empeira', managed_identity: true, home: app.context.locations.home
     ).twice.and_return(client)
     calls = 0
     allow(client).to receive(:session) do |record, **|
@@ -489,6 +549,11 @@ RSpec.describe Empeira::Node::VM do
     expect(provider.list.first['state']).to eq('stopped')
     overlay = app.context.locations.workspace(app.context.workspace).join(record.fetch('overlay'))
     expect(overlay).to exist
+    expect(provider.instance_variable_get(:@disk)).not_to receive(:create)
+    expect(Empeira::VM::RootDisk).not_to receive(:new)
+    changed = Empeira::Configuration::Merge.call(app.context.configuration, { 'vm' => { 'disk' => 48 } })
+    changed_context = app.context.with(configuration: Empeira::Immutable.deep_freeze(changed))
+    provider = described_class.new(context: changed_context, runner: app.runner, backend: engine, runtime: runtime)
     events = []
     progress = Empeira::Progress.new(listener: ->(event) { events << event })
     provider.instance_variable_set(:@progress, progress)

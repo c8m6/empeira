@@ -374,6 +374,7 @@ RSpec.describe Empeira::Node::Container do
     client = instance_double(Empeira::Node::UserSSH)
     expect(Empeira::Node::UserSSH).to receive(:new).with(
       runner: app.runner, credentials: an_instance_of(Empeira::Node::SSHCredentials),
+      home: app.context.locations.home,
       proxy_command: ['ruby', 'managed-ssh-proxy', 'docker', record.fetch('id')]
     ).and_return(client)
     expect(client).to receive(:session).with(hash_including('id' => record.fetch('id')), user: nil, identity: nil)

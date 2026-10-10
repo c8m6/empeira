@@ -155,6 +155,15 @@ also works for incomplete nodes once the VM and SSH daemon are running.
 An authentication failure remains an SSH failure, with the client's output and
 exit status. It never creates a login user, injects keys, or falls back to exec.
 
+Optional personal defaults and hostname rules in `~/.empeira.yaml` apply to this
+interactive command. Each field uses CLI override, last matching rule, global
+preference, then provider default, in that order. Rules match full hostnames with
+case-insensitive `*`/`?` globs; omitted fields preserve their existing value.
+See [personal SSH configuration](configuration.md#optional-user-preferences) for
+the schema and identity-file checks. VM management SSH continues to use its own
+account and managed key for bootstrap, enrollment and Puppet regardless of these
+preferences. Shell/console access is unchanged.
+
 ```console
 empeira node ssh host1
 empeira node ssh host1 --user deploy
@@ -241,6 +250,17 @@ The immutable cache identity includes distribution, version, architecture, sourc
 revision and checksum. Each VM has a QCOW2 overlay pinned to its original base.
 Destroying a node removes its overlay and seed, preserving the shared base cache.
 
+`vm.disk` sets the virtual capacity of new VM overlays in GiB (default `30`, maximum
+`2048`). A capacity smaller than the base image is rejected. The overlay is thin:
+the host stores changed blocks, rather than reserving the entire virtual capacity.
+Sizing is verified before the overlay is published and before QEMU starts.
+Cloud-init grows the actual root partition and filesystem while preserving boot/EFI
+partitions. Empeira verifies disk, partition and filesystem capacity after cloud-init
+and before managed package installation; failed growth retains an incomplete VM for
+diagnosis and prevents enrollment and Puppet. Check `df -h /` through `node ssh`.
+Changing `vm.disk` affects only subsequently created VMs; `up` and `node start`
+preserve existing disks. Container nodes do not use this setting.
+
 Cloud-init prepares identity, the management account, DNS adapter, console recovery
 and optional project scripts. Managed installation then installs the selected public
 Puppet/OpenVox agent through separate bootstrap proxy access. Normal proxy rules are
@@ -259,6 +279,12 @@ After agent installation and bootstrap cleanup, Empeira creates and verifies the
 matched dummy/VLAN devices before enrollment and the first catalog. Before every
 managed `node puppet` invocation, it reconciles devices and verifies Facter again.
 Container provisioning and facts are unaffected.
+
+`vm.disk` and `vm.interfaces` are independent settings and can be used together.
+On a new VM, root disk growth is verified before package bootstrap, agent installation
+and interface reconciliation. Failed growth retains an incomplete VM without creating
+the additional interfaces or enrolling it. Updating interface rules on an existing VM
+preserves its original disk capacity, even when `vm.disk` has changed.
 
 `node start` restores ephemeral interfaces after a VM stop/start, and reconciles an
 already running VM. `empeira up` applies edits to running, provisioned VMs without

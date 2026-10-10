@@ -7,9 +7,11 @@ require_relative '../support/eyaml_fixture'
 require_relative '../support/hiera_fixture'
 require_relative '../support/node_access'
 require_relative '../support/login_fixture'
+require_relative '../support/personal_ssh'
 
 RSpec.describe 'Real runtime smoke', :integration do
   include LiveNodeAccess
+  include LivePersonalSSH
 
   Empeira::Runtime.registry.names.each do |engine|
     context engine do
@@ -74,7 +76,11 @@ RSpec.describe 'Real runtime smoke', :integration do
           event.state == :warning && event.message.include?('hieradata_unavailable')
         end).to be(true)
 
-        app.run_node(hostname: 'smoke-node', provider: 'container')
+        personal = personal_ssh_application(app, locations: locations, login: @login, pattern: 'smoke-*')
+        personal.run_node(hostname: 'smoke-node', provider: 'container')
+        expect([0, 2]).to include(personal.nodes.puppet(name: 'smoke-node').exit_status)
+        inventory = Empeira::Infrastructure::Store.new(context: personal.context).load
+        expect(JSON.generate(inventory)).not_to include('lab-key', 'unconfigured-login', @login.identity.to_s)
         node = app.nodes.list.first
         expect(node).to include('hostname' => 'smoke-node', 'state' => 'running')
         expect([0, 2]).to include(node.fetch('last_puppet_exit'))
@@ -85,6 +91,7 @@ RSpec.describe 'Real runtime smoke', :integration do
           .to eq(Empeira::Node::ExternalFact.content('container'))
         verify_hiera_and_ssh(server)
         verify_ssh_session(app, name: 'smoke-node', user: @login.username, identity: @login.identity)
+        verify_personal_ssh_sessions(personal, name: 'smoke-node', login: @login)
         verify_exec_session(app, name: 'smoke-node')
         expect { app.run_node(hostname: 'smoke-node', provider: 'container') }
           .to raise_error(Empeira::Providers::AlreadyExists)

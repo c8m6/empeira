@@ -159,7 +159,13 @@ Rootless Podman also needs writable TUN/KVM inside its namespace. See
 The VM scope also includes `spec/integration/vm_interfaces_spec.rb`. It observes real
 Linux dummy/VLAN types, VLAN IDs, addresses and activation, checks Facter JSON, and
 reads a file written by the first catalog from the ordinary network bindings. It
-then tests idempotent `up`, stop/start restoration, address/VLAN edits and removal,
+creates the VM with both a 32 GiB disk and interface rules, verifies the thin overlay,
+unchanged base checksum and root filesystem growth, and checks package installation.
+Later interface edits and removal use `vm.disk: 48` while retaining the original
+32 GiB capacity through reconciliation and restart. The deterministic VM provider
+regressions verify root growth precedes packages and interfaces, and that failed
+growth blocks both features, enrollment and Puppet.
+The real gate also tests idempotent `up`, stop/start restoration, address/VLAN edits and removal,
 with managed SSH, DNS, proxy, gateway redirects and Puppet TLS checks. This gate
 requires the same capable disposable host; deterministic guest models do not prove
 real kernel or Facter compatibility.
@@ -170,6 +176,12 @@ a permanent guest error at the final APT backup removal: the restored archive mu
 remain verifiable, Puppet must stay blocked, and SSH/console access must release the
 workspace lock while preventing concurrent stop of that instance. The injected error
 does not reproduce an unexplained historical SSH disconnect.
+The lifecycle case also verifies a 32 GiB thin overlay, unchanged base checksum,
+grown root partition/filesystem, package installation and `df -h /`. After changing
+`vm.disk` to 48 GiB, workspace reconciliation and restart must retain the 32 GiB disk.
+The VM lifecycle and container `lifecycle` smoke also load personal SSH defaults
+before creating nodes. They exercise hostname rules, `~/` identity expansion,
+independent CLI overrides and the unchanged internal bootstrap/Puppet transports.
 
 ```bash
 EMPEIRA_VM_INTEGRATION=1 EMPEIRA_VM_RUNTIME=docker \

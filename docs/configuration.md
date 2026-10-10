@@ -34,6 +34,15 @@ runtime:
   container_engine: docker
 images:
   registry: registry.example.net
+ssh:
+  user: empeira
+  identity: ~/.ssh/id_ed25519
+  rules:
+    - hosts: ["web-*", "app-?.example.net"]
+      user: root
+      identity: ~/.ssh/id_ed25519_lab
+    - hosts: ["db-*"]
+      user: admin
 ```
 
 User preferences override the same project keys; an explicit `--container-engine`
@@ -42,6 +51,30 @@ a project selecting Podman and `images.registry: null` uses Docker and the cache
 on this workstation without changing the repository. Explicit user `registry: null`
 restores Docker Hub resolution. `config show` displays the effective non-sensitive values.
 There is no separate source-reporting option.
+
+`ssh` is personal configuration for interactive `empeira node ssh` only; it is
+rejected in project YAML. Global `user` and `identity` are independently optional,
+as is the `rules` array. Each rule requires a nonempty `hosts` array and at least
+one of `user` or `identity`. Unknown keys and passwords are rejected. Patterns match
+the entire hostname, ignore case and support only `*` and `?`, with the same matching
+semantics as proxy hostname rules. Any pattern can select a rule. All matching
+rules apply in list order; the last rule defining a field wins for that field.
+An omitted field preserves the previous value.
+
+Each field resolves independently: explicit `--user`/`--identity`, then its last
+matching rule, then its global value, then the provider default. Without a configured
+value, VMs use `empeira` and their existing managed key; containers use the local
+username and normal OpenSSH identities/agent/config. Identity paths in this YAML
+must be absolute or start with `~/`, expanded through the platform home. Relative
+CLI identity paths retain their existing meaning relative to the invocation directory.
+Before connecting, the selected external key must be a readable regular file with
+no symlink and no group/other permission bits (`chmod 600` or `400`). Key contents
+are never read, copied or included in diagnostics by preference resolution.
+
+Personal SSH preferences are kept outside the effective infrastructure configuration,
+`config show`, inventory and fingerprints. They do not alter internal VM SSH,
+bootstrap, agent configuration, Puppet, shell/console, start/run or control-plane
+behavior. File checks apply only when an identity is selected for `node ssh`.
 
 This file is deliberately not a second project definition. Any other key, including
 `server`, `agent`, `network`, `containers`, `browser`, `images.server`, `images.nodes`, or
@@ -112,6 +145,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `proxy.enabled` | Boolean, `false`; creates the normal HTTP/HTTPS policy proxy |
 | `proxy.global` | DNS destination array, `[]` |
 | `proxy.rules` | Additive hostname-glob rules with `hosts` and `allow` arrays, `[]` |
+| `vm.disk` | New VM virtual disk capacity in GiB, integer `1`–`2048`, default `30`; must accommodate the base image |
 | `vm.interfaces` | VM-only hostname rules defining dummy/VLAN devices with explicit IPv4 CIDR host addresses, `[]` |
 | `vm.console.root_password` | Initial console password, `empeira`; a string overrides it and `null` disables it |
 | `dns.upstream` | `mode: host` and empty `servers` by default; explicit mode requires resolver IPs |
@@ -437,6 +471,7 @@ hiera:
       type: module
       name: hieradata
 vm:
+  disk: 30
   console:
     root_password: null
 ```
@@ -446,6 +481,8 @@ See [proxy policy](proxy.md),
 [Hiera and EYAML](hiera-and-eyaml.md), [DNS](networking.md), and [console recovery](nodes.md#vm-console-recovery).
 Mounts are optional unless `required: true`. The console password is used only on
 initial VM creation. Changing it does not reset an existing node.
+`vm.disk` applies only when creating a VM. Existing disks keep their capacity across
+`up` and `node start`; changing the setting does not resize or migrate them.
 
 ## Images and bootstrap
 
@@ -660,10 +697,13 @@ for routing, revocation and privilege boundaries.
 
 `vm.interfaces` supplies real Linux devices for ordinary Facter and Puppet network
 lookups. Container nodes ignore these rules. Arrays replace earlier arrays through
-the normal configuration merge; there is no automatic address assignment.
+the normal configuration merge; there is no automatic address assignment. Configure
+`vm.disk` independently in the same mapping; growth is verified before package
+bootstrap and interface creation on new VMs.
 
 ```yaml
 vm:
+  disk: 32
   interfaces:
     - hosts: ["web-*.example.test", "app-*"]
       devices:

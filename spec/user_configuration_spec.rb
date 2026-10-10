@@ -43,6 +43,31 @@ RSpec.describe 'Host-local user configuration' do
       .to eq(Empeira::Images::Configuration.reference(loader.load_defaults.dig('images', 'postgres')))
   end
 
+  it 'keeps SSH preferences separate from effective configuration and infrastructure fingerprints' do
+    baseline = Empeira::Application.new(project_path: @directory, locations: locations)
+    preferences = { 'user' => 'developer', 'identity' => '~/missing/key',
+                    'rules' => [{ 'hosts' => ['web-*'], 'user' => 'root' }] }
+    user_file.write(YAML.dump('ssh' => preferences))
+    expect(loader.load).to eq(baseline.context.configuration)
+    expect(loader.ssh_preferences).to eq(preferences)
+    expect(loader.ssh_preferences).to be_frozen
+    current = Empeira::Application.new(project_path: @directory, locations: locations)
+    expect(current.context.configuration).not_to have_key('ssh')
+    expect(Empeira::Infrastructure::Definition.new(context: current.context).metadata)
+      .to eq(Empeira::Infrastructure::Definition.new(context: baseline.context).metadata)
+  end
+
+  it 'rejects SSH preferences in the project file' do
+    File.write(File.join(@directory, '.empeira.yaml'), 'ssh: {user: root}')
+    expect { loader.load }.to raise_error(Empeira::ConfigurationError, /ssh.*not a supported/)
+  end
+
+  it 'reports the user file and complete invalid SSH rule path' do
+    user_file.write('ssh: {rules: [{hosts: ["web-*"], identity: relative/key}]}')
+    expect { loader.load }.to raise_error(Empeira::ConfigurationError,
+                                          /#{Regexp.escape(user_file.to_s)}.*ssh.rules.0.identity/)
+  end
+
   %w[unknown server puppetdb modules hiera eyaml network proxy node_defaults containers browser
      requirements bootstrap dns vm version].each do |section|
     it "rejects user-level #{section} settings with the source and offending path" do

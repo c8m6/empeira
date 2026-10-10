@@ -5,6 +5,13 @@ The CLI presents output and calls `Application`; the core loads without Thor.
 `Application` composes a canonical Git project, immutable effective configuration,
 workspace identity, platform locations and the central execution runner. Constructing
 it does not start infrastructure. Registries expose names without constructing providers.
+The loader validates personal SSH preferences separately from the effective project
+configuration. `Application` passes them only to the node-service login resolver;
+that resolver selects user/identity fields for interactive SSH before dispatching
+to the recorded provider. Internal VM transport retains its managed credentials.
+A shared hostname-pattern helper supplies matching semantics without coupling SSH
+preferences to proxy destination policy. Personal login values never enter context
+configuration, definitions, fingerprints or inventory.
 
 ```mermaid
 flowchart TD
@@ -60,6 +67,11 @@ including artifacts from authenticated sources. HTTP authentication and login oc
 only during acquisition. Both node providers upload the same host artifact and
 install it locally through native guest package managers. Bootstrap verifies cleanup
 and enrolls certificates before Puppet runs. Cloud-Init is a VM delivery mechanism only.
+VM disk preparation creates and resizes a private QCOW2 overlay, verifies its exact
+backing image and configured virtual capacity, then publishes it atomically. The
+immutable base is unchanged. First-boot readiness observes the actual mounted root
+partition and filesystem after cloud-init growth, before managed package bootstrap.
+Resume and workspace reconciliation preserve existing disk capacities.
 
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle

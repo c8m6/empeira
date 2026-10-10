@@ -64,7 +64,9 @@ module Empeira
 
           proxy = @runtime.ssh_proxy_command(resource) if record['ssh_transport'] == 'tunnel'
           UserSSH.new(runner: @runner, credentials: ssh_credentials(record.fetch('hostname')),
-                      proxy_command: proxy).session(record, user: user, identity: identity)
+                      proxy_command: proxy, home: context.locations.home).session(
+                        record, user: user, identity: identity
+                      )
         end
       end
 

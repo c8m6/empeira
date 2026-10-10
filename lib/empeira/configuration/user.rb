@@ -4,7 +4,8 @@ module Empeira
   module Configuration
     # Host preferences only; project behavior remains defined by the control repository.
     class User
-      KEYS = { 'runtime' => ['container_engine'].freeze, 'images' => ['registry'].freeze }.freeze
+      KEYS = { 'runtime' => ['container_engine'].freeze, 'images' => ['registry'].freeze,
+               'ssh' => SSHPreferences::KEYS }.freeze
 
       def initialize(path:, schema: Schema.new)
         @path = path
@@ -16,7 +17,9 @@ module Empeira
 
         data = Document.new.read(@path)
         validate_keys!(data)
-        @schema.validate_fragment!(data)
+        SSHPreferences.validate!(data.fetch('ssh')) if data.key?('ssh')
+        @schema.validate_fragment!(data.except('ssh'))
+        data
       rescue ConfigurationError => e
         raise ConfigurationError, "#{@path}: #{e.message}", cause: nil
       end
@@ -36,7 +39,7 @@ module Empeira
 
       def reject!(path)
         raise ConfigurationError, "#{path} is not allowed; user configuration may only configure " \
-                                  'runtime.container_engine and images.registry'
+                                  'runtime.container_engine, images.registry and ssh preferences'
       end
     end
   end
