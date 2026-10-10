@@ -266,7 +266,7 @@ module Empeira
         server_runtime.environment(
           certname: naming.hostname('server'), dns_alt_names: 'server',
           ca_hostname: naming.hostname('server'), autosign: 'false',
-          server_hostname: naming.hostname('server'), environment_timeout: 'unlimited',
+          server_hostname: naming.hostname('server'), environment_timeout: '0',
           java_args: '-Xms256m -Xmx768m', max_active_instances: '1',
           puppetdb_enabled: database?.to_s, storeconfigs: database?.to_s,
           reports: database? ? 'puppetdb' : 'log',

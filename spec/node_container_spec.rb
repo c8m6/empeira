@@ -363,13 +363,12 @@ RSpec.describe Empeira::Node::Container do
     expect(provider.puppet(name: 'test-node').exit_status).to eq(2)
   end
 
-  it 'refuses a stale catalog when cache invalidation fails after a code edit' do
+  it 'runs the agent after code edits without an environment admin API request' do
     provider.run(request)
     File.write(File.join(@directory, 'hiera.yaml'), 'changed')
-    failure = Empeira::Execution::Result.new(stdout: '403', stderr: '', exit_status: 22, timed_out: false)
-    allow(runtime).to receive(:service_exec).with(anything, array_including('DELETE'), timeout: 15).and_return(failure)
-    expect(runtime).not_to receive(:stream_service)
-    expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Error, /invalidation failed/)
+    allow(runtime).to receive(:service_exec).and_call_original
+    expect(runtime).not_to receive(:service_exec).with(anything, array_including('DELETE'), timeout: 15)
+    expect(provider.puppet(name: request.hostname).exit_status).to eq(0)
   end
 
   it 'stops before certificate enrollment and Puppet when distribution sources are unavailable' do

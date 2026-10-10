@@ -70,15 +70,14 @@ relative paths in `hiera.yaml`, such as `data/external` or `external` when the d
 is already `data`.
 
 All repositories stay live and read-only. Changes inside mounted Hiera repositories
-are detected before the next Empeira-managed Puppet run, which refreshes the selected
-environment cache without an image rebuild or service restart. Run `empeira up`
-after edits before invoking an agent manually outside Empeira.
+are visible to the next catalog request with `environment_timeout = 0`, without
+an image rebuild, `up`, or a service restart.
 Empeira neither copies their data nor writes probe files into them. It uses a managed
 environment directory containing links to the read-only control repository so nested
 mount targets can exist without modifying control code. Existing control files and
-linked directories remain live. `up`, node start and managed Puppet runs also refresh
-the links for new control entries under projected ancestor directories. EYAML keys remain configured
-separately in `eyaml`, and decryption runs on the server.
+linked directories remain live. `up` refreshes links for new control entries under
+projected ancestor directories. EYAML keys remain configured separately in `eyaml`,
+and decryption runs on the server.
 
 `config show` includes `effective_hiera_mounts` with resolved destinations and
 `available`/`skipped` states. These are desired mount observations, not a container
@@ -186,8 +185,8 @@ module directories can also be used without this metadata. An explicit successfu
 zero-module update permits an empty directory. This is a plausibility check, not a
 version/content check: Puppetfile changes never trigger automatic synchronization.
 Module acquisition has no freshness fingerprints or implicit repair actions. The
-runtime's separate code snapshot only invalidates Puppet's environment cache when
-local contents change; it never requests or enforces module synchronization.
+server reloads live code for each catalog with `environment_timeout = 0`; it never
+requests or enforces module synchronization.
 
 `empeira update modules` always synchronizes, including moving refs, directly into the
 configured directory. Existing Git repositories are fetched incrementally, and r10k
@@ -200,8 +199,7 @@ Both commands use the existing version gate and workspace mutation lock.
 A running server can see changes immediately through its readonly module mount.
 There is no deployment generation, activation pointer or subsequent `up` requirement
 for module content changes. This is intentional for a disposable local test environment.
-The next `node puppet` detects the edits and refreshes the environment cache; use
-`up` first if the next agent invocation happens outside Empeira.
+The next catalog request sees the edits, including from agents invoked outside Empeira.
 Empeira does not automatically run Puppet agents. A failed or interrupted update may
 leave partially updated modules visible; there is no rollback. Inspect the reported
 module/ref/version or connectivity error and rerun `update modules`. The installed-name

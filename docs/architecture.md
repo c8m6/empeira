@@ -150,10 +150,9 @@ fingerprints allow selective service reconciliation while preserving owned stora
 Network changes and unsafe storage transitions require explicit lifecycle operations;
 there are no implicit database-major migrations or automatic node replacements.
 
-A separate environment-cache checkpoint tracks live control code, modules, Hiera
-and server mounts. Changed content invalidates the selected environment through the
-server's authenticated API without restarting it. Unchanged runs reuse loaded code
-while still requesting fresh catalogs. See [nodes](nodes.md#environment-cache-and-live-code).
+Managed servers disable environment caching (`environment_timeout = 0`). Catalog
+requests reload live code without repository hashes or environment-cache checkpoints.
+See [nodes](nodes.md#environment-cache-and-live-code).
 
 Command mocks use the same node inventory, generated-file mechanism and mutation
 lock. They reconcile atomically before Puppet and during start/up, preserving

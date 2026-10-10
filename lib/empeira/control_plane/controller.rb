@@ -352,19 +352,13 @@ module Empeira
         update_hosts(reload_proxy: true) if @plan.proxy?
         @inventory['stopped'] = false
         save
-        refresh_environment_cache
         @plan.additional_configurations.prune
-      end
-
-      def refresh_environment_cache
-        refreshed = Server::EnvironmentCache.new(plan: @plan, runtime: @runtime, state: @state,
-                                                 persist: method(:save)).refresh(@observed.fetch('server'))
-        @changed = refreshed || @changed
       end
 
       def load_state(state = @store.load)
         @state = state || {}
         @inventory = @state['control_plane'] || { 'services' => {}, 'volumes' => {}, 'egress' => nil }
+        @inventory.delete('environment_cache')
         @plan.subnet = @state.dig('peer_network', 'subnet')
         @plan.browser_enabled = @inventory.fetch('services').key?('browser')
         @changed = false

@@ -97,11 +97,6 @@ module Empeira
         server
       end
 
-      def refresh_environment_cache
-        Server::EnvironmentCache.new(plan: ControlPlane::Plan.new(context: context), runtime: @runtime,
-                                     state: @state, persist: method(:save)).refresh(ready_server)
-      end
-
       def reserve_vm(request, identity, accelerator)
         name = request.hostname.downcase
         reject_vm_name!(name)

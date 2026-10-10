@@ -26,8 +26,8 @@ with your development files, so there is no need to commit, push or deploy chang
 before testing them. Run `empeira node puppet host1` on a disposable node to compile
 a fresh catalog, apply it and see the results.
 
-Saving a file does not start Puppet. Before an empeira-managed Puppet run, changed
-inputs trigger authenticated environment-cache invalidation. Puppetfile changes
+Saving a file does not start Puppet. Managed servers disable environment caching,
+so the next catalog request reloads live code without a content scan or cache API call. Puppetfile changes
 may require `empeira update modules`; `up` does not synchronize modules. See
 [environment caching](docs/nodes.md#environment-cache-and-live-code) and
 [Puppetfile modules](docs/hiera-and-eyaml.md#puppetfile-modules).

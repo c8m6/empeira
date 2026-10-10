@@ -326,14 +326,16 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(runtime.services.fetch('gateway').fetch('state')).to eq('stopped')
   end
 
-  it 'rejects malformed persisted environment-cache checkpoints' do
+  it 'disables server environment caching and removes obsolete content checkpoints' do
     mutate(controller, :up)
     state = @store.load
-    original = state.dig('control_plane', 'environment_cache').dup
-    { 'fingerprint' => nil, 'server_id' => nil, 'environment' => '../other' }.each do |key, value|
-      state['control_plane']['environment_cache'] = original.merge(key => value)
-      expect { @store.write(state) }.to raise_error(Empeira::Infrastructure::StateError, /Invalid infrastructure/)
-    end
+    state['control_plane']['environment_cache'] = { 'fingerprint' => 'obsolete' }
+    @store.with_lock { @store.write(state) }
+    expect(mutate(controller, :up)).to be(false)
+    expect(@store.load.fetch('control_plane')).not_to have_key('environment_cache')
+    definition = Empeira::ControlPlane::Plan.new(context: context).definitions.fetch('server')
+    expect(definition.options.fetch('environment')).to include('OPENVOXSERVER_ENVIRONMENT_TIMEOUT' => '0')
+    expect(runtime.calls.none? { |call| call.first == :exec && call.last.include?('DELETE') }).to be(true)
   end
 
   it 'activates the additional resolver only after its service starts and keeps repeated up idle' do

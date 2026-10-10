@@ -13,7 +13,7 @@ RSpec.describe 'Real Puppet development cycle', :integration do
       let(:store) { Empeira::Infrastructure::Store.new(context: app.context) }
 
       before do
-        skip 'Set EMPEIRA_INTEGRATION=development for cache and APT smoke checks' unless
+        skip 'Set EMPEIRA_INTEGRATION=development for live code and APT smoke checks' unless
           ENV['EMPEIRA_INTEGRATION'] == 'development'
         initialize_project(project)
         project.join('.empeira.yaml').write(
@@ -34,22 +34,23 @@ RSpec.describe 'Real Puppet development cycle', :integration do
 
       after { app.infrastructure.destroy if @available }
 
-      it 'keeps loaded code on a second catalog and invalidates edits without restarting the server' do
+      it 'reloads code for each catalog and sees edits without up or a server restart' do
         app.infrastructure.up
         server = service('server')
         measure('first') { app.run_node(hostname: 'cache-node', provider: 'container') }
         expect(runtime.service_exec(node, ['hello']).stdout).to include('Hello, world!')
         expect(store.load).not_to have_key('bootstrap_proxy')
         expect(read_node('/tmp/catalog-value')).to eq('first')
-        expect(load_count(server)).to eq(1)
-        checkpoint = store.load.dig('control_plane', 'environment_cache')
+        first_loads = load_count(server)
+        expect(first_loads).to be_positive
         measure('unchanged') { app.nodes.puppet(name: 'cache-node') }
-        expect(load_count(server)).to eq(1)
-        expect(store.load.dig('control_plane', 'environment_cache')).to eq(checkpoint)
+        unchanged_loads = load_count(server)
+        expect(unchanged_loads).to be > first_loads
+        expect(store.load.fetch('control_plane')).not_to have_key('environment_cache')
         write_function('changed')
         measure('changed') { app.nodes.puppet(name: 'cache-node') }
         expect(read_node('/tmp/catalog-value')).to eq('changed')
-        expect(load_count(server)).to eq(2)
+        expect(load_count(server)).to be > unchanged_loads
         expect(service('server').fetch('id')).to eq(server.fetch('id'))
         expect(app.infrastructure.up.changed).to be(false)
         verify_apt

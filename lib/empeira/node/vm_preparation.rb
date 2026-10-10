@@ -140,7 +140,6 @@ module Empeira
       end
 
       def puppet_run(record)
-        refresh_environment_cache
         reconcile_guest(record)
         result = @progress.streaming do
           @ssh.stream(record, RuntimeProxy.command(context, PuppetCommand.arguments))

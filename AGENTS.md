@@ -232,7 +232,7 @@ explicit operations. Unsupported alpha schemas fail closed without implicit upgr
 Server-only host mounts are structured, read-only by default and overlap-checked;
 verify canonical source visibility through the runtime. Hiera mounts use standard
 Puppet module/environment paths, remain live/read-only and are optional unless
-required. Environment-cache invalidation uses authenticated semantic APIs.
+required. Managed servers disable environment caching; do not hash live code or invalidate environments automatically.
 Command mocks use the existing generated files, inventory and lock, not parallel state.
 
 ## Update plane

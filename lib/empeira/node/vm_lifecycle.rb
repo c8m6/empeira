@@ -14,7 +14,7 @@ module Empeira
           end
 
           validate_interfaces(record)
-          refresh_environment_cache
+          ready_server
           return lifecycle_result(name.downcase, :running, changed: reconcile_guest(record)) if @qemu.running?(record)
 
           @progress.stage(1, 'Checking VM control-plane readiness...')

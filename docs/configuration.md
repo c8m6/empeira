@@ -400,8 +400,9 @@ other variable names must override each affected key. Empeira mounts standard
 Puppet configuration, including `puppetdb.conf`, and supplies the configured
 runtime values without inferring them from the image name. Missing or unsafe
 runtime fields fail configuration validation. Managed servers use
-`environment_timeout = unlimited`; Empeira invalidates its environment cache
-when live code inputs change.
+`environment_timeout = 0`: the next catalog request reloads live code without
+an Empeira content scan or admin API invalidation. An explicit `environment.conf`
+can override this server setting; keep its timeout at zero for immediate edits.
 
 `puppetdb.runtime` holds the independent OpenVoxDB process contract. Custom
 images may override its executable, numeric user, Java and main arguments,
