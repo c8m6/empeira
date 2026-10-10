@@ -333,7 +333,6 @@ module Empeira
           sysctls: { 'net.ipv4.ip_forward' => '0', 'net.ipv6.conf.all.disable_ipv6' => '1',
                      'net.ipv6.conf.default.disable_ipv6' => '1' }, entrypoint: '/usr/sbin/squid-gnutls',
           command: ['-N', '-f', '/empeira-proxy/squid.conf'],
-          configuration: files.configuration.fetch('squid.conf'), policy: config.fetch('proxy'),
           mounts: [bind(files.directory, '/empeira-proxy'),
                    'type=tmpfs,dst=/var/log/squid', 'type=tmpfs,dst=/var/spool/squid']
         }

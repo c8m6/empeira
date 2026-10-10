@@ -51,6 +51,8 @@ module Empeira
       ensure
         @desired_images = nil
         @service_snapshot = nil
+        @discovery_nodes = nil
+        @gateway_locked_id = nil
         @gateway_reconciling = false
       end
 
@@ -83,7 +85,7 @@ module Empeira
         @dns = @observed.fetch('dns').dig('networks', @plan.network, 'IPAddress')
         raise Error, 'DNS service has no address in the isolated network' if @dns.nil? || @dns.empty?
 
-        @plan.files.bind_dns(@dns)
+        @proxy_configuration_changed = @plan.files.bind_dns(@dns)
         reconcile_proxy
       end
 
@@ -367,6 +369,7 @@ module Empeira
         @plan.subnet = @state.dig('peer_network', 'subnet')
         @plan.browser_enabled = @inventory.fetch('services').key?('browser')
         @changed = false
+        @proxy_bindings_changed = false
       end
 
       def save
@@ -386,6 +389,7 @@ module Empeira
         definitions = service_keys.to_h { |key| [key, identity(key)] }
         expected = @inventory.fetch('services').transform_values { |record| record['id'] }
         @service_snapshot = @runtime.inspect_services(definitions, expected_ids: expected)
+        @observed = @service_snapshot.slice(*@plan.definitions.keys).compact
       end
 
       def service_resource(definition, expected_id:)
@@ -506,8 +510,23 @@ module Empeira
 
       def update_hosts(reload_proxy: false)
         # A running container can still be initializing Squid. Defer HUP until its listener is ready.
-        Discovery.new(plan: @plan, runtime: @runtime, state: @state).refresh(services: @observed,
-                                                                             reload_proxy: reload_proxy)
+        changed = Discovery.new(plan: @plan, runtime: @runtime, state: @state).refresh(
+          services: @observed, node_resources: discovery_nodes, reload_proxy: reload_proxy,
+          force_proxy_reload: @proxy_configuration_changed || @proxy_bindings_changed
+        )
+        @proxy_bindings_changed = changed || @proxy_bindings_changed
+        @changed = true if @plan.proxy? && (changed || @proxy_configuration_changed)
+      end
+
+      def discovery_nodes
+        return @discovery_nodes if @discovery_nodes
+
+        records = @state.fetch('nodes', {}).select { |_, record| record['provider'] == 'container' }
+        definitions = records.transform_values do |record|
+          Node::Definition.new(hostname: record.fetch('hostname'), workspace: @context.workspace)
+        end
+        ids = records.transform_values { |record| record['id'] }
+        @discovery_nodes = definitions.empty? ? {} : @runtime.inspect_services(definitions, expected_ids: ids)
       end
 
       def start_service(resource)
@@ -581,7 +600,7 @@ module Empeira
         resource = @runtime.inspect_service(identity('gateway'), expected_id: recorded('gateway'))
         return unless resource && resource['state'] == 'running'
 
-        gateway_command(resource, 'lockdown')
+        lockdown_gateway(resource)
       rescue Error
         @runtime.stop_service(resource) if resource
         raise
@@ -594,7 +613,7 @@ module Empeira
           @runtime.detach_egress(egress, resource)
         end
         reconcile('gateway')
-        gateway_command(@observed.fetch('gateway'), 'lockdown')
+        lockdown_gateway(@observed.fetch('gateway'))
         require_redirect_capability
         attach_gateway('gateway')
         apply_gateway_policy
@@ -602,6 +621,13 @@ module Empeira
         resource = @observed['gateway']
         @runtime.stop_service(resource) if resource
         raise
+      end
+
+      def lockdown_gateway(resource)
+        return if @gateway_locked_id == resource.fetch('id')
+
+        gateway_command(resource, 'lockdown')
+        @gateway_locked_id = resource.fetch('id')
       end
 
       def require_redirect_capability
@@ -616,6 +642,8 @@ module Empeira
       end
 
       def apply_gateway_policy
+        # An uncertain apply must force fresh lockdown during failure recovery.
+        @gateway_locked_id = nil
         gateway_command(@observed.fetch('gateway'), 'apply', '/empeira-gateway/gateway.json')
         record_gateway_policy
       end
@@ -687,6 +715,7 @@ module Empeira
         @changed = @runtime.remove_service(identity(key), expected_id: recorded(key)) || @changed
         @inventory.fetch('services').delete(key)
         @inventory.delete('gateway_policy') if key == 'gateway'
+        @inventory.delete('proxy_reload') if key == 'proxy'
         @observed.delete(key)
         @service_snapshot&.delete(key)
         save

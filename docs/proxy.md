@@ -80,12 +80,13 @@ directly to the VM instance's reserved peer address. The proxy is reached at
 global or hostname rule remains denied.
 
 After changing global destinations or rules, or updating Empeira's generated Squid
-policy, run `empeira up`. The generated configuration is part of the proxy service
-fingerprint, so `up` replaces an existing proxy even when the YAML policy is
-unchanged.
-Only the proxy container is replaced for such changes; unrelated service containers
-and retained volumes are preserved. Current node bindings are regenerated. Existing
-container and VM nodes consume the new policy without a restart; open proxy
+policy, run `empeira up`. It regenerates current node bindings and reloads Squid
+after readiness without replacing the proxy or unrelated services. Unchanged
+policy and bindings do not trigger a reload. A checkpoint in the existing
+inventory records the proxy ID and digest of the small configuration files only
+after the native reload succeeds; a failed or interrupted reload is retried by
+the next `up` even when files already contain the requested policy.
+Container and VM nodes consume the new policy without a restart; open proxy
 connections can end during reconciliation. Enabling/disabling proxy mode is a
 separate topology change and may require explicit node cleanup as reported by `up`.
 

@@ -145,7 +145,11 @@ module Empeira
         allocate_network(runtime, state)
         @definition.network.policy.require_support!(**runtime.capabilities)
         persist(state, resource)
-        result = runtime.create_network(definition: @definition.network)
+        result = if resource
+                   Providers::Result.new(resource: resource, changed: false)
+                 else
+                   runtime.create_network(definition: @definition.network)
+                 end
         persist(state, result.resource)
         result
       end
