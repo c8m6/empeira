@@ -639,6 +639,26 @@ RSpec.describe Empeira::Node::VM do
     expect(app.context.locations.image(identity).join('base.qcow2')).to exist
     expect(store.load.fetch('nodes')).to be_empty
   end
+
+  it 'rejects a same-size corrupted VM base on restart even if its timestamps are preserved' do
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+    provider.run(request)
+    provider.stop(name: 'vm-host')
+    record = store.load.dig('nodes', 'vm-host')
+    overlay = app.context.locations.workspace(app.context.workspace).join(record.fetch('overlay'))
+    previous = overlay.binread
+    base = app.context.locations.image(identity).join('base.qcow2')
+    stat = base.stat
+    base.binwrite('bAse')
+    File.utime(stat.atime, stat.mtime, base)
+    expect(provider.instance_variable_get(:@qemu)).not_to receive(:launch)
+    expect { provider.start(name: 'vm-host') }
+      .to raise_error(Empeira::Error, /Pinned VM base image is missing or corrupt/)
+    expect(overlay.binread).to eq(previous)
+    expect(store.load.dig('nodes', 'vm-host', 'state')).to eq('stopped')
+  end
+
   it 'keeps direct console, user SSH and management SSH separate' do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)

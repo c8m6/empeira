@@ -167,6 +167,9 @@ before execution so every uncertain outcome attempts fresh lockdown. Firewall
 policy and namespace routing are still reconciled on every `up`.
 Node access verifies network ownership and isolation with one bounded native network inspection; membership counts are collected separately
 for lifecycle observations and deletion, never inferred from the access check.
+VM acquisition and restart still read the complete immutable base and verify its
+SHA-256 pin, using the existing OpenSSL implementation. Neither file timestamps
+nor cached fingerprints replace these integrity checks.
 Network changes and unsafe storage transitions require explicit lifecycle operations;
 there are no implicit database-major migrations or automatic node replacements.
 

@@ -130,7 +130,7 @@ module Empeira
       def existing_storage(record)
         base = base_for(record)
         unless base.file? && !base.symlink? &&
-               Digest::SHA256.file(base).hexdigest == record.dig('base_image', 'checksum')
+               OpenSSL::Digest::SHA256.file(base).hexdigest == record.dig('base_image', 'checksum')
           raise Error, 'Pinned VM base image is missing or corrupt; preserve the overlay and restore the cache'
         end
 
