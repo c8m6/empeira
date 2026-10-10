@@ -42,12 +42,13 @@ module Empeira
       end
 
       def puppet(name:)
-        mutate do
+        mutate(availability: false) do
           record = fetch(name)
           require_provisioned!(record)
-          ready_server
+          resource = running(record)
+          ready_network!
           @progress.stage(30, 'Running Puppet agent...')
-          agent_run(running(record), record)
+          agent_run(resource, record)
         end
       end
 
@@ -115,7 +116,6 @@ module Empeira
 
       def agent_run(resource, record)
         require_provisioned!(record)
-        reconcile_guest(resource, record)
         result = @progress.streaming do
           @runtime.stream_service(resource, RuntimeProxy.command(context, PuppetCommand.arguments))
         end

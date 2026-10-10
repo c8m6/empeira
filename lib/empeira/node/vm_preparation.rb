@@ -78,6 +78,7 @@ module Empeira
         @progress.stage(85, 'Signing VM certificate...')
         certificate_runtime = ::Empeira::VM::CertificateRuntime.new(runtime: @runtime, ssh: @ssh, record: record)
         Certificates.new(runtime: certificate_runtime, server: server).enroll({ 'vm' => true }, record) { save }
+        reconcile_guest(record)
         record['provisioned'] = true
         record['state'] = 'running'
         save
@@ -140,7 +141,6 @@ module Empeira
       end
 
       def puppet_run(record)
-        reconcile_guest(record)
         result = @progress.streaming do
           @ssh.stream(record, RuntimeProxy.command(context, PuppetCommand.arguments))
         end

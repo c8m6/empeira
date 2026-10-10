@@ -3,6 +3,7 @@
 module Empeira
   module Node
     # Container provider owns its workflow; the public service only routes logical providers.
+    # rubocop:disable-next Metrics/ClassLength -- Ordered provisioning and lifecycle share this provider boundary.
     class Container < Interface
       include ContainerLifecycle
       include ContainerPreparation
@@ -34,6 +35,7 @@ module Empeira
           resource = create_node(definition, record)
           @progress.stage(65, 'Preparing node certificate...')
           Certificates.new(runtime: @runtime, server: server).enroll(resource, record) { save }
+          reconcile_guest(resource, record)
           complete_provisioning(record)
           @progress.stage(85, 'Running Puppet agent...')
           agent_run(resource, record)

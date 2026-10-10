@@ -155,7 +155,7 @@ requests reload live code without repository hashes or environment-cache checkpo
 See [nodes](nodes.md#environment-cache-and-live-code).
 
 Command mocks use the same node inventory, generated-file mechanism and mutation
-lock. They reconcile atomically before Puppet and during start/up, preserving
+lock. They reconcile atomically during initial node provisioning and start/up, preserving
 unchanged files and removing only verified owned stubs.
 
 ## Runtime and update planes

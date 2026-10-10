@@ -73,13 +73,32 @@ RSpec.describe Empeira::Node::VM do
     allow(Empeira::Network::BootstrapProxy).to receive(:new).and_return(proxy)
   end
 
-  it 'refuses Puppet against a server whose applied definition no longer matches the project' do
+  it 'keeps failed initial VM guest reconciliation incomplete before allowing fast Puppet runs' do
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+    expect(provider).to receive(:reconcile_guest).and_raise(Empeira::Error, 'guest reconciliation failed')
+    expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
+    expect { provider.run(request) }.to raise_error(Empeira::Error, /guest reconciliation failed/)
+    expect(store.load.dig('nodes', request.hostname, 'provisioned')).to be(false)
+    expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Error, /incomplete/)
+  end
+
+  it 'streams Puppet without server readiness, guest reconciliation or VM preflight' do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
     provider.run(request)
-    runtime.services.fetch('server')['labels']['io.empeira.definition'] = 'stale'
-    expect(provider.instance_variable_get(:@ssh)).not_to receive(:stream)
-    expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Error, /not ready/)
+    runtime.services.delete('server')
+    expect(runtime).not_to receive(:check_available!)
+    expect(runtime).not_to receive(:inspect_service)
+    expect(provider).not_to receive(:reconcile_guest)
+    expect(provider.instance_variable_get(:@ssh)).not_to receive(:run)
+    expect(provider.instance_variable_get(:@disk)).not_to receive(:verify!)
+    expect(engine).not_to receive(:preflight!)
+    expect(provider.instance_variable_get(:@ssh)).to receive(:stream).twice.and_return(
+      Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 2, timed_out: false)
+    )
+    2.times { expect(provider.puppet(name: request.hostname).exit_status).to eq(2) }
+    expect(store.load.dig('nodes', request.hostname, 'last_puppet_exit')).to eq(2)
   end
 
   it 'starts Puppet with the normal proxy inside the privileged guest command' do

@@ -56,9 +56,8 @@ module Empeira
       end
 
       def puppet(name:)
-        mutate do
+        mutate(availability: false) do
           record = running_vm(name)
-          ready_server
           @progress.stage(30, 'Running Puppet in VM...')
           puppet_run(record)
         end

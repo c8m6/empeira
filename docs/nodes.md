@@ -44,16 +44,25 @@ colors. Container and VM runs use the same policy. The progress display is suspe
 while Puppet streams its output and resumes on a fresh line afterward.
 
 `node list` reports observed runtime state and the last Puppet result without
-waiting for guest readiness. `node puppet` runs another catalog after local code
-or Hiera edits. `node logs` streams runtime output for containers and the serial
-log for VMs. Node deletion needs the reachable workspace CA after enrollment;
+waiting for guest readiness. `node puppet` verifies node ownership, completed
+bootstrap and running state, then
+streams the agent immediately. Container access also verifies workspace network
+ownership and isolation, permitted attachments and SSH ports. It performs no
+server-readiness check, infrastructure
+reconciliation, guest configuration, command-mock update or VM disk inspection.
+If the server is unavailable, the agent reports its native error and Empeira saves
+the exit code. Apply configuration changes with `up` or resume with `node start`.
+`node logs` streams runtime output for containers and the serial log for VMs.
+Node deletion needs the reachable workspace CA after enrollment;
 restore the control plane with `up` if it was stopped externally. Whole-workspace
 `destroy` removes the CA together with nodes.
 
 ## Environment cache and live code
 
-Managed servers use `environment_timeout = 0`. Each catalog request reloads live
-control code, modules and mounted Hiera data. Empeira does not hash these trees,
+Managed servers use `environment_timeout = 0`. Existing workspaces adopt it on
+their next `up`; run that once after updating from a version that enabled caching.
+Each catalog request reloads live control code, modules and mounted Hiera data.
+Empeira does not hash these trees,
 persist content checkpoints or call the environment-cache admin API. Code edits
 need neither `up` nor a server restart, including for agents invoked manually.
 Empeira does not enable `use_cached_catalog`.
@@ -132,7 +141,7 @@ block in the existing global Bash initializer covers interactive non-login Bash.
 Login SSH, serial-console logins and container shells share this configuration.
 It preserves existing PATH entries, adds the directory once, and leaves
 non-interactive PATH and personal startup files unchanged. Existing nodes receive
-the setting on `up`, `node start` and before managed Puppet runs. Custom personal
+the setting on `up` and `node start`. Custom personal
 startup files can still deliberately override their environment; they should
 retain the distribution's global initialization. Modified owned fragments or
 unsafe global paths stop reconciliation with a diagnosis.
@@ -347,8 +356,9 @@ it can be started as a ready node. Preflight failures retain no new node.
 Configure [additional VM interfaces](configuration.md#additional-vm-interfaces)
 when a production manifest expects a named interface in ordinary networking facts.
 After agent installation and bootstrap cleanup, Empeira creates and verifies the
-matched dummy/VLAN devices before enrollment and the first catalog. Before every
-managed `node puppet` invocation, it reconciles devices and verifies Facter again.
+matched dummy/VLAN devices before enrollment and the first catalog. Subsequent
+`up` and `node start` reconcile devices and verify Facter; `node puppet` runs the
+agent against the already configured guest.
 Container provisioning and facts are unaffected.
 
 `vm.disk` and `vm.interfaces` are independent settings and can be used together.
@@ -488,7 +498,7 @@ Workspace `mocks.commands` provides generic executable command stubs for Puppet
 tests on both node providers. See [command mock configuration](configuration.md#command-mocks-on-test-nodes)
 for echo and script-forwarding examples and mandatory exit-code selection.
 
-Mocks are applied before each managed Puppet invocation and during `node start`,
+Mocks are applied during initial node provisioning and during `node start`,
 including an already running node. `empeira up` reconciles mocks on running nodes
 without restarting them or running Puppet. Stopped nodes reconcile on their next
 start. A configured mock replaces an existing file or symlink at its target and

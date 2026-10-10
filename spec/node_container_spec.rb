@@ -363,6 +363,37 @@ RSpec.describe Empeira::Node::Container do
     expect(provider.puppet(name: 'test-node').exit_status).to eq(2)
   end
 
+  it 'keeps failed initial guest reconciliation incomplete before allowing fast Puppet runs' do
+    expect(provider).to receive(:reconcile_guest).and_raise(Empeira::Error, 'guest reconciliation failed')
+    expect(runtime).not_to receive(:stream_service)
+    expect { provider.run(request) }.to raise_error(Empeira::Error, /guest reconciliation failed/)
+    expect(store.load.dig('nodes', request.hostname, 'provisioned')).to be(false)
+    expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Error, /incomplete/)
+  end
+
+  it 'rejects lost isolation and replacement of the workspace network before streaming Puppet' do
+    provider.run(request)
+    definition = Empeira::Network::Definition.new(workspace: app.context.workspace, policy: Empeira::Network::Policy.new)
+    resource = runtime.networks.fetch(definition.backend_name)
+    expect(runtime).not_to receive(:stream_service)
+    runtime.networks[definition.backend_name] = Empeira::Network::Resource.new(**resource.to_h, isolated: false)
+    expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Network::UnsupportedPolicy)
+    runtime.networks[definition.backend_name] = Empeira::Network::Resource.new(**resource.to_h, id: 'replacement')
+    expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Providers::OwnershipError)
+  end
+
+  it 'streams Puppet without server readiness or guest reconciliation on repeated runs' do
+    provider.run(request)
+    runtime.services.delete('server')
+    expect(runtime).not_to receive(:check_available!)
+    expect(provider).not_to receive(:ready_server)
+    expect(provider).not_to receive(:reconcile_guest)
+    expect(runtime).not_to receive(:service_exec)
+    runtime.agent_exit = 2
+    2.times { expect(provider.puppet(name: request.hostname).exit_status).to eq(2) }
+    expect(store.load.dig('nodes', request.hostname, 'last_puppet_exit')).to eq(2)
+  end
+
   it 'runs the agent after code edits without an environment admin API request' do
     provider.run(request)
     File.write(File.join(@directory, 'hiera.yaml'), 'changed')
