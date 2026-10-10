@@ -28,7 +28,7 @@ module Empeira
       end
 
       def self.valid_glob?(value)
-        value.is_a?(String) && value.size.between?(1, 253) && value.match?(/\A[a-z0-9*?][a-z0-9.*?-]*\z/)
+        HostnamePattern.valid?(value) && value == value.downcase
       end
 
       def initialize(config)
@@ -37,7 +37,7 @@ module Empeira
 
       def matching(hostname)
         @config.fetch('rules').select do |rule|
-          rule.fetch('hosts').any? { |pattern| File.fnmatch?(pattern, hostname.downcase) }
+          rule.fetch('hosts').any? { |pattern| HostnamePattern.matches?(pattern, hostname) }
         end
       end
 

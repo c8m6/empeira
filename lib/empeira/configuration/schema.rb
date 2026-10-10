@@ -21,7 +21,7 @@ module Empeira
         'puppetdb' => { 'enabled' => :boolean, 'memory' => :positive_integer, 'runtime' => :puppetdb_runtime },
         'network' => { 'egress' => :network_egress, 'redirects' => :network_redirects },
         'proxy' => { 'enabled' => :boolean, 'global' => :allowlist, 'rules' => :proxy_rules },
-        'vm' => { 'console' => { 'root_password' => :optional_string } },
+        'vm' => { 'disk' => :vm_disk, 'console' => { 'root_password' => :optional_string } },
         'dns' => { 'upstream' => { 'mode' => :dns_mode, 'servers' => :dns_servers },
                    'additional_resolver' => :additional_resolver, 'rewrites' => :dns_rewrites },
         'node_defaults' => { 'init' => :node_init, 'os' => :optional_string, 'version' => :optional_string,
@@ -84,7 +84,9 @@ module Empeira
         optional_string: [lambda { |v|
           v.nil? || (v.is_a?(String) && !v.strip.empty? && v == v.strip)
         }, 'must be a non-empty string or null (without surrounding whitespace)'],
-        positive_integer: [->(v) { v.is_a?(Integer) && v.positive? }, 'must be a positive integer']
+        positive_integer: [->(v) { v.is_a?(Integer) && v.positive? }, 'must be a positive integer'],
+        vm_disk: [->(v) { v.is_a?(Integer) && (1..2048).cover?(v) },
+                  'must be an integer from 1 to 2048 GiB']
       }.tap { |checks| Immutable.deep_freeze(checks) }
 
       def initialize(cross_field_rules: [])

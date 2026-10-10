@@ -162,6 +162,12 @@ a permanent guest error at the final APT backup removal: the restored archive mu
 remain verifiable, Puppet must stay blocked, and SSH/console access must release the
 workspace lock while preventing concurrent stop of that instance. The injected error
 does not reproduce an unexplained historical SSH disconnect.
+The lifecycle case also verifies a 32 GiB thin overlay, unchanged base checksum,
+grown root partition/filesystem, package installation and `df -h /`. After changing
+`vm.disk` to 48 GiB, workspace reconciliation and restart must retain the 32 GiB disk.
+The VM lifecycle and container `lifecycle` smoke also load personal SSH defaults
+before creating nodes. They exercise hostname rules, `~/` identity expansion,
+independent CLI overrides and the unchanged internal bootstrap/Puppet transports.
 
 ```bash
 EMPEIRA_VM_INTEGRATION=1 EMPEIRA_VM_RUNTIME=docker \

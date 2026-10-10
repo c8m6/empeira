@@ -74,7 +74,8 @@ module Empeira
           credentials = SSHCredentials.new(context: context, runner: @runner, provider: 'vm',
                                            hostname: record.fetch('hostname'))
           UserSSH.new(runner: @runner, credentials: credentials, proxy_command: @peer.ssh_command(record),
-                      default_user: ::Empeira::VM::CloudInit::USER, managed_identity: true).session(
+                      default_user: ::Empeira::VM::CloudInit::USER, managed_identity: true,
+                      home: context.locations.home).session(
                         record, user: user, identity: identity
                       )
         end

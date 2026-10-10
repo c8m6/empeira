@@ -6,12 +6,14 @@ module Empeira
   module Node
     # Provider defaults select authentication; endpoint and host-key policy remain managed.
     class UserSSH
-      def initialize(runner:, credentials:, proxy_command: nil, default_user: nil, managed_identity: false)
+      def initialize(runner:, credentials:, proxy_command: nil, default_user: nil, managed_identity: false,
+                     home: Dir.home)
         @runner = runner
         @credentials = credentials
         @proxy_command = proxy_command
         @default_user = default_user
         @managed_identity = managed_identity
+        @identity = SSHIdentity.new(home: home)
       end
 
       def session(record, user: nil, identity: nil)
@@ -33,10 +35,10 @@ module Empeira
       end
 
       def authentication_options(identity)
-        return identity ? ['-i', File.expand_path(identity)] : [] unless @managed_identity
+        return identity ? ['-i', @identity.resolve(identity)] : [] unless @managed_identity
 
         @credentials.verify! unless identity
-        key = identity ? File.expand_path(identity) : @credentials.key_path.to_s
+        key = identity ? @identity.resolve(identity) : @credentials.key_path.to_s
         ['-i', key, '-o', 'IdentitiesOnly=yes', '-o', 'PasswordAuthentication=no',
          '-o', 'KbdInteractiveAuthentication=no', '-o', 'ForwardAgent=no']
       end

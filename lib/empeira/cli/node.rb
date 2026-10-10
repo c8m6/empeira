@@ -19,7 +19,7 @@ module Empeira
       end
 
       desc 'ssh HOSTNAME', 'Open guest SSH (VM: managed login; container: local user authentication)'
-      option :user, type: :string, desc: 'Remote login user (VM default: empeira; container default: local user)'
+      option :user, type: :string, desc: 'Remote login user (overrides personal SSH preferences)'
       option :identity, type: :string, desc: 'SSH identity file (VM default: managed key)'
       def ssh(hostname)
         result = application.nodes.ssh(name: hostname, user: options[:user], identity: options[:identity])
