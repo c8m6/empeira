@@ -104,6 +104,7 @@ class ServiceRuntime
     return proxy_result if proxy_result
 
     output = ''
+    output = '0' if arguments[0..3] == ['/opt/puppetlabs/bin/puppet', 'config', 'print', 'environment_timeout']
     output = "[main]\ngpgcheck=1\n" if arguments == ['cat', '/etc/dnf/dnf.conf']
     output = "tcp-redirects-v1\n" if arguments == [Empeira::Network::Gateway::EXECUTABLE, 'redirects-capability']
     Empeira::Execution::Result.new(stdout: output, stderr: '', exit_status: 0, timed_out: false)

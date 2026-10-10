@@ -401,7 +401,15 @@ other variable names must override each affected key. Empeira mounts standard
 Puppet configuration, including `puppetdb.conf`, and supplies the configured
 runtime values without inferring them from the image name. Missing or unsafe
 runtime fields fail configuration validation. Managed servers use
-`environment_timeout = 0`: the next catalog request reloads live code without
+`environment_timeout = 0` in the native `[server]` section. The startup wrapper
+uses `puppet config set` before the configured entrypoint, independently of image
+environment-variable mappings. `up` checks `puppet config print` against the
+confdir containing `server.runtime.paths.puppetdb_config`; custom Puppetserver
+`jruby-puppet.master-conf-dir` must refer to that same directory. Puppetserver
+HOCON master directories take precedence over Puppet CLI defaults. A changed
+effective timeout updates only that key and restarts the same owned server; an
+entrypoint that overwrites it fails verification. CA, SSL and database storage
+are preserved. The next catalog request reloads live code without
 an Empeira content scan or admin API invalidation. An explicit `environment.conf`
 can override this server setting; keep its timeout at zero for immediate edits.
 

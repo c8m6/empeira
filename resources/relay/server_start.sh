@@ -23,6 +23,11 @@ config_destination="$2"
 eyaml_mode="$3"
 puppetdb_mode="$4"
 shift 4
+# Use Puppet's own writer: retain every other setting in the configured confdir.
+# Environment-variable mappings are only supplementary image startup hints.
+confdir="${config_destination%/*}"
+/opt/puppetlabs/bin/puppet config set environment_timeout 0 --section server --confdir "$confdir"
+test "$(/opt/puppetlabs/bin/puppet config print environment_timeout --section server --confdir "$confdir")" = 0
 if [ "$eyaml_mode" = staged ]; then
   stage_eyaml
 fi

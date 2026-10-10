@@ -332,8 +332,18 @@ module Empeira
                                                           [@plan.repository_mounts, @plan.eyaml_mounts,
                                                            @plan.project_server_mounts].flatten)
         @health.wait('server', @observed)
+        reconcile_server_environment
         Server::RelayCertificate.new(context: @context).prepare(runtime: @runtime, server: @observed.fetch('server')) if
           @plan.database?
+      end
+
+      def reconcile_server_environment
+        environment = Server::EnvironmentConfiguration.new(runtime: @runtime, plan: @plan)
+        return unless environment.reconcile(@observed.fetch('server'))
+
+        @changed = true
+        @health.wait('server', @observed)
+        environment.verify!(@observed.fetch('server'))
       end
 
       def refresh_eyaml_keys

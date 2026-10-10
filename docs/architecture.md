@@ -173,7 +173,12 @@ nor cached fingerprints replace these integrity checks.
 Network changes and unsafe storage transitions require explicit lifecycle operations;
 there are no implicit database-major migrations or automatic node replacements.
 
-Managed servers disable environment caching (`environment_timeout = 0`). Catalog
+Managed servers disable environment caching through native Puppet configuration
+(`environment_timeout = 0` in `[server]`), applied by the startup wrapper before
+the configured image entrypoint. `up` checks the actual native setting and restarts
+only a server whose setting changed; it preserves every other configuration key
+and retained storage. The configured Puppet confdir must agree with Puppetserver
+HOCON `master-conf-dir`. Catalog
 requests reload live code without repository hashes or environment-cache checkpoints.
 See [nodes](nodes.md#environment-cache-and-live-code).
 

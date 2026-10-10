@@ -59,7 +59,9 @@ restore the control plane with `up` if it was stopped externally. Whole-workspac
 
 ## Environment cache and live code
 
-Managed servers use `environment_timeout = 0`. Existing workspaces adopt it on
+Managed servers enforce native `[server] environment_timeout = 0` before startup
+and verify the effective setting during `up`, independently of image environment
+variable support. Existing workspaces adopt it on
 their next `up`; run that once after updating from a version that enabled caching.
 Each catalog request reloads live control code, modules and mounted Hiera data.
 Empeira does not hash these trees,

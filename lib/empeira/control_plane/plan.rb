@@ -236,22 +236,16 @@ module Empeira
         mounts = []
         mounts << "type=tmpfs,dst=#{Configuration::Eyaml::DESTINATION}" if eyaml_staged?
         mounts << bind(files.path('server-puppetdb.conf'), '/empeira-server/puppetdb.conf') if database?
-        mounts << bind(server_start_script, '/empeira-server/start.sh') if database? || eyaml_staged?
+        mounts << bind(server_start_script, '/empeira-server/start.sh')
         mounts
       end
 
       def server_startup
-        return configured_server_startup unless database? || eyaml_staged?
-
         { entrypoint: 'dumb-init',
           command: ['/bin/sh', '/empeira-server/start.sh', server_runtime.startup.fetch('entrypoint'),
                     server_runtime.paths.fetch('puppetdb_config'), eyaml_staged? ? 'staged' : 'direct',
                     database? ? 'puppetdb' : 'no-puppetdb', *server_runtime.startup.fetch('arguments')],
           configuration: File.read(server_start_script) }
-      end
-
-      def configured_server_startup
-        { entrypoint: server_runtime.startup.fetch('entrypoint'), command: server_runtime.startup.fetch('arguments') }
       end
 
       def server_start_script
