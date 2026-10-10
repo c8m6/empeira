@@ -241,6 +241,17 @@ The immutable cache identity includes distribution, version, architecture, sourc
 revision and checksum. Each VM has a QCOW2 overlay pinned to its original base.
 Destroying a node removes its overlay and seed, preserving the shared base cache.
 
+`vm.disk` sets the virtual capacity of new VM overlays in GiB (default `30`, maximum
+`2048`). A capacity smaller than the base image is rejected. The overlay is thin:
+the host stores changed blocks, rather than reserving the entire virtual capacity.
+Sizing is verified before the overlay is published and before QEMU starts.
+Cloud-init grows the actual root partition and filesystem while preserving boot/EFI
+partitions. Empeira verifies disk, partition and filesystem capacity after cloud-init
+and before managed package installation; failed growth retains an incomplete VM for
+diagnosis and prevents enrollment and Puppet. Check `df -h /` through `node ssh`.
+Changing `vm.disk` affects only subsequently created VMs; `up` and `node start`
+preserve existing disks. Container nodes do not use this setting.
+
 Cloud-init prepares identity, the management account, DNS adapter, console recovery
 and optional project scripts. Managed installation then installs the selected public
 Puppet/OpenVox agent through separate bootstrap proxy access. Normal proxy rules are

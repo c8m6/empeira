@@ -66,21 +66,21 @@ RSpec.describe 'QEMU VM prerequisites and overlays' do
     engine = instance_double(Empeira::VM::Qemu, image_tool: '/usr/local/bin/qemu-img')
     runner = instance_double(Empeira::Execution::Runner)
     allow(runner).to receive(:run) do |_executable, arguments:, **_options|
-      if arguments.first == 'create'
-        File.write(arguments[-1], 'overlay')
+      if %w[create resize].include?(arguments.first)
+        File.write(arguments[-1], 'overlay') if arguments.first == 'create'
         Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
       else
         metadata = if arguments.last == base.to_s
-                     { 'format' => 'qcow2' }
+                     { 'format' => 'qcow2', 'virtual-size' => 2 * (1024**3) }
                    else
                      { 'format' => 'qcow2', 'backing-filename' => base.to_s,
-                       'backing-filename-format' => 'qcow2' }
+                       'backing-filename-format' => 'qcow2', 'virtual-size' => 30 * (1024**3) }
                    end
         Empeira::Execution::Result.new(stdout: JSON.generate(metadata), stderr: '', exit_status: 0, timed_out: false)
       end
     end
     disk = Empeira::VM::Disk.new(engine: engine, runner: runner, workspace_directory: Pathname(@directory))
-    overlay = disk.create(hostname: 'host1', base: base)
+    overlay = disk.create(hostname: 'host1', base: base, size_gib: 30)
     expect(overlay).to exist
     expect(disk.verify!(hostname: 'host1', base: base)).to eq(overlay)
     expect { disk.verify!(hostname: 'host1', base: Pathname(@directory).join('different.qcow2')) }

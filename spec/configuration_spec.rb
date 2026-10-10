@@ -23,6 +23,8 @@ RSpec.describe Empeira::Configuration do
     expect(config['network']).to eq('egress' => [], 'redirects' => [])
     expect(config['node_defaults']).to include('memory' => 1024, 'cpus' => 2)
     expect(config['node_defaults']).not_to have_key('provider')
+    expect(config.dig('vm', 'disk')).to eq(30)
+    expect(config['node_defaults']).not_to have_key('disk')
     expect(config['puppetdb']['enabled']).to be(true)
     expect(config.dig('browser', 'start_url')).to eq('about:blank')
     expect(config.dig('bootstrap', 'guests', 'ubuntu', '24.04').keys)
@@ -34,6 +36,18 @@ RSpec.describe Empeira::Configuration do
     expect(load_config.dig('network', 'egress')).to eq('mode' => 'proxy')
     context = Empeira::Application.new(project_path: @directory).context
     expect(Empeira::ControlPlane::Plan.new(context: context)).to be_proxy
+  end
+
+  it 'merges VM disk capacity independently of console configuration' do
+    write_config('vm: {disk: 48}')
+    expect(load_config.fetch('vm')).to eq('disk' => 48, 'console' => { 'root_password' => 'empeira' })
+  end
+
+  [nil, 0, -1, 1.5, '30', true, 2049].each do |size|
+    it "rejects invalid vm.disk #{size.inspect}" do
+      write_config(YAML.dump('vm' => { 'disk' => size }))
+      expect { load_config }.to raise_error(Empeira::ConfigurationError, /vm.disk.*1 to 2048 GiB/)
+    end
   end
 
   it 'overrides the browser start page with an internal URL without changing the browser image' do
@@ -91,6 +105,7 @@ RSpec.describe Empeira::Configuration do
     'node_defaults: {os: 12}' => /node_defaults.os must be a non-empty string or null/,
     'node_defaults: {version: 12}' => /node_defaults.version must be a non-empty string or null/,
     'node_defaults: {provider: container}' => /node_defaults.provider.*not a supported/,
+    'node_defaults: {disk: 30}' => /node_defaults.disk.*not a supported/,
     'nodes: {host1: {}}' => /nodes.*not a supported/,
     'server: {unknown: true}' => /server.unknown.*not a supported/,
     'bootstrap: {enabled: null}' => /bootstrap.enabled must be a boolean/,

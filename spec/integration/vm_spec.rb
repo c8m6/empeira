@@ -21,7 +21,8 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
 
     initialize_project(project)
     FileUtils.mkdir_p(File.join(project, 'manifests'))
-    config = { 'puppetdb' => { 'enabled' => false } }
+    config = { 'puppetdb' => { 'enabled' => false }, 'vm' => { 'disk' => 32 },
+               'bootstrap' => { 'packages' => { 'install' => { 'default' => ['git'] } } } }
     File.write(File.join(project, '.empeira.yaml'), YAML.dump(config))
     @login = LoginFixture.new(directory: @directory)
     File.write(File.join(project, 'manifests/site.pp'), <<~PUPPET)
@@ -45,6 +46,8 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     app.infrastructure.up
     app.run_node(hostname: 'vm-node', provider: 'vm')
     vm_record = Empeira::Infrastructure::Store.new(context: app.context).load.fetch('nodes').fetch('vm-node')
+    verify_disk_capacity(vm_record)
+    expect(management_ssh.run(vm_record, %w[git --version])).to be_success
     expect(management_ssh.run(vm_record, %w[cat /tmp/empeira-provider]).stdout).to eq('vm')
     expect(management_ssh.run(vm_record, ['cat', Empeira::Node::ExternalFact::PATH]).stdout)
       .to eq(Empeira::Node::ExternalFact.content('vm'))
@@ -63,7 +66,15 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
 
     app.nodes.stop(name: 'vm-node')
     expect(app.nodes.list).to include(hash_including('hostname' => 'vm-node', 'state' => 'stopped'))
-    app.nodes.start(name: 'vm-node')
+    marker = File.join(project, '.empeira.yaml')
+    configuration = YAML.safe_load_file(marker)
+    configuration['vm']['disk'] = 48
+    File.write(marker, YAML.dump(configuration))
+    changed_app = Empeira::Application.new(project_path: project, locations: locations,
+                                           overrides: { 'runtime' => { 'container_engine' => engine_name } })
+    changed_app.infrastructure.up
+    changed_app.nodes.start(name: 'vm-node')
+    verify_disk_capacity(vm_record)
     expect(app.nodes.list).to include(hash_including('hostname' => 'vm-node', 'state' => 'running'))
     expect(management.run(record, %w[passwd -S root]).stdout).to match(/^root L /)
     app.nodes.destroy(name: 'vm-node')
@@ -116,6 +127,27 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
   def management_ssh
     cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
     Empeira::VM::SSH.new(context: app.context, runner: app.runner, cloud_init: cloud)
+  end
+
+  # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Observe virtual, allocated and guest capacities in one real VM gate.
+  def verify_disk_capacity(record)
+    root = app.context.locations.workspace(app.context.workspace)
+    overlay = root.join(record.fetch('overlay'))
+    engine = Empeira::VM.registry.build('qemu', context: app.context, runner: app.runner)
+    result = app.runner.run(engine.image_tool, arguments: ['info', '--force-share', '--output=json', overlay.to_s])
+    expect(result).to be_success
+    metadata = JSON.parse(result.stdout)
+    expect(metadata['virtual-size']).to eq(32 * Empeira::VM::Disk::GIB)
+    expect(Digest::SHA256.file(metadata.fetch('backing-filename')).hexdigest)
+      .to eq(record.fetch('base_image').fetch('checksum'))
+    allocated = File.stat(overlay).blocks * 512
+    expect(allocated).to be < 8 * Empeira::VM::Disk::GIB
+    Empeira::VM::RootDisk.new(ssh: management_ssh).verify!(record, size_gib: 32)
+    usage = management_ssh.run(record, %w[df -h /])
+    expect(usage).to be_success
+    RSpec.configuration.reporter.message(
+      "VM disk (#{engine_name}, allocated #{allocated} bytes): #{usage.stdout.strip}"
+    )
   end
 
   # rubocop:disable-next Metrics/AbcSize -- Verify the final inventory and both guest egress paths together.

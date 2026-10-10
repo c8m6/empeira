@@ -112,6 +112,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `proxy.enabled` | Boolean, `false`; creates the normal HTTP/HTTPS policy proxy |
 | `proxy.global` | DNS destination array, `[]` |
 | `proxy.rules` | Additive hostname-glob rules with `hosts` and `allow` arrays, `[]` |
+| `vm.disk` | New VM virtual disk capacity in GiB, integer `1`–`2048`, default `30`; must accommodate the base image |
 | `vm.console.root_password` | Initial console password, `empeira`; a string overrides it and `null` disables it |
 | `dns.upstream` | `mode: host` and empty `servers` by default; explicit mode requires resolver IPs |
 | `dns.additional_resolver` | Optional DNS name or IP address queried before the existing upstream for non-Empeira names; NXDOMAIN/NODATA fall through |
@@ -436,6 +437,7 @@ hiera:
       type: module
       name: hieradata
 vm:
+  disk: 30
   console:
     root_password: null
 ```
@@ -445,6 +447,8 @@ See [proxy policy](proxy.md),
 [Hiera and EYAML](hiera-and-eyaml.md), [DNS](networking.md), and [console recovery](nodes.md#vm-console-recovery).
 Mounts are optional unless `required: true`. The console password is used only on
 initial VM creation. Changing it does not reset an existing node.
+`vm.disk` applies only when creating a VM. Existing disks keep their capacity across
+`up` and `node start`; changing the setting does not resize or migrate them.
 
 ## Images and bootstrap
 

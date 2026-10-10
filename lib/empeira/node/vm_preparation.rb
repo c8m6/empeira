@@ -44,7 +44,9 @@ module Empeira
         record = reserve_vm(request, image.identity, accelerator)
         @created_vm = record
         @progress.stage(35, 'Creating overlay and cloud-init seed...')
-        [record, @disk.create(hostname: record.fetch('hostname'), base: base), @cloud.prepare(record)]
+        overlay = @disk.create(hostname: record.fetch('hostname'), base: base,
+                               size_gib: context.configuration.dig('vm', 'disk'))
+        [record, overlay, @cloud.prepare(record)]
       end
 
       def boot_vm(record, overlay, seed)
@@ -59,7 +61,12 @@ module Empeira
           save if record['pid']
         end
         @progress.stage(60, 'Waiting for VM network and bootstrap...')
+        verify_vm_boot(record)
+      end
+
+      def verify_vm_boot(record)
         @ssh.wait(record, progress: @progress)
+        ::Empeira::VM::RootDisk.new(ssh: @ssh).verify!(record, size_gib: context.configuration.dig('vm', 'disk'))
         VMBootstrap.new(ssh: @ssh).verify(record: record, bootstrap: Bootstrap.new(provider: 'vm'))
         @cloud.finish(record, ssh: @ssh)
       end
