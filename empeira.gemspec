@@ -5,7 +5,7 @@ require_relative 'lib/empeira/build_info' unless defined?(Empeira::BuildInfo)
 Gem::Specification.new do |spec|
   spec.name = 'empeira'
   spec.version = Empeira::BuildInfo.load(path: File.join(__dir__, 'lib/empeira/build.json')).gem_version
-  spec.authors = ['Empeira contributors']
+  spec.authors = ['Christian Meißner (c8m6)']
   spec.summary = 'Disposable Puppet/OpenVox test infrastructure'
   spec.description = 'Ephemeral Manifest Playground for Exploring Infrastructure, Roles & Automation.'
   spec.homepage = 'https://github.com/c8m6/empeira'
