@@ -4,9 +4,10 @@ RSpec.describe Empeira::VM::SSH do
   let(:success) { Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false) }
   let(:runner) { instance_double(Empeira::Execution::Runner) }
   let(:transport) { described_class.new(context: nil, runner: runner, cloud_init: nil) }
-  let(:record) { {} }
+  let(:record) { { 'ssh_layout' => Empeira::VM::Management::VERSION } }
 
   before do
+    File.write(File.join(@directory, 'private-source'), 'synthetic upload')
     allow(transport).to receive(:binary).with('scp').and_return('scp')
     allow(transport).to receive(:scp_options).and_return([])
     allow(transport).to receive(:run).and_return(success)
@@ -19,7 +20,7 @@ RSpec.describe Empeira::VM::SSH do
         path = arguments.last.split(':', 2).last
         success.with(exit_status: 1, timed_out: timed_out)
       end
-      expect { transport.copy_to(record, 'private-source', '/var/tmp/private') }
+      expect { transport.copy_to(record, File.join(@directory, 'private-source'), '/var/tmp/private') }
         .to raise_error(Empeira::Error, /Cannot copy/)
       expect(transport).to have_received(:run).with(record, ['rm', '-f', '--', path])
       expect(transport).not_to have_received(:run).with(record, array_including('install'))
@@ -29,30 +30,61 @@ RSpec.describe Empeira::VM::SSH do
   it 'fails closed when upload succeeds but staging removal fails' do
     allow(runner).to receive(:run).and_return(success)
     allow(transport).to receive(:run).with(record, array_including('rm')).and_return(success.with(exit_status: 1))
-    expect { transport.copy_to(record, 'private-source', '/var/tmp/private', mode: '0600') }
+    expect { transport.copy_to(record, File.join(@directory, 'private-source'), '/var/tmp/private', mode: '0600') }
       .to raise_error(Empeira::Error, /staging cleanup/)
-    expect(transport).to have_received(:run).with(record, array_including('install', '-m', '0600'))
+    expect(transport).to have_received(:run).with(record, array_including('sh', '-eu', '0600'))
   end
 
   it 'attempts staging removal even if the transfer raises an exception' do
     allow(runner).to receive(:run).and_raise(Empeira::Error, 'transfer interrupted')
     expect do
-      transport.copy_to(record, 'private-source', '/var/tmp/private')
+      transport.copy_to(record, File.join(@directory, 'private-source'), '/var/tmp/private')
     end.to raise_error(Empeira::Error, /interrupted/)
     expect(transport).to have_received(:run).with(record, array_including('rm', '-f', '--'))
   end
 
-  it 'stages new-layout uploads in the verified system home without changing legacy paths' do
-    modern = { 'ssh_layout' => 2 }
+  it 'stages root SCP uploads only in the verified private management directory' do
+    modern = record
     path = nil
     allow(runner).to receive(:run) do |_binary, arguments:, **|
       path = arguments.last.split(':', 2).last
       success
     end
-    transport.copy_to(modern, 'private-source', '/var/tmp/private')
+    transport.copy_to(modern, File.join(@directory, 'private-source'), '/var/tmp/private')
     expect(transport).to have_received(:run).with(modern, ['true'])
-    expect(path).to start_with('/var/lib/empeira/.empeira-copy-')
+    expect(path).to start_with('/etc/empeira/management/uploads/.empeira-copy-')
+    expect(runner).to have_received(:run).with('scp', arguments: array_including("root@127.0.0.1:#{path}"), timeout: 30)
     expect(transport).to have_received(:run).with(modern, ['rm', '-f', '--', path])
+  end
+
+  it 'streams directly as root through the checked normal guest mount namespace' do
+    allow(transport).to receive(:binary).with('ssh').and_return('ssh')
+    allow(transport).to receive(:options).and_return([])
+    expect(runner).to receive(:stream).with('ssh', arguments: ['root@127.0.0.1',
+                                                               "#{Empeira::VM::Management::CHECK} && " \
+                                                               'nsenter --target 1 --mount -- puppet agent --test'])
+    transport.stream(record, %w[puppet agent --test])
+  end
+
+  it 'does not attempt authentication or uploads for an incompatible layout' do
+    expect(runner).not_to receive(:run)
+    expect { transport.copy_to({}, File.join(@directory, 'private-source'), '/var/tmp/private') }
+      .to raise_error(Empeira::Error, /Incompatible VM management SSH layout/)
+  end
+
+  it 'verifies uploaded and installed content and refuses corrupt staging before installation' do
+    source = Pathname(@directory).join('private-source')
+    destination = Pathname(@directory).join('installed')
+    execute = lambda do |digest|
+      Empeira::Execution::Runner.new.run('sh', arguments: ['-eu', '-c', transport.send(:upload_script),
+                                                           'empeira-upload', source.to_s, destination.to_s,
+                                                           '0600', digest])
+    end
+    expect(execute.call('0' * 64)).not_to be_success
+    expect(destination).not_to exist
+    expect(execute.call(Digest::SHA256.file(source).hexdigest)).to be_success
+    expect(destination.read).to eq(source.read)
+    expect(destination.stat.mode & 0o777).to eq(0o600)
   end
 
   context 'guest command completion' do
@@ -62,10 +94,17 @@ RSpec.describe Empeira::VM::SSH do
       allow(transport).to receive(:run).and_call_original
       bin = Pathname(@directory).join('bin')
       bin.mkpath
-      bin.join('sudo').write("#!/bin/sh\nshift\nexec \"$@\"\n")
-      bin.join('sudo').chmod(0o700)
+      @checker = Pathname(@directory).join('management-check')
+      @checker.write("#!/bin/sh\nexit 0\n")
+      @checker.chmod(0o700)
+      bin.join('nsenter').write("#!/bin/sh\nshift 4\nexec \"$@\"\n")
+      bin.join('nsenter').chmod(0o700)
       allow(runner).to receive(:run) do |_binary, arguments:, timeout:|
-        Empeira::Execution::Runner.new.run('/bin/sh', arguments: ['-c', arguments.last],
+        expect(arguments).to include('root@127.0.0.1')
+        expect(arguments.last).to include('nsenter --target 1 --mount --')
+        expect(arguments.last).not_to include('sudo')
+        command = arguments.last.gsub(Empeira::VM::Management::CHECK, @checker.to_s)
+        Empeira::Execution::Runner.new.run('/bin/sh', arguments: ['-c', command],
                                                       environment: { 'PATH' => "#{bin}:#{ENV.fetch('PATH')}" },
                                                       timeout: timeout)
       end
@@ -89,24 +128,6 @@ RSpec.describe Empeira::VM::SSH do
     end
 
     context 'with separate management SSH' do
-      let(:record) { { 'ssh_layout' => 1 } }
-
-      before do
-        @checker = Pathname(@directory).join('management-check')
-        @checker.write("#!/bin/sh\nexit 0\n")
-        @checker.chmod(0o700)
-        bin = Pathname(@directory).join('bin')
-        bin.join('nsenter').write("#!/bin/sh\nshift 4\nexec \"$@\"\n")
-        bin.join('nsenter').chmod(0o700)
-        allow(runner).to receive(:run) do |_binary, arguments:, timeout:|
-          expect(arguments.last).to include('nsenter --target 1 --mount --')
-          command = arguments.last.gsub(Empeira::VM::Management::CHECK, @checker.to_s)
-          Empeira::Execution::Runner.new.run('/bin/sh', arguments: ['-c', command],
-                                                        environment: { 'PATH' => "#{bin}:#{ENV.fetch('PATH')}" },
-                                                        timeout: timeout)
-        end
-      end
-
       it 'preserves native command status after verifying management and entering the guest mount namespace' do
         result = transport.run(record, ['sh', '-c', 'printf native-command; exit 23'])
         expect(result.stdout).to eq('native-command')

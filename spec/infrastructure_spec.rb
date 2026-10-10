@@ -104,6 +104,25 @@ RSpec.describe Empeira::Infrastructure::Service do
     expect(File.read(path)).to eq(original)
   end
 
+  [nil, 1, 2].each do |version|
+    it "rejects incompatible VM SSH layout #{version.inspect} without state changes or resource removal" do
+      app = application
+      app.infrastructure.up
+      inventory = store(app).load
+      inventory['peer_network'] = { 'subnet' => '10.203.20.0/24' }
+      record = { 'provider' => 'vm', 'hostname' => 'old-vm' }
+      record['ssh_layout'] = version if version
+      inventory['nodes'] = { 'old-vm' => record }
+      path = store(app).directory.join('infrastructure.json')
+      original = JSON.generate(inventory)
+      File.write(path, original)
+      mutations = runner.mutations.dup
+      expect { app.infrastructure.up }.to raise_error(Empeira::Error, /Incompatible VM management SSH layout/)
+      expect(File.read(path)).to eq(original)
+      expect(runner.mutations).to eq(mutations)
+    end
+  end
+
   it 'keeps read-only status from creating state directories or taking an exclusive lock' do
     app = application
     expect(app.infrastructure.status['Infrastructure']).to eq('down')

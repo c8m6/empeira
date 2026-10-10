@@ -85,7 +85,9 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     changed_app.nodes.start(name: 'vm-node')
     verify_disk_capacity(vm_record)
     expect(app.nodes.list).to include(hash_including('hostname' => 'vm-node', 'state' => 'running'))
-    expect(management.run(record, %w[passwd -S root]).stdout).to match(/^root L /)
+    expect(management.run(record, %w[id -u]).stdout.strip).to eq('0')
+    expect(management.run(record, ['sh', '-c',
+                                   'test "$(getent shadow root | cut -d : -f 2)" = "*"'])).to be_success
     app.nodes.destroy(name: 'vm-node')
     expect(app.nodes.list).to be_empty
   end

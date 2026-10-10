@@ -79,9 +79,12 @@ Personal SSH preferences are kept outside the effective infrastructure configura
 `config show`, inventory and fingerprints. They do not alter internal VM SSH,
 bootstrap, agent configuration, Puppet, shell/console, start/run or control-plane
 behavior. File checks apply only when an identity is selected for `node ssh`.
-New VMs use the locked system account `empeira` with home `/var/lib/empeira` for
-management and as the default system SSH login. Its UID is allocated by the guest;
-there is no configurable UID or automatic conversion of existing VM accounts.
+New VMs use the locked system account `empeira` with home `/var/lib/empeira` only
+for the default regular system SSH login, without sudo grants. Its UID is allocated
+by the guest. Internal management uses root, an independent key and a dedicated
+public-key-only daemon with PAM disabled; personal SSH settings never affect it.
+There is no configurable management user, UID or compatibility option. Older VM
+layouts require explicit destruction with the previous revision and recreation.
 
 This file is deliberately not a second project definition. Any other key, including
 `server`, `agent`, `network`, `containers`, `browser`, `images.server`, `images.nodes`, or

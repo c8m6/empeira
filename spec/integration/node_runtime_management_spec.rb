@@ -157,6 +157,8 @@ RSpec.describe 'Real node runtime management', :integration do
   # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Follow both real SSH daemons across Puppet and reboot.
   def verify_separate_vm_ssh
     expect(record.fetch('ssh_layout')).to eq(Empeira::VM::Management::VERSION)
+    expect(guest(%w[id -u]).stdout.strip).to eq('0')
+    verify_management_authentication
     expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
     expect(guest(%w[systemctl is-active ssh.service])).to be_success
     original = File.read(File.join(project, 'manifests/site.pp'))
@@ -165,6 +167,10 @@ RSpec.describe 'Real node runtime management', :integration do
                     "KbdInteractiveAuthentication no\nPermitRootLogin no\nSubsystem sftp internal-sftp\n"
     manifest = <<~PUPPET
       #{original}
+      file { '/etc/sudoers': ensure => file, owner => 'root', group => 'root', mode => '0440',
+        content => "root ALL=(ALL:ALL) ALL\n" }
+      file { '/etc/sudoers.d': ensure => directory, recurse => true, purge => true, force => true }
+      user { 'empeira': ensure => absent }
       service { 'ssh.socket': ensure => stopped, enable => false,
         before => File['/etc/systemd/system/ssh.service'] }
       file { '/etc/systemd/system/ssh.service':
@@ -198,6 +204,8 @@ RSpec.describe 'Real node runtime management', :integration do
     expect(result.exit_status).to eq(7), error
     expect(output).to include(@login.username)
     expect(guest(%w[systemctl is-active empeira-management-ssh.service])).to be_success
+    expect(guest(%w[getent passwd empeira])).not_to be_success
+    verify_management_upload
     restarted = manifest.sub('Subsystem sftp internal-sftp', "Subsystem sftp internal-sftp\n# Puppet restart probe")
     File.write(File.join(project, 'manifests/site.pp'), restarted)
     expect(app.nodes.puppet(name: hostname).exit_status).to eq(2)
@@ -219,6 +227,35 @@ RSpec.describe 'Real node runtime management', :integration do
     expect(guest(%w[systemctl is-enabled ssh.service])).not_to be_success
     wait_for_puppet_idle
     expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
+  end
+
+  # rubocop:disable-next Metrics/AbcSize -- Inspect real root transport and reject alternate authentication.
+  def verify_management_authentication
+    ssh = management_ssh
+    options = ssh.send(:options, record)
+    password_only = app.runner.run('ssh', arguments: [*options, '-o', 'PubkeyAuthentication=no',
+                                                      '-o', 'PreferredAuthentications=password,keyboard-interactive',
+                                                      'root@127.0.0.1', 'true'], timeout: 15)
+    expect(password_only).not_to be_success
+    expect(password_only.stderr).to include('Permission denied')
+    expect(guest(['sh', '-c',
+                  'pid=$(systemctl show -p MainPID --value empeira-management-ssh.service); ' \
+                  'exec nsenter --target "$pid" --mount -- /usr/local/libexec/empeira-management-policy']))
+      .to be_success
+    management_key = Empeira::Node::SSHCredentials.new(context: app.context, runner: app.runner, provider: 'vm',
+                                                       hostname: hostname, purpose: :management).public_path.read.strip
+    expect(guest(['grep', '-F', '--', management_key, '/root/.ssh/authorized_keys'])).not_to be_success
+  end
+
+  # rubocop:disable-next Metrics/AbcSize -- Verify actual SCP contents, ownership and staging cleanup.
+  def verify_management_upload
+    source = File.join(@directory, 'management-upload')
+    File.write(source, 'synthetic root upload')
+    destination = '/tmp/empeira-management-upload'
+    management_ssh.copy_to(record, source, destination, mode: '0600')
+    expect(guest(['cat', destination]).stdout).to eq('synthetic root upload')
+    expect(guest(['stat', '-c', '%u:%g:%a', destination]).stdout.strip).to eq('0:0:600')
+    expect(guest(['find', Empeira::VM::Management::UPLOADS, '-mindepth', '1']).stdout).to be_empty
   end
 
   def wait_for_puppet_idle

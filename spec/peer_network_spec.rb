@@ -7,7 +7,8 @@ RSpec.describe 'Production peer network contracts' do
                                                                          environment: {}))
   end
   let(:record) do
-    { 'hostname' => 'vm-one', 'ssh_port' => 32_001, 'mac_address' => '52:54:ab:cd:ef:12',
+    { 'ssh_layout' => Empeira::VM::Management::VERSION, 'hostname' => 'vm-one', 'ssh_port' => 32_001,
+      'mac_address' => '52:54:ab:cd:ef:12',
       'peer' => { 'ip' => '10.203.20.32', 'dns' => '10.203.20.130', 'token' => SecureRandom.hex(16),
                   'adapter_id' => nil, 'backend' => 'DockerAdapter' } }
   end
@@ -116,7 +117,7 @@ RSpec.describe 'Production peer network contracts' do
     expect(arguments.join(' ')).to include('tap,id=peer,ifname=et', 'script=no,downscript=no')
     expect(arguments.join(' ')).not_to include('guestfwd', 'hostfwd', 'tcg')
     management = Empeira::Network::Peer::Management.new(record).arguments.join(' ')
-    expect(management).to include('restrict=on', 'ipv6=off', 'hostfwd=tcp:127.0.0.1:32001-:22')
+    expect(management).to include('restrict=on', 'ipv6=off', 'hostfwd=tcp:127.0.0.1:32001-10.0.2.15:22222')
     expect(management).not_to include('guestfwd', '8140', '3128', ':53')
     expect(backend.ssh_command(record).take(4)).to eq(%w[podman --remote=false unshare --rootless-netns])
   end

@@ -84,9 +84,19 @@ module Empeira
           raise StateError,
                 'Legacy VM gateway state: use the previous Empeira version to destroy this workspace, then recreate it'
         end
+        validate_vm_layouts!(data)
         return if valid_inventory?(data)
 
         raise StateError, 'Invalid infrastructure inventory. Preserve it for recovery.'
+      end
+
+      def validate_vm_layouts!(data)
+        nodes = data['nodes']
+        return unless nodes.is_a?(Hash)
+
+        nodes.each_value do |record|
+          VM::Management.validate!(record) if record.is_a?(Hash) && record['provider'] == 'vm'
+        end
       end
 
       def legacy_vm_network?(data)

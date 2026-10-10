@@ -70,10 +70,10 @@ New VM layouts forward this same private endpoint to the dedicated management
 daemon on 10.0.2.15:22222. System SSH uses a key-authenticated management tunnel
 restricted to the VM's own peer IPv4 and selected guest port. There is no additional
 host publication or network adapter. Management credentials and host keys are
-independent of system SSH and personal preferences; legacy VMs retain their original
-forward to port 22. See [SSH layouts and recovery](nodes.md#shell-and-ssh).
-The system-account layout changes guest account storage to `/var/lib/empeira`;
-it adds no listener, adapter, external publication or destination-policy exception.
+independent of system SSH and personal preferences. Older VM layouts fail closed
+and require explicit recreation. See [SSH layouts and recovery](nodes.md#shell-and-ssh).
+Root management uses a private key and does not depend on the regular system SSH
+account at `/var/lib/empeira`; it adds no listener, adapter, external publication or destination-policy exception.
 
 The CLI host and engine may have different filesystems. Control/Hiera directories,
 server mounts and state must be visible at their canonical paths. Mount probes
@@ -137,7 +137,8 @@ runtime policy before enrollment and Puppet. Failed bootstrap stays incomplete.
 
 Normal proxy settings are distinct from that temporary bootstrap transaction.
 Managed Puppet processes receive matching uppercase/lowercase HTTP/HTTPS and
-NO_PROXY variables inside the privileged guest command, including VM `sudo`.
+NO_PROXY variables inside the privileged guest command, including direct-root VM
+management.
 APT uses `/etc/apt/apt.conf.d/90-empeira-proxy`; DNF receives an owned block in
 the existing `/etc/dnf/dnf.conf` `[main]` section. Direct-egress hosts get native
 APT DIRECT entries unless an explicit host setting already exists. Foreign

@@ -47,7 +47,7 @@ module Empeira
       end
 
       def self.valid_vm_ssh_layout?(record)
-        !record.key?('ssh_layout') || [1, 2].include?(record['ssh_layout'])
+        record['ssh_layout'] == ::Empeira::VM::Management::VERSION
       end
 
       def self.valid_vm_image?(image)

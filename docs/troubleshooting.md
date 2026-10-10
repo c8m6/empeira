@@ -82,22 +82,31 @@ access selects its managed or explicit identity and disables password authentica
 
 New VMs use a dedicated management daemon for internal commands, separate from
 system SSH. A failed system login does not cause Empeira to restart that service or
-replace its authentication. Management failures identify the private service/account;
+replace its authentication. Management failures identify the private service/root authentication;
 inspect `empeira-management-ssh.service` through the serial console and preserved
-logs. Legacy VMs without a layout version retain their shared daemon and support
-only system port 22; explicitly recreate them to obtain the new separation.
+logs. Older VM layouts are rejected; preserve the VM and explicitly destroy it with the
+previous Empeira revision before recreating it with root management SSH.
 
 SELinux guests require the existing `semodule` and `restorecon` tools for the scoped
 management port/file labels. Inspect the management journal and AVC messages if
 that endpoint cannot bind or authenticate; do not disable enforcement to repair it.
 
-Current VMs require a locked system `empeira` account, `/bin/bash`, passwordless
-sudo and an account-owned 0700 home at `/var/lib/empeira`. A changed UID range,
-password lock, shell, ownership or home mode fails before managed operations.
-Inspect the account and guest serial logs through `node shell`; deliberately repair
-the tested guest policy there or explicitly recreate the disposable VM. Empeira
-does not recreate a removed account, inject keys or reset console passwords.
-Layout version 1 retains its original regular account and `/home/empeira` home.
+Current VM management authenticates directly as root and does not depend on
+`empeira`, its home, sudoers or the system daemon/PAM policy. Inspect the private
+service journal, effective `sshd -T` policy in the daemon's private mount namespace,
+root UID/shell and key-file ownership through `node shell`. Root account locking,
+expiry, removal of OpenSSH or changes to the private management files can still
+prevent access. Empeira does not repair these changes or reset console passwords.
+The regular `empeira` account exists only for default `node ssh` sessions.
+Run the policy verifier from a root serial console in the service's namespace:
+
+```bash
+pid=$(systemctl show -p MainPID --value empeira-management-ssh.service)
+nsenter --target "$pid" --mount -- /usr/local/libexec/empeira-management-policy
+```
+
+Running `sshd -T` in PID 1's namespace can fail because the system daemon no longer
+owns `/run/sshd`; the management service deliberately supplies its own private directory.
 
 VM creation failures retain the original diagnostic and add the retained node's
 cleanup command. Inspect the underlying failure first; an incomplete VM requires

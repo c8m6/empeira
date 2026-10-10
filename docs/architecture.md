@@ -77,25 +77,31 @@ Both providers reconcile normal guest proxy intent in the existing node inventor
 after bootstrap cleanup. The shared reconciler uses the public control-plane
 proxy environment, owned APT files and a bounded DNF block; provider transports
 only execute guest operations. Managed Puppet receives explicit `env` arguments
-after VM `sudo`, so privilege separation cannot drop the runtime proxy policy.
+inside the root guest command, preserving the runtime proxy policy.
 
 Interactive tool PATH uses the same provider guest transports and node inventory.
 Its startup fragments apply only to interactive Bash, with a small owned block
 in the distribution's global initializer. Personal dotfiles and non-interactive
 process environments stay under their existing owners.
 
-Versioned VM SSH layouts keep existing nodes compatible without migrating their
-keys or accounts. New nodes seed an independent management daemon through Cloud-Init,
-with private configuration, keys, runtime and service state. Every managed command
-verifies this boundary, then enters the guest's normal mount namespace. The user
-system SSH adapter reaches the guest's peer IP through a narrowly allowed management
-forward. Personal user/key/port resolution happens only in the public `node ssh`
-path. Existing peer adapters, ownership checks, session guards and network policy
-remain responsible for their original boundaries.
-The current layout creates a locked Linux system account through Cloud-Init and
-prepares its private `/var/lib/empeira` home before starting management SSH. Guest
-guards validate its allocated system UID and account metadata before managed work.
-Older inventories preserve their original account and home without automatic migration.
+VMs seed an independent root-only management daemon through Cloud-Init, with
+private configuration, keys, runtime and service state. Its effective OpenSSH policy
+requires public keys, disables password/keyboard-interactive authentication and PAM,
+and binds only the existing isolated management endpoint. Every managed command
+verifies this boundary, then directly enters the guest's normal mount namespace
+without sudo. Root-owned private upload staging is hash-verified and cleaned up.
+The user system SSH adapter reaches the guest's peer IP through a narrowly allowed
+management forward; personal user/key/port resolution applies only to `node ssh`.
+Existing peer adapters, ownership checks, session guards and network policy retain
+their responsibilities. No external management port or host privilege is added.
+
+The locked `empeira` system account and `/var/lib/empeira` home are seeded only for
+regular interactive SSH, with a separate key and no sudo grant. Management never
+validates or depends on that account or on system SSH/PAM/sudoers policy. Root and
+the installed OpenSSH binary remain required guest facilities. A first-boot root
+account lock is replaced by an impossible password hash when needed for key login;
+configured console passwords are preserved. Old VM SSH layouts fail closed with an
+explicit recreation diagnosis, without migration or automatic resource deletion.
 
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle

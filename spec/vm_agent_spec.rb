@@ -47,7 +47,7 @@ RSpec.describe Empeira::VM::Agent do
 
   it 'retains guest diagnostics when the image has no usable agent and cannot bootstrap one' do
     requirements = instance_double(Empeira::VM::BootstrapRequirements, required?: false)
-    allow(ssh).to receive(:run).and_return(failure.with(stderr: 'sudo: agent executable not found'))
+    allow(ssh).to receive(:run).and_return(failure.with(stderr: 'agent executable not found'))
     expect { described_class.new(context: app.context, ssh: ssh).ensure_installed(record, requirements: requirements) }
       .to raise_error(Empeira::Error, /No usable agent.*Exit code: 1.*agent executable not found/m)
   end

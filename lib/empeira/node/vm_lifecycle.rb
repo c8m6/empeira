@@ -70,7 +70,7 @@ module Empeira
 
       def ssh(name:, user: nil, identity: nil, port: nil)
         interactive_vm(name) do |record|
-          ::Empeira::VM::SystemSSH.new(context: context, runner: @runner, management: @ssh, peer: @peer)
+          ::Empeira::VM::SystemSSH.new(context: context, runner: @runner, management: @ssh)
                                   .session(record, user: user, identity: identity, port: port)
         end
       end

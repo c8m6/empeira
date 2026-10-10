@@ -28,7 +28,7 @@ module LiveConsoleLogin
       console_until(screen, /Password:/)
       keyboard.write("empeira\n")
       console_until(screen, /root@.*# /)
-      keyboard.write(commands || "id\npasswd -l root\nsystemctl start ssh.service\nexit\n")
+      keyboard.write(commands || "id\nusermod --password '*' root\nsystemctl start ssh.service\nexit\n")
       result = console_until(screen, /login:/)
       keyboard.write("\x1d")
       result

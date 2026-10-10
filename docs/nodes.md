@@ -178,8 +178,8 @@ interactive command. Each field uses CLI override, last matching rule, global
 preference, then provider default, in that order. Rules match full hostnames with
 case-insensitive `*`/`?` globs; omitted fields preserve their existing value.
 See [personal SSH configuration](configuration.md#optional-user-preferences) for
-the schema and identity-file checks. VM management SSH continues to use its own
-account and managed key for bootstrap, enrollment and Puppet regardless of these
+the schema and identity-file checks. VM management SSH continues to use root and its own
+managed key for bootstrap, enrollment and Puppet regardless of these
 preferences. Shell/console access is unchanged.
 
 ```console
@@ -207,7 +207,7 @@ the system daemon on their own peer IP and selected guest port. Native rootless
 Podman accesses the management endpoint through its existing namespace-scoped byte
 tunnel. Application traffic, DNS and Puppet use the peer NIC directly.
 
-New VM records have `ssh_layout: 2`. Cloud-Init starts and enables
+New VM records have `ssh_layout: 3`. Cloud-Init starts and enables
 `empeira-management-ssh.service` before project scripts and package bootstrap. It has
 its own configuration, host key, authorized key, client identity, known-host file and
 runtime directory. Its port 22222 binds only to the restricted management NIC at
@@ -218,11 +218,12 @@ without stopping managed package installation, Puppet, disk or interface operati
 
 Before each managed command, Empeira verifies the private configuration, unit,
 ownership and service state. Management SSH uses public-key authentication only;
-it forbids root/password login, user startup hooks and agent/X11 forwarding. Separate
+it allows only root with the dedicated management key and forbids password or
+keyboard-interactive login, user startup hooks and agent/X11 forwarding. Separate
 host-key stores preserve strict rejection of changed host keys for both daemons.
 OpenSSH's compiled privilege-separation directories and their runtime parents have
 private mounts so stopping the system unit cannot remove them. Only the management
-PID directory and existing systemd/PAM runtime paths are bound into this namespace.
+PID directory and existing systemd runtime paths are bound into this namespace.
 Privileged guest commands enter PID 1's mount
 namespace, ensuring Puppet still manages the real guest filesystem and mounts.
 No network namespace or firewall policy is changed.
@@ -231,32 +232,39 @@ the owned management key/runtime paths, keeping the existing SSH domain confined
 and enforcement enabled. A preexisting module with that name fails before replacement.
 System SSH port labels and foreign policy remain under their original owners.
 
-Cloud-Init creates `empeira` as a Linux system account with a dynamically allocated
-UID below the distribution's `UID_MIN`, a locked password, `/bin/bash` and
-passwordless sudo for managed operations. Empeira explicitly creates its home
-`/var/lib/empeira` with the allocated UID/GID and mode 0700. System SSH uses a
-separate authorized key in that home's private `.ssh` directory; management SSH
-uses the root-owned key file outside the home. Upload staging also uses the recorded
-layout's home. Before bootstrap and every managed command, Empeira checks the
-account, system UID range, locked password, shell, home ownership and permissions.
-Changed metadata fails with a diagnosis rather than silently recreating the account.
-Personal shell files are retained; initial files come from the distribution's skeleton.
+Cloud-Init creates the locked Linux system account `empeira` only for the default
+interactive `node ssh` login, with `/bin/bash`, a dynamically allocated system UID
+and a private `/var/lib/empeira` home. Its independent system key is installed in
+that home's `.ssh/authorized_keys`. No sudo rule is granted. Puppet may remove or
+change this account and its home without affecting management; the initial account
+checks run only during seed setup. Personal shell files stay under the account owner's control.
 
-Both daemons still share the installed OpenSSH binary, PAM stack and Linux account
-database. Removing these dependencies or explicitly changing the management account
-can break management; Empeira diagnoses failures without repairing system SSH or
-injecting authentication. Serial `node shell` and `node logs` remain available for
-recovery even if management is broken. Root-console authentication remains the
-configured/Puppet-managed policy, with no password reset.
+Internal SSH, SCP and the system SSH byte tunnel authenticate directly as root
+with `id_management_ed25519`. Management health checks do not inspect `empeira` or
+sudoers, and commands use `nsenter` directly without sudo. Uploads use the root-owned
+0700 directory `/etc/empeira/management/uploads`, verify SHA-256 before and after
+installation, and remove staging on success, failure or interruption. Unverifiable
+cleanup retains the node for diagnosis.
 
-Existing VM records without `ssh_layout` retain the original shared port-22 layout
-and credentials. They are never migrated or recreated automatically. Their internal
-management still depends on the original daemon; nondefault system ports fail with
-an explicit compatibility diagnosis. Destroy/recreate explicitly to obtain the new
-layout. `ssh_layout` is not a project setting and unsupported versions fail closed.
-Version 1 VMs retain their separated daemons and original regular `empeira` account
-at `/home/empeira`. Neither older layout is automatically converted to a system
-account; explicitly recreate a disposable VM when the new account is required.
+The dedicated daemon sets `UsePAM no` so Puppet's system SSH PAM rules do not govern
+management. OpenSSH's effective `sshd -T` policy is checked before service startup
+and before each managed command. On initial setup only, a Linux root password value
+starting with `!` is replaced by `*`, an impossible password hash that permits key
+authentication without enabling password login. A configured console password is
+preserved. No root key is installed in the regular root home, and Empeira makes no
+global system SSH configuration change for this access.
+
+The installed OpenSSH binary, root UID/shell and Linux account database remain guest
+dependencies. Removing OpenSSH, locking/expiring root or replacing its shell can
+break management; Empeira diagnoses this without repairing Puppet policy. Serial
+`node shell` and `node logs` remain recovery paths. Console credentials remain under
+the configured/Puppet-managed policy, with no subsequent password reset.
+
+Older VM SSH layouts are rejected before management or infrastructure mutation.
+There is no migration, fallback login or automatic destruction. Preserve the VM;
+use the previous Empeira revision to explicitly destroy the disposable instance,
+then recreate it with the new revision. `ssh_layout` is internal inventory metadata,
+not a configuration option.
 
 Packaged container images install and start OpenSSH, generating host keys at first
 startup. They enable public-key login with `.ssh/authorized_keys`; password and
@@ -264,7 +272,7 @@ keyboard-interactive login are initially disabled. They do not provision develop
 accounts or authorized keys. Puppet may manage the daemon and authentication policy.
 Custom node images must provide the corresponding startup and package-manager contract.
 
-Empeira uses the private management account and identity internally to install the agent,
+Empeira uses direct root management authentication and its private identity internally to install the agent,
 enroll certificates and run Puppet. User-facing SSH opens an ordinary interactive
 login without the internal provisioning command or automatic sudo.
 
@@ -335,7 +343,7 @@ guest `lsblk` versions, with identical partition and filesystem growth requireme
 Changing `vm.disk` affects only subsequently created VMs; `up` and `node start`
 preserve existing disks. Container nodes do not use this setting.
 
-Cloud-init prepares identity, the management account, DNS adapter, console recovery
+Cloud-init prepares identity, root management SSH, the regular SSH login, DNS adapter, console recovery
 and optional project scripts. Managed installation then installs the selected public
 Puppet/OpenVox agent through separate bootstrap proxy access. Normal proxy rules are
 not needed for standard installation. Bootstrap access ends

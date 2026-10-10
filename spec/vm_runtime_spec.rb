@@ -16,7 +16,8 @@ RSpec.describe Empeira::VM::QemuRuntime do
   let(:engine) { instance_double(Empeira::VM::Qemu, accelerator: 'kvm', executable: '/usr/bin/qemu-system-x86_64') }
   let(:runtime) { described_class.new(engine: engine, runner: instance_double(Empeira::Execution::Runner), context: context) }
   let(:record) do
-    { 'hostname' => 'host1', 'pid' => 12_345, 'ssh_port' => 32_004, 'internet' => false,
+    { 'ssh_layout' => Empeira::VM::Management::VERSION, 'hostname' => 'host1', 'pid' => 12_345,
+      'ssh_port' => 32_004, 'internet' => false,
       'peer' => { 'token' => 'a' * 32 }, 'mac_address' => '52:54:00:12:34:56', 'memory' => 1024, 'cpus' => 2 }
   end
 
@@ -56,7 +57,8 @@ RSpec.describe Empeira::VM::QemuRuntime do
                              '/tmp/monitor.sock')
     expect(arguments).to include('-accel', 'kvm', '-daemonize', '-netdev', '-serial', 'chardev:console')
     expect(arguments[arguments.index('-chardev') + 1]).to include('server=on,wait=off', 'console.sock', 'logappend=on')
-    expect(arguments[arguments.index('-netdev') + 1]).to include('restrict=on', 'hostfwd=tcp:127.0.0.1:32004-:22')
+    expect(arguments[arguments.index('-netdev') + 1])
+      .to include('restrict=on', 'hostfwd=tcp:127.0.0.1:32004-10.0.2.15:22222')
     expect(arguments.join(' ')).not_to include('3128', 'tcg', 'guestfwd')
   end
   it 'isolates console endpoints by node and workspace with macOS-safe paths' do

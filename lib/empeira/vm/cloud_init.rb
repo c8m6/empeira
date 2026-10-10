@@ -17,12 +17,13 @@ module Empeira
       end
 
       def prepare(record)
+        Management.validate!(record)
         directory = node_directory(record.fetch('hostname'))
         FileUtils.mkdir_p(directory, mode: 0o700)
         credentials = Node::SSHCredentials.new(context: @context, runner: @runner, provider: 'vm',
                                                hostname: record.fetch('hostname'))
         credentials.prepare
-        management_credentials(record).prepare if Management.separate?(record)
+        management_credentials(record).prepare
         key = credentials.key_path
         files = seed_files(directory, record, File.read("#{key}.pub").strip)
         create_iso(directory, files)
@@ -96,19 +97,18 @@ module Empeira
       end
 
       def management_network(record)
-        return { 'dhcp4' => false, 'addresses' => ["#{Management::ADDRESS}/24"] } if Management.separate?(record)
-
-        { 'dhcp4' => true, 'dhcp4-overrides' => { 'use-dns' => false, 'use-routes' => false } }
+        Management.validate!(record)
+        { 'dhcp4' => false, 'addresses' => ["#{Management::ADDRESS}/24"] }
       end
 
       def cloud_config(record, public_key, console: true)
         scripts = bootstrap_files
         { 'hostname' => record.fetch('hostname').split('.').first,
           'fqdn' => record.fetch('hostname'), 'manage_etc_hosts' => true,
-          'users' => [management_user(record, public_key)],
+          'users' => [system_user],
           'ssh_pwauth' => false, 'disable_root' => true,
           'write_files' => cloud_files(scripts) + management_files(record, public_key),
-          'runcmd' => cloud_commands(scripts, record),
+          'runcmd' => cloud_commands(scripts),
           **(console ? console_password : {}) }
       end
 
@@ -127,8 +127,8 @@ module Empeira
                  'content' => "net.ipv6.conf.all.disable_ipv6=1\nnet.ipv6.conf.default.disable_ipv6=1\n" }] + scripts
       end
 
-      def cloud_commands(scripts, record)
-        management = Management.separate?(record) ? [[Management::SETUP]] : []
+      def cloud_commands(scripts)
+        management = [[Management::SETUP]]
         [['sysctl', '--system'], *management, *scripts.map { |entry| [entry.fetch('path')] }]
       end
 
@@ -137,16 +137,12 @@ module Empeira
                                  hostname: record.fetch('hostname'))
       end
 
-      def management_user(record, public_key)
-        account = { 'name' => USER, 'sudo' => 'ALL=(ALL) NOPASSWD:ALL', 'shell' => '/bin/bash' }
-        return account.merge('ssh_authorized_keys' => [public_key]) unless Management.system_account?(record)
-
-        account.merge('system' => true, 'homedir' => Management.home(record), 'lock_passwd' => true)
+      def system_user
+        { 'name' => USER, 'system' => true, 'homedir' => '/var/lib/empeira',
+          'lock_passwd' => true, 'shell' => '/bin/bash' }
       end
 
       def management_files(record, public_key)
-        return [] unless Management.separate?(record)
-
         Management.files(record, management_credentials(record).public_path.read.strip, system_key: public_key)
       end
 

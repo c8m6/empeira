@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'securerandom'
+require 'digest'
 require 'shellwords'
 
 module Empeira
@@ -35,25 +36,26 @@ module Empeira
         marker = "EMPEIRA_GUEST_EXIT_#{SecureRandom.hex(16)}"
         command = "#{guest_command(record, arguments)}; empeira_guest_status=$?; " \
                   "printf '\\n#{marker}:%s\\n' \"$empeira_guest_status\" >&2; exit 0"
-        result = @runner.run(binary('ssh'), arguments: [*options(record), 'empeira@127.0.0.1', command],
+        result = @runner.run(binary('ssh'), arguments: [*options(record), 'root@127.0.0.1', command],
                                             timeout: timeout)
         command_result(result, marker, arguments.first)
       end
 
       def stream(record, arguments)
         command = guest_command(record, arguments)
-        @runner.stream(binary('ssh'), arguments: [*options(record), 'empeira@127.0.0.1', command])
+        @runner.stream(binary('ssh'), arguments: [*options(record), 'root@127.0.0.1', command])
       end
 
       def copy_to(record, source, destination, mode: '0644')
-        verify_result!(run(record, ['true']), 'Management SSH is unavailable before upload', 'ssh') if
-          Management.separate?(record)
-        temporary = "#{Management.home(record)}/.empeira-copy-#{SecureRandom.hex(8)}"
+        Management.validate!(record)
+        verify_result!(run(record, ['true']), 'Management SSH is unavailable before upload', 'ssh')
+        temporary = "#{Management::UPLOADS}/.empeira-copy-#{SecureRandom.hex(8)}"
         transfer = @runner.run(binary('scp'), arguments: [*scp_options(record), source.to_s,
-                                                          "empeira@127.0.0.1:#{temporary}"], timeout: 30)
+                                                          "root@127.0.0.1:#{temporary}"], timeout: 30)
         verify_result!(transfer, 'Cannot copy a file into the VM', 'scp')
 
-        installed = run(record, ['install', '-m', mode, temporary, destination])
+        installed = run(record, ['sh', '-eu', '-c', upload_script, 'empeira-upload', temporary,
+                                 destination, mode, Digest::SHA256.file(source).hexdigest])
         verify_result!(installed, 'Cannot install a file in the VM', 'install')
       ensure
         if temporary
@@ -65,7 +67,7 @@ module Empeira
       def system_proxy_command(record, port:)
         Configuration::SSHPreferences.port!(port)
         verify_result!(run(record, ['true']), 'VM management SSH is unavailable for the system SSH tunnel', 'ssh')
-        [binary('ssh'), *options(record), '-W', "#{record.fetch('peer').fetch('ip')}:#{port}", 'empeira@127.0.0.1']
+        [binary('ssh'), *options(record), '-W', "#{record.fetch('peer').fetch('ip')}:#{port}", 'root@127.0.0.1']
       end
 
       def wait(record, progress: nil, seconds: 300)
@@ -93,10 +95,18 @@ module Empeira
       private
 
       def guest_command(record, arguments)
-        return Shellwords.join(['sudo', '-n', *arguments]) unless Management.separate?(record)
+        Management.validate!(record)
+        "#{Shellwords.join([Management::CHECK])} && " \
+          "#{Shellwords.join(['nsenter', '--target', '1', '--mount', '--', *arguments])}"
+      end
 
-        "#{Shellwords.join(['sudo', '-n', Management::CHECK])} && " \
-          "#{Shellwords.join(['sudo', '-n', 'nsenter', '--target', '1', '--mount', '--', *arguments])}"
+      def upload_script
+        <<~SCRIPT
+          verify() { test "$(sha256sum -- "$1" | cut -d ' ' -f 1)" = "$4"; }
+          verify "$1" "$2" "$3" "$4"
+          install -m "$3" -- "$1" "$2"
+          verify "$2" "$2" "$3" "$4"
+        SCRIPT
       end
 
       def command_result(result, marker, operation)
@@ -140,9 +150,9 @@ module Empeira
       def client(record)
         credentials = Node::SSHCredentials.new(context: @context, runner: @runner, provider: 'vm',
                                                hostname: record.fetch('hostname'),
-                                               purpose: Management.separate?(record) ? :management : nil)
+                                               purpose: :management)
         backend = Network::Peer::Backend.build(context: @context, runner: @runner, runtime: nil, store: nil)
-        Node::SSHClient.new(runner: @runner, credentials: credentials, user: 'empeira',
+        Node::SSHClient.new(runner: @runner, credentials: credentials, user: 'root',
                             proxy_command: backend.ssh_command(record))
       end
 
