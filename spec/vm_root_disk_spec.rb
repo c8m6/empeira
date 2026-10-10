@@ -30,6 +30,24 @@ RSpec.describe Empeira::VM::RootDisk do
     expect(partitions.first['mountpoint']).to eq('/boot/efi')
   end
 
+  it 'accepts decimal byte strings from older lsblk JSON without weakening disk or filesystem checks' do
+    data.fetch('blockdevices').first['size'] = (30 * gib).to_s
+    partitions.each { |partition| partition['size'] = partition.fetch('size').to_s }
+    allow(ssh).to receive(:run).with(record, array_including('lsblk')).and_return(result(JSON.generate(data)))
+    expect { described_class.new(ssh: ssh).verify!(record, size_gib: 30) }.not_to raise_error
+    expect { described_class.new(ssh: ssh).verify!(record, size_gib: 48) }
+      .to raise_error(Empeira::Error, /partition has not grown/)
+  end
+
+  ['30G', '32212254720.0', ' 32212254720', '32212254720junk', '-1', 0, nil, true, 30.0].each do |size|
+    it "rejects malformed or nonpositive byte capacity #{size.inspect}" do
+      data.fetch('blockdevices').first['size'] = size
+      allow(ssh).to receive(:run).with(record, array_including('lsblk')).and_return(result(JSON.generate(data)))
+      expect { described_class.new(ssh: ssh).verify!(record, size_gib: 30) }
+        .to raise_error(Empeira::Error, /malformed guest disk metadata/)
+    end
+  end
+
   it 'rejects a root partition that was not grown' do
     partitions.last['size'] = 2 * gib
     allow(ssh).to receive(:run).with(record, array_including('lsblk')).and_return(result(JSON.generate(data)))

@@ -28,9 +28,10 @@ module Empeira
 
       def verify_filesystem!(record, root)
         capacity = Integer(observe(record, ['df', '--block-size=1', '--output=size', '/']).lines.last, 10)
-        return if capacity.between?(root.fetch('size') * 95 / 100, root.fetch('size'))
+        root_size = byte_size(root)
+        return if capacity.between?(root_size * 95 / 100, root_size)
 
-        raise Error, "VM root filesystem has not grown: #{root.fetch('name')} partition=#{root.fetch('size')} bytes, " \
+        raise Error, "VM root filesystem has not grown: #{root.fetch('name')} partition=#{root_size} bytes, " \
                      "filesystem=#{capacity} bytes; inspect cloud-init logs"
       end
 
@@ -65,18 +66,26 @@ module Empeira
 
       def verify_partition!(root, disk, expected)
         free = unpartitioned(disk)
-        return if disk.fetch('size') == expected && free.between?(0, ALIGNMENT_MARGIN)
+        disk_size = byte_size(disk)
+        return if disk_size == expected && free.between?(0, ALIGNMENT_MARGIN)
 
-        raise Error, "VM root partition has not grown: #{root.fetch('name')}, disk=#{disk.fetch('size')} bytes, " \
+        raise Error, "VM root partition has not grown: #{root.fetch('name')}, disk=#{disk_size} bytes, " \
                      "expected=#{expected} bytes, unpartitioned=#{free} bytes; inspect cloud-init logs"
       end
 
       def unpartitioned(disk)
         partitions = disk.fetch('children').select { |device| device['type'] == 'part' }
-        sizes = [disk.fetch('size'), *partitions.map { |partition| partition.fetch('size') }]
-        raise TypeError unless sizes.all? { |size| size.is_a?(Integer) && size.positive? }
+        sizes = [byte_size(disk), *partitions.map { |partition| byte_size(partition) }]
 
         sizes.first - sizes.drop(1).sum
+      end
+
+      def byte_size(device)
+        size = device.fetch('size')
+        size = Integer(size, 10) if size.is_a?(String) && size.match?(/\A[0-9]+\z/)
+        raise TypeError unless size.is_a?(Integer) && size.positive?
+
+        size
       end
     end
   end

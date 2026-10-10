@@ -330,6 +330,8 @@ Cloud-init grows the actual root partition and filesystem while preserving boot/
 partitions. Empeira verifies disk, partition and filesystem capacity after cloud-init
 and before managed package installation; failed growth retains an incomplete VM for
 diagnosis and prevents enrollment and Puppet. Check `df -h /` through `node ssh`.
+The checks support both integer and decimal-string byte counts from supported
+guest `lsblk` versions, with identical partition and filesystem growth requirements.
 Changing `vm.disk` affects only subsequently created VMs; `up` and `node start`
 preserve existing disks. Container nodes do not use this setting.
 
