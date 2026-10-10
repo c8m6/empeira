@@ -90,6 +90,11 @@ Container and VM nodes consume the new policy without a restart; open proxy
 connections can end during reconciliation. Enabling/disabling proxy mode is a
 separate topology change and may require explicit node cleanup as reported by `up`.
 
+Changing direct-egress destinations also changes the server's `NO_PROXY`
+environment. `up` replaces a server whose environment definition changes while
+retaining CA storage and node identities. Changing only destination ports or
+transparent redirect rules preserves the server when its definition is unchanged.
+
 ## Managed bootstrap
 
 Managed bootstrap destinations are separate from normal user policy. Reviewed

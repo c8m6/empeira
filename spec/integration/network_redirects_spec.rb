@@ -38,15 +38,20 @@ RSpec.describe 'Transparent TCP redirects', :integration do
         @config['network'] = { 'redirects' => [rule(@original_ip), rule('192.0.2.8', target_port: 8082)],
                                'egress' => [{ 'ip' => @original_ip, 'ports' => [8080] }] }
         reconcile_redirects
+        granted_server = redirect_state.dig('control_plane', 'services', 'server')
+        expect(granted_server).not_to eq(before.dig('control_plane', 'services', 'server'))
         check_redirect(@original_ip)
         check_redirect('192.0.2.8', target_port: 8082)
         check_redirect_denied(@original_ip, 8082)
         hold_connection(@original_ip, expected: 'preserved') { expect(reconcile_redirects.changed).to be(false) }
         recreate_redirect_target
+        expect(redirect_state.dig('control_plane', 'services', 'server')).to eq(granted_server)
         check_redirect(@original_ip)
         @config['network']['egress'] = []
         @config['network']['redirects'] = [rule(@original_ip, target_port: 8082), rule('192.0.2.9', source_port: 8083)]
         reconcile_redirects
+        revoked_server = redirect_state.dig('control_plane', 'services', 'server')
+        expect(revoked_server).not_to eq(granted_server)
         check_redirect(@original_ip, target_port: 8082)
         check_redirect('192.0.2.9', source_port: 8083)
         check_redirect_denied('192.0.2.8')
@@ -58,7 +63,8 @@ RSpec.describe 'Transparent TCP redirects', :integration do
         expect_canary_untouched
         after = redirect_state
         expect(after.fetch('nodes')).to eq(before.fetch('nodes'))
-        %w[gateway dns server].each do |key|
+        expect(after.dig('control_plane', 'services', 'server')).to eq(revoked_server)
+        %w[gateway dns].each do |key|
           expect(after.dig('control_plane', 'services', key)).to eq(before.dig('control_plane', 'services', key))
         end
       end

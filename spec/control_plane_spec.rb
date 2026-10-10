@@ -211,6 +211,23 @@ RSpec.describe Empeira::ControlPlane::Controller do
       .to eq(executions + 1)
   end
 
+  it 'replaces the server for changed direct-egress bypass destinations but retains it for port changes' do
+    config = { 'puppetdb' => { 'enabled' => false }, 'network' => { 'egress' => [] } }
+    mutate(controller(config), :up)
+    ids = runtime.services.transform_values { |resource| resource.fetch('id') }
+    config['network']['egress'] = [{ 'ip' => '192.0.2.20', 'ports' => [443] }]
+    mutate(controller(config), :up)
+    granted_server = runtime.services.fetch('server').fetch('id')
+    expect(granted_server).not_to eq(ids.fetch('server'))
+    config['network']['egress'].first['ports'] = [8443]
+    expect(mutate(controller(config), :up)).to be(true)
+    expect(runtime.services.fetch('server').fetch('id')).to eq(granted_server)
+    config['network']['egress'] = []
+    mutate(controller(config), :up)
+    expect(runtime.services.fetch('server').fetch('id')).not_to eq(granted_server)
+    %w[gateway dns].each { |key| expect(runtime.services.fetch(key).fetch('id')).to eq(ids.fetch(key)) }
+  end
+
   it 'removes direct grants while retaining the shared gateway and checkpoint' do
     state = @store.load
     state['peer_network'] = { 'subnet' => '10.203.20.0/24' }
