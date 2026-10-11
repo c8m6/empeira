@@ -425,3 +425,19 @@ that ignores timeout environment mapping.
 The same gate verifies startup and idempotent `up` with an explicit
 `environment.conf` timeout override, preserving the file and distinguishing its
 effective value from the native server setting.
+
+Run the isolated diagnostics/recovery gate with each native runtime:
+
+```sh
+EMPEIRA_DIAGNOSTIC_INTEGRATION=1 EMPEIRA_DIAGNOSTIC_RUNTIME=docker bundle exec rspec spec/integration/node_diagnostics_spec.rb
+EMPEIRA_DIAGNOSTIC_INTEGRATION=1 EMPEIRA_DIAGNOSTIC_RUNTIME=podman bundle exec rspec spec/integration/node_diagnostics_spec.rb
+```
+
+Both runs include container and QEMU/KVM nodes; select either with
+`EMPEIRA_DIAGNOSTIC_PROVIDERS=container` or `vm` when the other is unavailable.
+The VM gate requires acceleration and exercises root locked by Puppet, disabled
+SSHD, separated exec streams, exact exits, timeouts, concurrent VirtIO sessions,
+real PTY resize/job control/fullscreen output and terminal restoration, restart,
+serial console without the guest service, and cleanup after removal of the server
+and control repository with an incompatible inventory. Projects and resources
+are disposable and isolated; production infrastructure is never used.
