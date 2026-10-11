@@ -52,6 +52,8 @@ module Empeira
       end
 
       desc 'destroy', 'Permanently remove services, CA and database volumes'
+      option :project_path, type: :string,
+                            desc: 'Former absolute Git root path for recovery without a control repository'
       def destroy
         progressing('Removing workspace...', recovery: true) { |app| app.infrastructure.destroy }
         say 'Workspace infrastructure and persistent data removed.'

@@ -47,8 +47,8 @@ flowchart TD
 
 VM interface rules resolve through Configuration using the shared hostname glob
 matcher. The VM provider invokes the guest interface reconciler through its existing
-management SSH channel after agent installation, on start/up and before managed
-Puppet runs. Device intent and recovery definitions live in the locked node inventory;
+VirtIO management channel after agent installation and on start/up. Device intent
+and recovery definitions live in the locked node inventory;
 atomically assigned locally administered MAC addresses and verified aliases bind
 devices to workspace/node ownership. Guest observations establish device type,
 parent, address and routes before mutation. The VM engine,
@@ -84,24 +84,31 @@ Its startup fragments apply only to interactive Bash, with a small owned block
 in the distribution's global initializer. Personal dotfiles and non-interactive
 process environments stay under their existing owners.
 
-VMs seed an independent root-only management daemon through Cloud-Init, with
-private configuration, keys, runtime and service state. Its effective OpenSSH policy
-requires public keys, disables password/keyboard-interactive authentication and PAM,
-and binds only the existing isolated management endpoint. Every managed command
-verifies this boundary, then directly enters the guest's normal mount namespace
-without sudo. Root-owned private upload staging is hash-verified and cleaned up.
-The user system SSH adapter reaches the guest's peer IP through a narrowly allowed
-management forward; personal user/key/port resolution applies only to `node ssh`.
-Existing peer adapters, ownership checks, session guards and network policy retain
-their responsibilities. No external management port or host privilege is added.
+VMs seed a Python 3 standard-library execution adapter through Cloud-Init, before
+project scripts and package bootstrap. The private VirtIO-Serial channel has no
+network listener or guest account authentication. A systemd service runs with
+numeric UID/GID 0, independently of root shadow, PAM, NSS login policy, sudoers and
+system SSH. Guest commands use argument arrays and owned process groups; stdout
+and stderr stream in bounded frames without truncation. Timeouts, interrupts and
+host disconnects terminate those groups. Binary uploads are SHA-256 verified,
+staged privately and atomically installed in the real guest filesystem.
 
-The locked `empeira` system account and `/var/lib/empeira` home are seeded only for
-regular interactive SSH, with a separate key and no sudo grant. Management never
-validates or depends on that account or on system SSH/PAM/sudoers policy. Root and
-the installed OpenSSH binary remain required guest facilities. A first-boot root
-account lock is replaced by an impossible password hash when needed for key login;
-configured console passwords are preserved. Old VM SSH layouts fail closed with an
-explicit recreation diagnosis, without migration or automatic resource deletion.
+The QEMU monitor verifies workspace/node/instance identity before management.
+A 0700 host directory and 0600 Unix socket restrict access; recorded device/inode
+identity rejects replaced sockets. Sessions also verify the instance identity and
+operation ID. No management NIC, host port, additional privileged host helper or
+SSH credentials are needed. Existing workspace locks and VM session guards apply.
+`node puppet` uses this targeted path without server readiness or full guest
+reconciliation.
+
+The user SSH adapter connects directly to the guest's peer IP through the owned
+peer attachment and its isolated TCP client, independently of management. Personal
+user/key/port resolution
+applies only to `node ssh`; the default guest port is 22. The locked `empeira`
+system account and `/var/lib/empeira` home are seeded once for regular SSH, without
+sudo. Puppet may remove or change them. Empeira never unlocks root or restores
+Puppet-managed authentication. Unsupported VM layouts require explicit recreation;
+there is no migration, fallback transport or automatic resource deletion.
 
 Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle
@@ -173,7 +180,12 @@ nor cached fingerprints replace these integrity checks.
 Network changes and unsafe storage transitions require explicit lifecycle operations;
 there are no implicit database-major migrations or automatic node replacements.
 
-Managed servers disable environment caching (`environment_timeout = 0`). Catalog
+Managed servers disable environment caching through native Puppet configuration
+(`environment_timeout = 0` in `[server]`), applied by the startup wrapper before
+the configured image entrypoint. `up` checks the actual native setting and restarts
+only a server whose setting changed; it preserves every other configuration key
+and retained storage. The configured Puppet confdir must agree with Puppetserver
+HOCON `master-conf-dir`. Catalog
 requests reload live code without repository hashes or environment-cache checkpoints.
 See [nodes](nodes.md#environment-cache-and-live-code).
 
@@ -215,6 +227,25 @@ pulls/builds. Helpers use the runtime's normal bridge, require no infrastructure
 inventory or workspace services, and are removed after each invocation. Git/SSH and
 registry credentials remain owned by their native tools. `up` acquires missing
 images only and never synchronizes modules. See [Hiera and modules](hiera-and-eyaml.md).
+
+## Diagnostic access and recovery
+
+Exec and VM PTY shells extend the existing framed VirtIO guest adapter. Eight private
+VirtIO-Serial ports have pinned socket identities and exclusive session slots; each
+bounded worker owns its process session and PTY. Idle workers block on I/O. Commands,
+uploads and interactive sessions retain one instance token and per-session identity
+without a management network or host daemon. A local raw terminal forwards bytes,
+resize and normal guest job control; cancellation kills the owned session groups.
+Container exec uses native numeric-root execution and a guest Ruby supervisor with a
+private completion receipt so native-client errors cannot impersonate guest exits.
+
+Recovery uses the same workspace lock/inventory and existing runtime, QEMU monitor
+and peer teardown adapters. It reads ownership fields without operational schema,
+version, guest, base-image or current configuration gates. Every mutation still
+checks native identity and safe paths. Resource records are removed only after confirmed
+removal; partial failures retain evidence and continue independent cleanup. Retired
+public certificate fingerprints permit later verified hostname reuse without requiring
+a live CA during node removal. The mutation-lock inode remains stable after destroy.
 
 ## Execution and secrets
 

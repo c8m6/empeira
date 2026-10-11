@@ -90,13 +90,12 @@ RSpec.describe 'Real VM dummy and VLAN interfaces', :integration do
     Empeira::Infrastructure::Store.new(context: app.context).load.fetch('nodes').fetch('interfaces-vm.example.test')
   end
 
-  def management_ssh
-    cloud = Empeira::VM::CloudInit.new(context: app.context, runner: app.runner)
-    Empeira::VM::SSH.new(context: app.context, runner: app.runner, cloud_init: cloud)
+  def management_guest
+    vm_guest(app)
   end
 
   def guest(arguments)
-    result = management_ssh.run(vm_record, arguments)
+    result = management_guest.run(vm_record, arguments)
     expect(result).to be_success, "#{arguments.first} failed: #{result.stderr}"
     result.stdout
   end
@@ -113,7 +112,7 @@ RSpec.describe 'Real VM dummy and VLAN interfaces', :integration do
       .to eq(vm_record.fetch('base_image').fetch('checksum'))
     allocated = File.stat(overlay).blocks * 512
     expect(allocated).to be < 8 * Empeira::VM::Disk::GIB
-    Empeira::VM::RootDisk.new(ssh: management_ssh).verify!(vm_record, size_gib: 32)
+    Empeira::VM::RootDisk.new(guest: management_guest).verify!(vm_record, size_gib: 32)
     RSpec.configuration.reporter.message(
       "Combined VM disk/interfaces (#{engine_name}, allocated #{allocated} bytes): #{guest(%w[df -h /]).strip}"
     )

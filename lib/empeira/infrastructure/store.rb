@@ -15,15 +15,21 @@ module Empeira
       SCHEMA_VERSION = 2
       attr_reader :directory
 
-      def initialize(context:)
+      def initialize(context:, recovery: false)
+        @recovery = recovery
         @workspace_id = context.workspace.id
+        @state_root = context.locations.state
         @network = Network::Definition.new(workspace: context.workspace, policy: Network::Policy.new)
         @directory = context.locations.workspace(context.workspace)
       end
 
+      # rubocop:disable-next Metrics/MethodLength -- Stable lock ownership, acquisition and release share an ensure boundary.
       def with_lock
+        verify_paths!(inventory: false)
         FileUtils.mkdir_p(directory, mode: 0o700)
-        File.open(directory.join('mutation.lock'), File::RDWR | File::CREAT, 0o600) do |lock|
+        verify_paths!(inventory: false)
+        File.open(directory.join('mutation.lock'), File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
+          verify_lock!(lock)
           unless lock.flock(File::LOCK_EX | File::LOCK_NB)
             raise Locked, "Another Empeira mutation owns workspace #{@workspace_id}. Wait and retry."
           end
@@ -39,6 +45,7 @@ module Empeira
       end
 
       def load
+        verify_paths!
         data = JSON.parse(File.read(path))
         validate!(data)
         data
@@ -51,6 +58,7 @@ module Empeira
       end
 
       def write(data)
+        verify_paths!
         validate!(data)
         Tempfile.create(['state-', '.json'], directory) do |file|
           file.chmod(0o600)
@@ -64,6 +72,7 @@ module Empeira
       end
 
       def clear
+        verify_paths!
         File.unlink(path) if path.exist?
       rescue SystemCallError
         raise StateError, 'Cannot clear infrastructure state. Run status before retrying.', cause: nil
@@ -71,11 +80,53 @@ module Empeira
 
       private
 
+      def verify_lock!(lock)
+        metadata = lock.stat
+        return if metadata.file? && metadata.uid == Process.uid && metadata.mode.nobits?(0o077)
+
+        raise StateError, 'Workspace mutation lock ownership is invalid'
+      end
+
+      def verify_paths!(inventory: true)
+        [@state_root, directory.dirname, directory].each do |entry|
+          verify_directory!(entry)
+        end
+        if directory.exist? && !directory.lstat.mode.nobits?(0o077)
+          raise StateError, 'Workspace state directory is not private'
+        end
+
+        verify_inventory_file! if inventory
+      end
+
+      def verify_directory!(entry)
+        return unless entry.exist? || entry.symlink?
+
+        raise StateError, 'Workspace state directory is an unsafe symlink' if entry.symlink?
+
+        metadata = entry.lstat
+        return if metadata.directory? && metadata.uid == Process.uid
+
+        raise StateError, 'Workspace state directory ownership or path is unsafe'
+      end
+
+      def verify_inventory_file!
+        return unless path.exist? || path.symlink?
+
+        raise StateError, 'Infrastructure state is an unsafe symlink' if path.symlink?
+
+        metadata = path.lstat
+        return if metadata.file? && metadata.uid == Process.uid && metadata.mode.nobits?(0o077)
+
+        raise StateError, 'Infrastructure state ownership or path is unsafe'
+      end
+
       def path
         directory.join('infrastructure.json')
       end
 
       def validate!(data)
+        return RecoveryInventory.validate!(data, workspace: @workspace_id) if @recovery
+
         unless data.is_a?(Hash) && data['schema_version'] == SCHEMA_VERSION && data['workspace'] == @workspace_id
           raise StateError,
                 'Invalid infrastructure state schema or workspace. Preserve the state and inspect its ownership.'
@@ -116,7 +167,7 @@ module Empeira
       def valid_extensions?(data)
         valid_timestamps?(data) && valid_control_plane?(data) &&
           (!data.key?('nodes') || Node::Inventory.valid?(data['nodes'])) && valid_peer_network?(data) &&
-          valid_bootstrap_proxy?(data['bootstrap_proxy'])
+          valid_bootstrap_proxy?(data['bootstrap_proxy']) && RecoveryInventory.valid_retired_certificates?(data)
       end
 
       def valid_peer_network?(data)

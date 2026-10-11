@@ -2,6 +2,7 @@
 
 module Empeira
   module Node
+    # rubocop:disable-next Metrics/ModuleLength -- Provider inventories share one explicit ownership envelope.
     module Inventory
       def self.valid?(nodes)
         return false unless nodes.is_a?(Hash)
@@ -42,12 +43,31 @@ module Empeira
       def self.valid_vm?(name, record)
         valid_vm_image?(record['base_image']) && valid_vm_process?(record) &&
           valid_vm_network?(name, record) && valid_vm_metadata?(record) &&
-          valid_vm_ssh_layout?(record) &&
+          valid_vm_management_layout?(record) &&
           (!record.key?('network_interfaces') || ::Empeira::VM::Interfaces.valid_inventory?(record['network_interfaces']))
       end
 
-      def self.valid_vm_ssh_layout?(record)
-        record['ssh_layout'] == ::Empeira::VM::Management::VERSION
+      def self.valid_vm_management_layout?(record)
+        record['management_layout'] == ::Empeira::VM::Management::VERSION && valid_management_socket?(record)
+      end
+
+      def self.valid_management_socket?(record)
+        valid_socket_identity?(record['management_socket']) && valid_management_slots?(record)
+      end
+
+      # rubocop:disable-next Metrics/CyclomaticComplexity -- Match all slot identities and the original primary endpoint.
+      def self.valid_management_slots?(record)
+        return true unless record.key?('management_sockets')
+
+        slots = record['management_sockets']
+        slots.is_a?(Hash) && slots.keys.sort == (0...::Empeira::VM::Management::SLOTS).map(&:to_s) &&
+          slots.values.all? { |value| !value.nil? && valid_socket_identity?(value) } &&
+          slots['0'] == record['management_socket']
+      end
+
+      def self.valid_socket_identity?(socket)
+        socket.nil? || (socket.is_a?(Hash) && socket.keys.sort == %w[device inode] &&
+          socket.values.all? { |value| value.is_a?(Integer) && value >= 0 })
       end
 
       def self.valid_vm_image?(image)
@@ -66,8 +86,7 @@ module Empeira
       end
 
       def self.valid_vm_resources?(record)
-        %w[memory cpus].all? { |key| record[key].is_a?(Integer) && record[key].positive? } &&
-          record['ssh_port'].is_a?(Integer) && record['ssh_port'].between?(1024, 65_535)
+        %w[memory cpus].all? { |key| record[key].is_a?(Integer) && record[key].positive? }
       end
 
       def self.valid_vm_identity?(record)

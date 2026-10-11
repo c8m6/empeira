@@ -19,8 +19,7 @@ module Empeira
       def session(record, user: nil, identity: nil)
         @credentials.prepare_hosts
         username = username_for(user)
-        transport = SSHClient.new(runner: @runner, credentials: @credentials, user: username,
-                                  proxy_command: @proxy_command)
+        transport = SSHClient.new(credentials: @credentials, proxy_command: @proxy_command)
         arguments = ['-tt', '-l', username, *options(record, transport), *authentication_options(identity)]
         @runner.stream('ssh', arguments: [*arguments, record.fetch('hostname')])
       end

@@ -2,7 +2,7 @@
 
 RSpec.describe Empeira::VM::Agent do
   let(:app) { Empeira::Application.new(project_path: @directory) }
-  let(:ssh) { instance_double(Empeira::VM::SSH) }
+  let(:ssh) { instance_double(Empeira::VM::Guest) }
   let(:record) { { 'os' => 'ubuntu', 'version' => '24.04', 'architecture' => 'amd64' } }
   let(:success) { Empeira::Execution::Result.new(stdout: app.context.configuration.dig('agent', 'version'), stderr: '', exit_status: 0, timed_out: false) }
   let(:failure) { success.with(exit_status: 1) }
@@ -15,8 +15,8 @@ RSpec.describe Empeira::VM::Agent do
       execute: an_instance_of(Proc), copy: an_instance_of(Proc), progress: an_instance_of(Empeira::Progress)
     ).and_return(installer)
     allow(ssh).to receive(:run).and_return(success)
-    described_class.new(context: app.context, ssh: ssh).ensure_installed(record, requirements: requirements,
-                                                                                 proxy_url: 'http://bootstrap.example.net:3128')
+    described_class.new(context: app.context, guest: ssh).ensure_installed(record, requirements: requirements,
+                                                                                   proxy_url: 'http://bootstrap.example.net:3128')
     expect(installer).to have_received(:install).with(proxy_url: 'http://bootstrap.example.net:3128')
   end
 
@@ -33,22 +33,24 @@ RSpec.describe Empeira::VM::Agent do
       execute: an_instance_of(Proc), copy: an_instance_of(Proc), progress: an_instance_of(Empeira::Progress)
     ).and_return(installer)
     allow(ssh).to receive(:run).and_return(success)
-    described_class.new(context: app.context, ssh: ssh).ensure_installed(record, requirements: requirements,
-                                                                                 proxy_url: 'http://bootstrap.example.net:3128')
+    described_class.new(context: app.context, guest: ssh).ensure_installed(record, requirements: requirements,
+                                                                                   proxy_url: 'http://bootstrap.example.net:3128')
     expect(app.context.configuration.dig('images', 'server'))
       .to eq(Empeira::Configuration::Loader.new(project_path: @directory).load_defaults.dig('images', 'server'))
   end
 
   it 'fails closed when no managed bootstrap proxy is provided' do
     allow(ssh).to receive(:run).and_return(failure)
-    expect { described_class.new(context: app.context, ssh: ssh).ensure_installed(record) }
+    expect { described_class.new(context: app.context, guest: ssh).ensure_installed(record) }
       .to raise_error(Empeira::Error, /bootstrap proxy/)
   end
 
   it 'retains guest diagnostics when the image has no usable agent and cannot bootstrap one' do
     requirements = instance_double(Empeira::VM::BootstrapRequirements, required?: false)
     allow(ssh).to receive(:run).and_return(failure.with(stderr: 'agent executable not found'))
-    expect { described_class.new(context: app.context, ssh: ssh).ensure_installed(record, requirements: requirements) }
+    expect do
+      described_class.new(context: app.context, guest: ssh).ensure_installed(record, requirements: requirements)
+    end
       .to raise_error(Empeira::Error, /No usable agent.*Exit code: 1.*agent executable not found/m)
   end
 end

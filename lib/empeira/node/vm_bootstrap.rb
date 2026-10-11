@@ -2,10 +2,10 @@
 
 module Empeira
   module Node
-    # Cloud-Init installs shared files; management SSH verifies them before Puppet.
+    # Cloud-Init installs shared files; management transport verifies them before Puppet.
     class VMBootstrap
-      def initialize(ssh:)
-        @ssh = ssh
+      def initialize(guest:)
+        @guest = guest
       end
 
       def verify(record:, bootstrap:)
@@ -15,8 +15,8 @@ module Empeira
       private
 
       def verify_file!(record, file)
-        content = @ssh.run(record, ['cat', file.path])
-        mode = @ssh.run(record, ['stat', '-c', '%a', file.path])
+        content = @guest.run(record, ['cat', file.path])
+        mode = @guest.run(record, ['stat', '-c', '%a', file.path])
         return if valid_file?(content, mode, file)
 
         details = [file_diagnostic(content, file, 'content', 'cat'), file_diagnostic(mode, file, 'mode', 'stat')]

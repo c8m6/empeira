@@ -30,10 +30,7 @@ module Empeira
         protected
 
         def adapter_definition(record)
-          Services::Definition.new(key: identity(record).key, workspace: context.workspace,
-                                   network: network_name, image: @image.image, memory: 64, cpus: 1,
-                                   command: ['hold'], read_only: true, cap_drop: ['ALL'],
-                                   security_options: ['no-new-privileges'])
+          capless_adapter_definition(record)
         end
 
         def packet_command(record)

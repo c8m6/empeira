@@ -31,8 +31,7 @@ module ProductionPeerFixture
   end
 
   def prepare_peer_ssh
-    cloud = Empeira::VM::CloudInit.new(context: peer_app.context, runner: peer_app.runner)
-    @peer_ssh = Empeira::VM::SSH.new(context: peer_app.context, runner: peer_app.runner, cloud_init: cloud)
+    @peer_ssh = vm_guest(peer_app)
   end
 
   def create_peer_application(project)

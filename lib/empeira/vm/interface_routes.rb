@@ -4,7 +4,7 @@ module Empeira
   module VM
     class InterfaceRoutes
       def self.validate_static!(desired, hostname:, config:, subnet:)
-        protected = [subnet, '10.0.2.0/24'].compact + config.dig('network', 'redirects').map do |entry|
+        protected = [subnet].compact + config.dig('network', 'redirects').map do |entry|
           entry.fetch('from').fetch('ip')
         end
         desired.each do |name, definition|

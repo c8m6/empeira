@@ -64,7 +64,7 @@ class ServiceRuntime
     address = options['runtime_ip'] || options['ip'] || "172.20.0.#{services.size + 128}"
     services[definition.key] = identity(definition).merge(
       'state' => 'created',
-      'networks' => { options.fetch('network') => { 'IPAddress' => address } },
+      'networks' => { options.fetch('network') => { 'IPAddress' => address, 'MacAddress' => options['mac_address'] } },
       'ports' => {}, 'published_ports' => {}, 'dns' => options['dns'] ? [options['dns']] : []
     )
     if options['ports']&.any?
@@ -104,6 +104,7 @@ class ServiceRuntime
     return proxy_result if proxy_result
 
     output = ''
+    output = '0' if arguments[1] == Empeira::Server::EnvironmentConfiguration::READER
     output = "[main]\ngpgcheck=1\n" if arguments == ['cat', '/etc/dnf/dnf.conf']
     output = "tcp-redirects-v1\n" if arguments == [Empeira::Network::Gateway::EXECUTABLE, 'redirects-capability']
     Empeira::Execution::Result.new(stdout: output, stderr: '', exit_status: 0, timed_out: false)

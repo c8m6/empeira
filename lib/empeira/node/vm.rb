@@ -34,7 +34,7 @@ module Empeira
       end
 
       def reconcile_interfaces(record)
-        ::Empeira::VM::Interfaces.new(context: context, record: record, state: @state, ssh: @ssh,
+        ::Empeira::VM::Interfaces.new(context: context, record: record, state: @state, guest: @guest,
                                       persist: method(:save)).reconcile
       end
 
@@ -47,17 +47,17 @@ module Empeira
 
       def reconcile_interactive_tools(record)
         InteractiveTools.new(record: record, persist: method(:save),
-                             execute: ->(arguments) { @ssh.run(record, arguments) }).reconcile
+                             execute: ->(arguments) { @guest.run(record, arguments) }).reconcile
       end
 
       def reconcile_runtime_proxy(record)
         RuntimeProxy.new(context: context, record: record, persist: method(:save),
-                         execute: ->(arguments) { @ssh.run(record, arguments) }).reconcile
+                         execute: ->(arguments) { @guest.run(record, arguments) }).reconcile
       end
 
       def reconcile_command_mocks(record)
         CommandMocks.new(context: context, record: record, persist: method(:save),
-                         execute: ->(arguments) { @ssh.run(record, arguments) }).reconcile
+                         execute: ->(arguments) { @guest.run(record, arguments) }).reconcile
       end
 
       def prepare_components(context, runner, backend, runtime)
@@ -69,8 +69,8 @@ module Empeira
                                         workspace_directory: context.locations.workspace(context.workspace))
         @qemu = ::Empeira::VM::QemuRuntime.new(engine: backend, runner: runner, context: context)
         @cloud = ::Empeira::VM::CloudInit.new(context: context, runner: runner)
-        @ssh = ::Empeira::VM::SSH.new(context: context, runner: runner, cloud_init: @cloud)
-        @agent = ::Empeira::VM::Agent.new(context: context, ssh: @ssh, runtime: runtime, progress: @progress)
+        @guest = ::Empeira::VM::Guest.new(context: context, runner: runner, qemu: @qemu)
+        @agent = ::Empeira::VM::Agent.new(context: context, guest: @guest, runtime: runtime, progress: @progress)
       end
     end
   end

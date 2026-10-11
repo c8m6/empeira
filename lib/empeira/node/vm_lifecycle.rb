@@ -40,12 +40,8 @@ module Empeira
       end
 
       def destroy(name:)
-        mutate do
-          @bootstrap_proxy.cleanup(@state)
-          changed = !!remove_vm(name.downcase)
-          refresh_dns if changed
-          Providers::Result.new(resource: nil, changed: changed)
-        end
+        Infrastructure::Cleanup.new(context: context, runner: @runner, runtime: @runtime,
+                                    progress: @progress).node(name)
       end
 
       def destroy_all(state:)
@@ -64,12 +60,23 @@ module Empeira
       end
 
       def shell(name:)
+        interactive_vm(name) { |record| @guest.shell(record) }
+      end
+
+      def console(name:)
         interactive_vm(name) { |record| @qemu.console(record) }
+      end
+
+      def exec(name:, arguments:, timeout: nil, output: $stdout, error: $stderr)
+        DiagnosticCommand.validate!(arguments, timeout)
+        interactive_vm(name) do |record|
+          @guest.stream(record, arguments, timeout: timeout, output: output, error: error)
+        end
       end
 
       def ssh(name:, user: nil, identity: nil, port: nil)
         interactive_vm(name) do |record|
-          ::Empeira::VM::SystemSSH.new(context: context, runner: @runner, management: @ssh)
+          ::Empeira::VM::SystemSSH.new(context: context, runner: @runner, runtime: @runtime, qemu: @qemu)
                                   .session(record, user: user, identity: identity, port: port)
         end
       end
@@ -120,14 +127,15 @@ module Empeira
         ensure
           save if record['pid']
         end
-        @progress.stage(80, 'Waiting for VM SSH readiness...')
-        @ssh.wait(record, progress: @progress)
+        @progress.stage(80, 'Waiting for VM management readiness...')
+        @guest.wait(record, progress: @progress)
         record['state'] = 'running'
         save
         @progress.stage(95, 'Virtual machine ready.')
       end
 
       def existing_storage(record)
+        ::Empeira::VM::Management.validate!(record)
         base = base_for(record)
         unless base.file? && !base.symlink? &&
                OpenSSL::Digest::SHA256.file(base).hexdigest == record.dig('base_image', 'checksum')

@@ -7,7 +7,7 @@ module Empeira
     # rubocop:disable-next Metrics/ClassLength -- Fragment validation and matching share one configuration contract.
     class VMInterfaces
       PARENT = 'empeira-vlan'
-      RESERVED = %w[lo eth0 eth1 peer management].push(PARENT).freeze
+      RESERVED = %w[lo eth0 peer].push(PARENT).freeze
       UNSUITABLE = %w[0.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16
                       192.0.0.0/24 192.88.99.0/24 224.0.0.0/3].map { |value| IPAddr.new(value) }.freeze
 

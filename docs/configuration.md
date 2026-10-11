@@ -401,9 +401,22 @@ other variable names must override each affected key. Empeira mounts standard
 Puppet configuration, including `puppetdb.conf`, and supplies the configured
 runtime values without inferring them from the image name. Missing or unsafe
 runtime fields fail configuration validation. Managed servers use
-`environment_timeout = 0`: the next catalog request reloads live code without
+`environment_timeout = 0` in the native `[server]` section. The startup wrapper
+uses `puppet config set` before the configured entrypoint, independently of image
+environment-variable mappings. Startup and `up` read Puppet's native server
+settings without selecting an environment override, against the
+confdir containing `server.runtime.paths.puppetdb_config`; custom Puppetserver
+`jruby-puppet.master-conf-dir` must refer to that same directory. Puppetserver
+HOCON master directories take precedence over Puppet CLI defaults. A changed
+effective timeout updates only that key and restarts the same owned server; an
+entrypoint that overwrites it fails verification. CA, SSL and database storage
+are preserved. The next catalog request reloads live code without
 an Empeira content scan or admin API invalidation. An explicit `environment.conf`
 can override this server setting; keep its timeout at zero for immediate edits.
+Such overrides are preserved and do not prevent server startup or cause repeated
+restarts. `puppet config print environment_timeout --section server` includes the
+selected environment's override, so it can report `unlimited` while the native
+server setting is zero. Inspect both configuration layers when diagnosing caching.
 
 `puppetdb.runtime` holds the independent OpenVoxDB process contract. Custom
 images may override its executable, numeric user, Java and main arguments,
@@ -501,6 +514,13 @@ Mounts are optional unless `required: true`. The console password is used only o
 initial VM creation. Changing it does not reset an existing node.
 `vm.disk` applies only when creating a VM. Existing disks keep their capacity across
 `up` and `node start`; changing the setting does not resize or migrate them.
+
+VM management uses private VirtIO-Serial with numeric root execution; it does not
+use personal SSH settings, root login or sudo. `node ssh` reaches the regular
+system SSH daemon through the owned peer attachment, with default guest port 22.
+The selected cloud image must include Python 3 before package bootstrap. There is
+no transport selector or additional management YAML configuration. See
+[VM access and recovery](nodes.md#shell-and-ssh).
 
 ## Images and bootstrap
 
@@ -756,7 +776,7 @@ to other nodes. No QEMU NIC, DHCP, bridge, forwarding, gateway grant or proxy ru
 is added.
 
 Device names use 1–15 ASCII letters, digits, underscores, dots or hyphens, beginning
-with a letter or digit. `lo`, `eth0`, `eth1`, `peer`, `management` and `empeira-vlan`
+with a letter or digit. `lo`, `eth0`, `peer` and `empeira-vlan`
 are reserved. Unknown keys, IPv6, duplicate addresses/VLAN IDs and overlapping
 device networks are rejected. Network/broadcast addresses within prefixes below
 /31 are rejected, as are subnets overlapping unspecified, loopback, link-local,
@@ -766,7 +786,7 @@ hosts are permitted; separate `prefix`/`netmask` keys are unsupported.
 
 Prefer `/32` for Facter tests. Other prefixes create connected routes, so Empeira
 checks all guest IPv4 routing tables and existing interface addresses first. The
-workspace subnet, QEMU management subnet and `network.redirects` source addresses
+workspace subnet and `network.redirects` source addresses
 are protected even if their routes are absent. Overlap is refused, including a /32
 inside an existing connected network. Automatically generated routes of owned test
 devices are recognized during reconciliation; manually added routes on those devices

@@ -1,6 +1,0 @@
-; Label only the private management port and owned runtime/key files.
-(portcon tcp @PORT@ (system_u object_r ssh_port_t ((s0) (s0))))
-(filecon "/run/empeira-management-ssh(/.*)?" any (system_u object_r sshd_var_run_t ((s0) (s0))))
-(filecon "/var/run/empeira-management-ssh(/.*)?" any (system_u object_r sshd_var_run_t ((s0) (s0))))
-(filecon "@DIRECTORY@/ssh_host_ed25519_key([.]pub)?" file (system_u object_r sshd_key_t ((s0) (s0))))
-(filecon "@DIRECTORY@/authorized_keys" file (system_u object_r ssh_home_t ((s0) (s0))))

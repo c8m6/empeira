@@ -4,6 +4,7 @@ module Empeira
   module Network
     module Peer
       # The same whole-NIC transport serves local Docker and Docker Desktop.
+      # rubocop:disable-next Metrics/ClassLength -- Owned NIC and system SSH share adapter security checks.
       class DockerAdapter < Backend
         def preflight(state)
           super
@@ -53,7 +54,41 @@ module Empeira
           channel(record).healthy?
         end
 
+        def system_ssh_command(record, port:)
+          address = system_address(record, port)
+          @image = AdapterImage.new(context: context)
+          verify_adapter(record)
+          resource = runtime.inspect_service(identity(record), expected_id: record.dig('peer', 'adapter_id'))
+          verify_definition!(record, resource)
+          raise Providers::OwnershipError, 'VM peer channel is not active' unless healthy?(record)
+
+          source = system_source(resource, address)
+          [*connector_engine, 'exec', '-i', resource.fetch('id'), '/adapter', 'connect', address, port.to_s, source]
+        end
+
         protected
+
+        def connector_engine
+          [runtime.name]
+        end
+
+        def system_source(resource, target)
+          source = resource.dig('networks', network_name, 'IPAddress')
+          unless source.is_a?(String) && IPAddr.new("#{target}/24").include?(IPAddr.new(source))
+            raise Providers::OwnershipError, 'Peer connector address is outside its owned subnet'
+          end
+
+          source
+        rescue IPAddr::InvalidAddressError
+          raise Providers::OwnershipError, 'Peer connector address is unavailable', cause: nil
+        end
+
+        def capless_adapter_definition(record)
+          Services::Definition.new(key: identity(record).key, workspace: context.workspace,
+                                   network: network_name, image: @image.image, memory: 64, cpus: 1,
+                                   command: ['hold'], read_only: true, cap_drop: ['ALL'],
+                                   security_options: ['no-new-privileges'])
+        end
 
         def channel(record)
           Channel.new(context: context, runner: runner, record: record)

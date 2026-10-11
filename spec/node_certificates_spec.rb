@@ -71,6 +71,29 @@ RSpec.describe Empeira::Node::Certificates do
     expect(calls.last).to eq([described_class::CA, 'ca', 'clean', '--certname', 'test-node'])
   end
 
+  it 'persists removal of a deferred certificate proof only after verified CA cleanup' do
+    state = { 'retired_certificates' => { 'test-node' => 'a' * 64 } }
+    allow(runtime).to receive(:service_exec) do |_resource, arguments, **|
+      calls << arguments
+      arguments.include?('list') ? result(ca_entry('signed')) : result('a' * 64)
+    end
+    certificates.clean_retired(state, 'test-node') { calls << :persist }
+    expect(state.fetch('retired_certificates')).to be_empty
+    expect(calls.last(2)).to eq([[described_class::CA, 'ca', 'clean', '--certname', 'test-node'], :persist])
+  end
+
+  it 'preserves deferred proof and refuses a replaced CA identity during hostname reuse' do
+    state = { 'retired_certificates' => { 'test-node' => 'a' * 64 } }
+    allow(runtime).to receive(:service_exec) do |_resource, arguments, **|
+      calls << arguments
+      arguments.include?('list') ? result(ca_entry('signed')) : result('b' * 64)
+    end
+    expect { certificates.clean_retired(state, 'test-node') { raise 'Unexpected persistence' } }
+      .to raise_error(Empeira::Error, /cleanup refused/)
+    expect(state.dig('retired_certificates', 'test-node')).to eq('a' * 64)
+    expect(calls).not_to include(array_including('clean'))
+  end
+
   it 'retains native CA HTTP errors while removing private key material' do
     text = "HTTP 503 Service Unavailable at https://server.example.org:8140/puppet-ca/v1/certificate_statuses\n" \
            "CA temporarily unavailable\n-----BEGIN PRIVATE KEY-----\nsynthetic-private-key\n-----END PRIVATE KEY-----"

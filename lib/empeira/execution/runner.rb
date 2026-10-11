@@ -48,6 +48,21 @@ module Empeira
         Console.new.attach(path, input: input, output: output, guidance: guidance)
       end
 
+      # Inherited output streams immediately; closing control cancels the owned guest session.
+      def controlled_stream(executable, arguments:, input:, control:, output: $stdout, error: $stderr)
+        validate!(executable, arguments, {}, nil)
+        log(arguments, {})
+        pid = Process.spawn([executable, executable], *arguments, in: input, out: output, err: error, pgroup: true)
+        _, status = Process.wait2(pid)
+        pid = nil
+        Result.new(stdout: '', stderr: '', exit_status: status.exitstatus || (128 + status.termsig), timed_out: false)
+      rescue SystemCallError => e
+        raise ExecutionError, "Cannot start diagnostic transport (#{e.class.name})", cause: nil
+      ensure
+        control.close unless control.closed?
+        reap_controlled_stream(pid) if pid
+      end
+
       def debug(message)
         @logger&.debug(message)
       end
@@ -71,6 +86,15 @@ module Empeira
       end
 
       private
+
+      def reap_controlled_stream(pid)
+        Timeout.timeout(4) { Process.wait(pid) }
+      rescue Timeout::Error
+        terminate(pid)
+        Process.wait(pid)
+      rescue Errno::ECHILD
+        nil
+      end
 
       def reap_stream(pid)
         Process.kill('TERM', pid)

@@ -31,8 +31,9 @@ ssh -V
 The selected Ruby installation must supply `gem` and matching development headers;
 `gem install bundler` supplies `bundle`. `build-essential` builds native development
 gems; additional Ruby build prerequisites depend on your version manager.
-`openssh-client` supplies `ssh`, `ssh-keygen` and `scp` for node SSH and VM management. `iproute2` supplies
-host route inspection for automatic workspace subnet allocation. Coreutils supplies
+`openssh-client` supplies `ssh` and `ssh-keygen` for regular node SSH. VM management
+uses private VirtIO-Serial and Python 3 already present in the selected cloud image.
+`iproute2` supplies host route inspection for automatic workspace subnet allocation. Coreutils supplies
 `tail` for VM logs; Bash supplies optional completion. Both are standard on these
 hosts. Downloads use Ruby libraries; Empeira does not invoke host curl/wget.
 

@@ -13,7 +13,6 @@ module Empeira
         @runtimes = runtimes
         @build_info = build_info
         @store = store
-        @definition = Definition.new(context: context)
       end
 
       # rubocop:disable-next Metrics/AbcSize -- Read-only artifact validation precedes runtime mutation.
@@ -55,6 +54,7 @@ module Empeira
         end
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Keep version checks and retained-storage teardown in one lock boundary.
       def down
         require_compatible!
         @store.with_lock do
@@ -65,28 +65,18 @@ module Empeira
           require_no_nodes!(state)
 
           changed = control_plane(runtime).down
-          result = runtime.remove_network(definition: @definition.network, expected_id: resource&.id)
+          result = runtime.remove_network(definition: definition.network, expected_id: resource&.id)
           retain_storage
           Providers::Result.new(resource: result.resource, changed: result.changed || changed)
         end
       end
 
       def destroy
-        require_compatible!
-        @store.with_lock do
-          @progress.stage(5, 'Checking runtime and workspace ownership...')
-          state = @store.load
-          runtime = mutation_runtime(state)
-          resource = observe(runtime, state)
-          destroy_nodes(runtime, state) if state
-          control_plane(runtime).destroy
-          runtime.remove_network(definition: @definition.network, expected_id: resource&.id)
-          @store.clear
-        end
+        Cleanup.new(context: @context, runner: @runner, runtimes: @runtimes, progress: @progress).destroy
       end
 
       def status
-        status = Status.new(context: @context, build_info: @build_info, definition: @definition)
+        status = Status.new(context: @context, build_info: @build_info, definition: definition)
         state = @store.load
         status.record(state)
         runtime = runtime_for(state&.fetch('runtime') || @context.container_engine)
@@ -98,6 +88,10 @@ module Empeira
       end
 
       private
+
+      def definition
+        @definition ||= Definition.new(context: @context)
+      end
 
       def browser_workspace_error
         "Workspace is not initialized. Start it with 'empeira up' first."
@@ -137,18 +131,18 @@ module Empeira
         @peer_network = state&.fetch('peer_network', nil) || {
           'subnet' => Network::Peer::Allocation.new(context: @context, runtime: runtime, runner: @runner).choose
         }
-        @definition.network.allocation = @peer_network.fetch('subnet')
-        @definition.plan.validate_network_redirects!(subnet: @peer_network.fetch('subnet'))
+        definition.network.allocation = @peer_network.fetch('subnet')
+        definition.plan.validate_network_redirects!(subnet: @peer_network.fetch('subnet'))
       end
 
       def ensure_network(runtime, state, resource)
         allocate_network(runtime, state)
-        @definition.network.policy.require_support!(**runtime.capabilities)
+        definition.network.policy.require_support!(**runtime.capabilities)
         persist(state, resource)
         result = if resource
                    Providers::Result.new(resource: resource, changed: false)
                  else
-                   runtime.create_network(definition: @definition.network)
+                   runtime.create_network(definition: definition.network)
                  end
         persist(state, result.resource)
         result
@@ -166,7 +160,7 @@ module Empeira
 
       def control_plane(runtime)
         ControlPlane::Controller.new(context: @context, runtime: runtime, store: @store, runner: @runner,
-                                     plan: @definition.plan, progress: @progress)
+                                     plan: definition.plan, progress: @progress)
       end
 
       def requirement
@@ -198,7 +192,7 @@ module Empeira
       end
 
       def observe(runtime, state)
-        network = @definition.network
+        network = definition.network
         expected_id = state&.dig('resources', 'network', 'id')
         resource = runtime.inspect_network(identifier: network.backend_name)
         network.verify_ownership!(resource, expected_id: expected_id)
@@ -211,16 +205,16 @@ module Empeira
       end
 
       def verify_current!(state, resource)
-        if state && (state.dig('definition', 'revision') != @definition.metadata['revision'] ||
-                     state.dig('component_fingerprints', 'network') != @definition.component_fingerprints['network'])
+        if state && (state.dig('definition', 'revision') != definition.metadata['revision'] ||
+                     state.dig('component_fingerprints', 'network') != definition.component_fingerprints['network'])
           raise Error,
                 'Infrastructure definition is stale. Inspect status, then explicitly run ' \
                 'empeira destroy and empeira up.'
         end
         return unless resource
 
-        @definition.network.verify_definition!(resource)
-        @definition.network.verify_isolation!(resource)
+        definition.network.verify_definition!(resource)
+        definition.network.verify_isolation!(resource)
       end
 
       # The inventory envelope is deliberately written atomically in one operation.
@@ -230,13 +224,12 @@ module Empeira
         @store.write(
           'schema_version' => Store::SCHEMA_VERSION, 'workspace' => @context.workspace.id,
           'runtime' => @context.container_engine,
-          'resources' => { 'network' => { 'logical_identity' => @definition.network.identity,
-                                          'name' => @definition.network.backend_name, 'id' => resource&.id } },
-          'fingerprint' => @definition.fingerprint, 'definition' => @definition.metadata,
-          'component_fingerprints' => @definition.component_fingerprints, 'peer_network' => @peer_network,
+          'resources' => { 'network' => { 'logical_identity' => definition.network.identity,
+                                          'name' => definition.network.backend_name, 'id' => resource&.id } },
+          'fingerprint' => definition.fingerprint, 'definition' => definition.metadata,
+          'component_fingerprints' => definition.component_fingerprints, 'peer_network' => @peer_network,
           'created_at' => previous&.fetch('created_at') || now, 'reconciled_at' => now,
-          **(previous&.key?('nodes') ? { 'nodes' => previous['nodes'] } : {}),
-          **(previous&.key?('control_plane') ? { 'control_plane' => previous['control_plane'] } : {})
+          **previous.to_h.slice('nodes', 'retired_certificates', 'control_plane')
         )
       end
     end

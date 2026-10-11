@@ -49,6 +49,8 @@ RSpec.describe Empeira::Node::Container do
   end
 
   before do
+    allow($stdin).to receive(:tty?).and_return(true)
+    allow($stdout).to receive(:tty?).and_return(true)
     allow(Empeira::Node::AgentInstallation).to receive(:new).and_return(
       instance_double(Empeira::Node::AgentInstallation, install: nil)
     )
@@ -73,7 +75,7 @@ RSpec.describe Empeira::Node::Container do
       )
       Empeira::ControlPlane::Controller.new(context: app.context, runtime: runtime, store: store).up
     end
-    certificates = instance_double(Empeira::Node::Certificates, clean: nil)
+    certificates = instance_double(Empeira::Node::Certificates, clean: nil, clean_retired: nil)
     allow(certificates).to receive(:enroll) do |_resource, record, &persist|
       record['certificate_key'] = 'a' * 64
       persist.call
@@ -330,8 +332,9 @@ RSpec.describe Empeira::Node::Container do
     expect(client).to receive(:session).with(hash_including('id' => record['id']), user: nil, identity: nil)
     provider.ssh(name: 'test-node')
     expect(runtime).to receive(:stream_service).with(
-      hash_including('id' => record['id']), Empeira::Node::RuntimeProxy.command(app.context, ['/bin/bash', '-i']),
-      interactive: true
+      hash_including('id' => record['id']),
+      Empeira::Node::RuntimeProxy.command(app.context, ['env', 'HISTFILE=/dev/null', '/bin/bash', '-i']),
+      interactive: true, user: '0'
     )
     provider.shell(name: 'test-node')
     provider.stop(name: 'test-node')
@@ -460,9 +463,10 @@ RSpec.describe Empeira::Node::Container do
     resource = runtime.services.values.find { |item| item.dig('labels', 'io.empeira.purpose') == 'node' }
     resource['networks']['foreign-egress'] = { 'IPAddress' => '192.0.2.1' }
     expect { provider.stop(name: 'test-node') }.to raise_error(Empeira::Providers::OwnershipError)
+    expect { provider.destroy(name: 'test-node') }.to raise_error(Empeira::Error, /unexpected network/)
     resource['networks'].delete('foreign-egress')
     resource['id'] = 'unexpected-replacement'
-    expect { provider.destroy(name: 'test-node') }.to raise_error(Empeira::Providers::OwnershipError)
+    expect { provider.destroy(name: 'test-node') }.to raise_error(Empeira::Error, /ownership or recorded ID/)
     expect(store.load.fetch('nodes')).to have_key('test-node')
   end
 

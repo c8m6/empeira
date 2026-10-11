@@ -44,6 +44,15 @@ module Empeira
         execute(@server, [CA, 'ca', 'clean', '--certname', record.fetch('hostname')], 'Node certificate cleanup')
       end
 
+      def clean_retired(state, name)
+        retired = state.fetch('retired_certificates', {})
+        return unless retired.key?(name)
+
+        clean('hostname' => name, 'certificate_key' => retired.fetch(name))
+        retired.delete(name)
+        yield
+      end
+
       private
 
       def entry(name)

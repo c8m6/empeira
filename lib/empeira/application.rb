@@ -14,11 +14,17 @@ module Empeira
     # rubocop:disable Metrics/ParameterLists
     def initialize(project_path: Dir.pwd, overrides: {}, platform: Platform::Facts.new, runner: nil,
                    factories: {}, locations: nil, build_info: BuildInfo.load, progress: Progress.new,
-                   recovery: false)
+                   recovery: false, recovery_path: nil)
       @runner = runner || Execution::Runner.new(platform: platform)
-      project = ProjectRoot.resolve(project_path, runner: @runner)
       locations ||= Platform::Locations.new(facts: platform)
-      @context = build_context(project:, locations:, platform:, overrides:, recovery:)
+      if recovery
+        @context = recovery_context(project_path, recovery_path, platform, locations)
+      else
+        raise ConfigurationError, 'Explicit recovery project paths are only available for destroy' if recovery_path
+
+        project = ProjectRoot.resolve(project_path, runner: @runner)
+        @context = build_context(project:, locations:, platform:, overrides:)
+      end
       @progress = progress
       @build_info = build_info
       @factories = { providers: Node.registry, runtimes: Runtime.registry,
@@ -49,31 +55,28 @@ module Empeira
 
     private
 
-    def build_context(project:, locations:, platform:, overrides:, recovery:)
-      loader = Configuration::Loader.new(project_path: project, locations: locations)
-      configuration = load_configuration(loader, overrides, recovery: recovery)
-      @ssh_preferences = loader.ssh_preferences
-      workspace = Workspace.new(path: project)
-      restore_inventory_settings!(configuration, project:, workspace:, platform:, locations:) if recovery
+    # rubocop:disable-next Metrics/AbcSize -- Resolve the saved owner independently of live project configuration.
+    def recovery_context(project_path, recovery_path, platform, locations)
+      project = ProjectRoot.resolve(project_path, runner: @runner, recovery: true) unless recovery_path
+      workspace = recovery_path ? Workspace.recover(recovery_path) : Workspace.new(path: project)
+      configuration = Configuration::Document.new.read(Configuration::Loader::DEFAULTS)
+      Configuration::Schema.new.validate_effective!(configuration)
+      context = Context.new(project: project, workspace: workspace, configuration: configuration,
+                            platform: platform, locations: locations)
+      state = Infrastructure::Store.new(context: context, recovery: true).load
+      configuration.fetch('runtime')['container_engine'] = state.fetch('runtime') if state
+      @ssh_preferences = {}.freeze
       Context.new(project: project, workspace: workspace, configuration: Immutable.deep_freeze(configuration),
                   platform: platform, locations: locations)
     end
 
-    def load_configuration(loader, overrides, recovery:)
-      loader.load(overrides: overrides)
-    rescue ConfigurationError
-      raise unless recovery
-
-      loader.load_defaults(overrides: overrides)
-    end
-
-    def restore_inventory_settings!(configuration, project:, workspace:, platform:, locations:)
-      context = Context.new(project: project, workspace: workspace, configuration: configuration,
-                            platform: platform, locations: locations)
-      state = Infrastructure::Store.new(context: context).load
-      return unless state
-
-      configuration.fetch('runtime')['container_engine'] = state.fetch('runtime')
+    def build_context(project:, locations:, platform:, overrides:)
+      loader = Configuration::Loader.new(project_path: project, locations: locations)
+      configuration = loader.load(overrides: overrides)
+      @ssh_preferences = loader.ssh_preferences
+      workspace = Workspace.new(path: project)
+      Context.new(project: project, workspace: workspace, configuration: Immutable.deep_freeze(configuration),
+                  platform: platform, locations: locations)
     end
   end
 end

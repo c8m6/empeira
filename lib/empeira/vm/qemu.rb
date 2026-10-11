@@ -52,7 +52,7 @@ module Empeira
 
       def required_tools(seeds: true)
         [EXECUTABLES.fetch(context.platform.architecture), 'qemu-img', 'ssh',
-         *(seeds ? %w[xorriso ssh-keygen scp] : [])]
+         *(seeds ? %w[xorriso ssh-keygen] : [])]
       end
 
       def preflight!(progress: Progress.new, seeds: true)

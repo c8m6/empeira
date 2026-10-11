@@ -56,7 +56,7 @@ module Empeira
           execute!(['rm', '--force', '--', @backup.to_s],
                    'Cannot remove the restored APT configuration backup; ' \
                    'Puppet was not run. Node retained for diagnosis')
-        rescue ::Empeira::VM::SSH::TransportError => e
+        rescue ::Empeira::VM::Guest::TransportError => e
           raise unless e.transient? && !retried
 
           retried = true
@@ -77,7 +77,7 @@ module Empeira
         details = Execution::Diagnostics.command(result, operation: "#{message} (#{arguments.first} #{arguments[1]})",
                                                          tool: arguments.first)
         raise Error, "#{message}\n#{details}", cause: nil
-      rescue ::Empeira::VM::SSH::TransportError => e
+      rescue ::Empeira::VM::Guest::TransportError => e
         raise e.with_context(message), cause: nil
       end
     end

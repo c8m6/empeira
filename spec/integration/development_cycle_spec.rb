@@ -37,6 +37,10 @@ RSpec.describe 'Real Puppet development cycle', :integration do
       it 'reloads code for each catalog and sees edits without up or a server restart' do
         app.infrastructure.up
         server = service('server')
+        effective = runtime.service_exec(server, %w[/opt/puppetlabs/bin/puppet config print environment_timeout
+                                                    --section server])
+        expect(effective).to be_success
+        expect(effective.stdout.strip).to eq('0')
         measure('first') { app.run_node(hostname: 'cache-node', provider: 'container') }
         expect(runtime.service_exec(node, ['hello']).stdout).to include('Hello, world!')
         expect(store.load).not_to have_key('bootstrap_proxy')

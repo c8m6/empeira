@@ -63,12 +63,8 @@ RSpec.describe 'Configuration server runtime contract' do
                      'entrypoint' => '/opt/custom/start', 'arguments' => ['serve'], 'eyaml_keys' => delivery
                    } } })
       server = value.definitions.fetch('server').options
-      if database || (eyaml_enabled && delivery == 'staged')
-        expect(server.fetch('command')).to include('/opt/custom/start', 'serve')
-      else
-        expect(server.fetch('entrypoint')).to eq('/opt/custom/start')
-        expect(server.fetch('command')).to eq(['serve'])
-      end
+      expect(server.fetch('command')).to include('/opt/custom/start', 'serve')
+      expect(server.fetch('mounts')).to include(a_string_including('dst=/empeira-server/start.sh,readonly'))
     end
   end
 

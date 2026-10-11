@@ -16,7 +16,7 @@ RSpec.describe Empeira::VM::QemuRuntime do
   let(:engine) { instance_double(Empeira::VM::Qemu, accelerator: 'kvm', executable: '/usr/bin/qemu-system-x86_64') }
   let(:runtime) { described_class.new(engine: engine, runner: instance_double(Empeira::Execution::Runner), context: context) }
   let(:record) do
-    { 'ssh_layout' => Empeira::VM::Management::VERSION, 'hostname' => 'host1', 'pid' => 12_345,
+    { 'management_layout' => Empeira::VM::Management::VERSION, 'hostname' => 'host1', 'pid' => 12_345,
       'ssh_port' => 32_004, 'internet' => false,
       'peer' => { 'token' => 'a' * 32 }, 'mac_address' => '52:54:00:12:34:56', 'memory' => 1024, 'cpus' => 2 }
   end
@@ -43,6 +43,19 @@ RSpec.describe Empeira::VM::QemuRuntime do
     expect(directory.join('monitor.sock').to_s.bytesize).to be <= 100
   end
 
+  it 'retains an unrecorded live QEMU process when its private PID file exists but its monitor is unavailable' do
+    root = locations.workspace(workspace)
+    FileUtils.mkdir_p(root, mode: 0o700)
+    path = runtime.send(:pid_path, 'host1')
+    FileUtils.mkdir_p(path.dirname)
+    path.write('23456')
+    allow(Process).to receive(:kill).with(0, 23_456).and_return(1)
+    expect { runtime.stop(record.merge('pid' => nil)) }.to raise_error(Empeira::Error, /disk retained/)
+    expect(path).to exist
+  ensure
+    FileUtils.remove_entry(root) if root&.directory?
+  end
+
   it 'removes the private fallback monitor directory after the VM stops' do
     allow(locations).to receive(:temporary).and_return(Pathname("/#{'x' * 120}"))
     directory = runtime.send(:monitor_directory, 'host1')
@@ -51,16 +64,15 @@ RSpec.describe Empeira::VM::QemuRuntime do
     expect(directory).not_to exist
   end
 
-  it 'passes the restricted SSH-only management network into QEMU launch arguments' do
-    network = Empeira::Network::Peer::Management.new(record).arguments
-    arguments = runtime.send(:launch_arguments, record, '/tmp/disk.qcow2', '/tmp/seed.iso', network,
-                             '/tmp/monitor.sock')
-    expect(arguments).to include('-accel', 'kvm', '-daemonize', '-netdev', '-serial', 'chardev:console')
-    expect(arguments[arguments.index('-chardev') + 1]).to include('server=on,wait=off', 'console.sock', 'logappend=on')
-    expect(arguments[arguments.index('-netdev') + 1])
-      .to include('restrict=on', 'hostfwd=tcp:127.0.0.1:32004-10.0.2.15:22222')
-    expect(arguments.join(' ')).not_to include('3128', 'tcg', 'guestfwd')
+  it 'attaches private VirtIO management without a management NIC or host ports' do
+    arguments = runtime.send(:launch_arguments, record, '/tmp/disk.qcow2', '/tmp/seed.iso', [], '/tmp/monitor.sock')
+    expect(arguments).to include('-accel', 'kvm', '-daemonize', '-serial', 'chardev:console',
+                                 'virtio-serial-pci,id=management',
+                                 "virtserialport,chardev=management,name=#{Empeira::VM::Management::CHANNEL}")
+    expect(arguments.join(' ')).to include('guest.sock,server=on,wait=off')
+    expect(arguments.join(' ')).not_to include('hostfwd', 'netdev=management', 'tcg', 'guestfwd')
   end
+
   it 'isolates console endpoints by node and workspace with macOS-safe paths' do
     first = runtime.console_path('host1')
     expect(first.to_s.bytesize).to be <= 100
@@ -95,6 +107,70 @@ RSpec.describe Empeira::VM::QemuRuntime do
     allow(runtime).to receive(:running?).and_return(true)
     expect { runtime.console(record) }.to raise_error(Empeira::Providers::OwnershipError)
     expect { runtime.cleanup(record.merge('pid' => nil)) }.to raise_error(Empeira::Error, /cleanup refused/)
+  end
+
+  it 'rejects replaced, permissive and unrecorded management sockets before privilege or cleanup' do
+    runtime.send(:prepare_monitor_directory, 'host1')
+    socket_path = runtime.send(:management_path, 'host1')
+    servers = Empeira::VM::Management::SLOTS.times.map do |slot|
+      path = runtime.send(:management_path, 'host1', slot)
+      socket = UNIXServer.new(path)
+      File.chmod(0o600, path)
+      socket
+    end
+    allow(runtime).to receive(:running?).and_return(true)
+    runtime.send(:capture_management_socket!, record)
+    expect(runtime.management_socket(record)).to eq(socket_path)
+    File.chmod(0o666, socket_path)
+    expect { runtime.management_socket(record) }.to raise_error(Empeira::Providers::OwnershipError)
+    File.chmod(0o600, socket_path)
+    expect { runtime.management_socket(record.except('management_socket')) }
+      .to raise_error(Empeira::Providers::OwnershipError)
+    hidden = Pathname("#{socket_path}.original")
+    File.rename(socket_path, hidden)
+    replacement = UNIXServer.new(socket_path)
+    File.chmod(0o600, socket_path)
+    expect { runtime.management_socket(record) }.to raise_error(Empeira::Providers::OwnershipError)
+    expect { runtime.cleanup(record.merge('pid' => nil)) }.to raise_error(Empeira::Providers::OwnershipError)
+    expect(socket_path).to exist
+  ensure
+    replacement&.close
+    servers&.each(&:close)
+    Empeira::VM::Management::SLOTS.times.each do |slot|
+      path = runtime.send(:management_path, 'host1', slot)
+      File.unlink(path) if path.socket?
+    end
+    File.unlink(hidden) if hidden&.socket?
+  end
+
+  it 'allocates distinct concurrent slots, fails at capacity and releases only its own slot' do
+    runtime.send(:prepare_monitor_directory, 'host1')
+    sockets = Empeira::VM::Management::SLOTS.times.map do |slot|
+      UNIXServer.new(runtime.send(:management_path, 'host1', slot))
+    end
+    runtime.send(:capture_management_socket!, record)
+    allow(runtime).to receive(:running?).and_return(true)
+    acquired = Queue.new
+    release = Queue.new
+    users = Empeira::VM::Management::SLOTS.times.map do
+      Thread.new do
+        runtime.with_management_socket(record) do |path, _|
+          acquired << path
+          release.pop
+        end
+      end
+    end
+    paths = Empeira::VM::Management::SLOTS.times.map { Timeout.timeout(5) { acquired.pop } }
+    expect(paths.uniq.size).to eq(Empeira::VM::Management::SLOTS)
+    expect { runtime.with_management_socket(record) { raise 'Overlapping session' } }
+      .to raise_error(Empeira::Error, /sessions are busy/)
+    release << true
+    Timeout.timeout(5) { sleep 0.01 while users.all?(&:alive?) }
+    runtime.with_management_socket(record) { |path, _| expect(paths).to include(path) }
+  ensure
+    users&.each { release << true }
+    users&.each(&:value)
+    sockets&.each(&:close)
   end
 
   it 'waits for the monitor greeting and command acknowledgement before disconnecting' do

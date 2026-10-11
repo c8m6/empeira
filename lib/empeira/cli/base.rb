@@ -14,13 +14,31 @@ module Empeira
         true
       end
 
+      # Extract only the explicit guest argv before Thor reparses a nested subcommand.
+      def self.start(given_args = ARGV, config = {})
+        boundary = given_args.index('--')
+        prefix = boundary && given_args.take(boundary)
+        if prefix && (prefix.each_cons(2).include?(%w[node exec]) ||
+                       (name == 'Empeira::CLI::Node' && prefix.first == 'exec'))
+          config = config.merge(guest_arguments: given_args.drop(boundary + 1))
+          given_args = prefix
+        end
+        super
+      end
+
+      def initialize(args = [], local_options = {}, config = {})
+        @guest_arguments = config[:guest_arguments]
+        super
+      end
+
       # Thor groups presentation helpers outside its command DSL.
       # rubocop:disable-next Metrics/BlockLength
       no_commands do
         def application(node: false, progress: Empeira::Progress.new, recovery: false)
           overrides = runtime_overrides
           overrides = Configuration::Merge.call(overrides, node_overrides) if node
-          Application.new(project_path: Dir.pwd, overrides: overrides, progress: progress, recovery: recovery)
+          Application.new(project_path: Dir.pwd, overrides: overrides, progress: progress, recovery: recovery,
+                          recovery_path: recovery ? options[:project_path] : nil)
         end
 
         def progressing(message, node: false, recovery: false)
