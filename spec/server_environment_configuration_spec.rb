@@ -13,7 +13,7 @@ RSpec.describe Empeira::Server::EnvironmentConfiguration do
     allow(runtime).to receive(:service_exec) do |server, arguments|
       expect(server).to eq(resource)
       operations << arguments
-      Empeira::Execution::Result.new(stdout: arguments[2] == 'print' ? setting : '', stderr: '',
+      Empeira::Execution::Result.new(stdout: arguments[1] == described_class::READER ? setting : '', stderr: '',
                                      exit_status: 0, timed_out: false)
     end
   end
@@ -22,8 +22,8 @@ RSpec.describe Empeira::Server::EnvironmentConfiguration do
     expect(runtime).not_to receive(:stop_service)
     expect(runtime).not_to receive(:start_service)
     expect(configuration.reconcile(resource)).to be(false)
-    expect(operations).to eq([%w[/opt/puppetlabs/bin/puppet config print environment_timeout
-                                 --section server --confdir /etc/puppetlabs/puppet]])
+    expect(operations).to eq([%w[/opt/puppetlabs/puppet/bin/ruby /empeira-server/environment.rb
+                                 --confdir /etc/puppetlabs/puppet]])
   end
 
   context 'with drift' do

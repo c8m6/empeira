@@ -27,7 +27,11 @@ shift 4
 # Environment-variable mappings are only supplementary image startup hints.
 confdir="${config_destination%/*}"
 /opt/puppetlabs/bin/puppet config set environment_timeout 0 --section server --confdir "$confdir"
-test "$(/opt/puppetlabs/bin/puppet config print environment_timeout --section server --confdir "$confdir")" = 0
+native_timeout=$(/opt/puppetlabs/puppet/bin/ruby /empeira-server/environment.rb --confdir "$confdir")
+if [ "$native_timeout" != 0 ]; then
+  echo "Native Puppetserver [server] environment_timeout is not 0 after configuration" >&2
+  exit 1
+fi
 if [ "$eyaml_mode" = staged ]; then
   stage_eyaml
 fi

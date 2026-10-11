@@ -5,6 +5,7 @@ module Empeira
     # Apply one native Puppet setting without replacing an image's configuration.
     class EnvironmentConfiguration
       PUPPET = '/opt/puppetlabs/bin/puppet'
+      READER = '/empeira-server/environment.rb'
 
       def initialize(runtime:, plan:)
         @runtime = runtime
@@ -15,7 +16,8 @@ module Empeira
       def reconcile(resource)
         return false if current(resource) == '0'
 
-        execute(resource, %w[set environment_timeout 0])
+        execute(resource, [PUPPET, 'config', 'set', 'environment_timeout', '0', '--section', 'server',
+                           '--confdir', confdir])
         @runtime.stop_service(resource)
         @runtime.start_service(resource)
         true
@@ -31,18 +33,20 @@ module Empeira
       private
 
       def current(resource)
-        execute(resource, %w[print environment_timeout]).stdout.strip
+        execute(resource, [ControlPlane::Health::RUBY, READER, '--confdir', confdir]).stdout.strip
       end
 
       def execute(resource, arguments)
-        confdir = File.dirname(@plan.server_runtime.paths.fetch('puppetdb_config'))
-        result = @runtime.service_exec(resource, [PUPPET, 'config', *arguments, '--section', 'server',
-                                                  '--confdir', confdir])
+        result = @runtime.service_exec(resource, arguments)
         return result if result.success?
 
         details = Execution::Diagnostics.command(result, operation: 'Effective Puppetserver environment timeout',
-                                                         tool: 'puppet config')
+                                                         tool: arguments.first)
         raise Error, "Cannot reconcile Puppetserver environment_timeout\n#{details}", cause: nil
+      end
+
+      def confdir
+        File.dirname(@plan.server_runtime.paths.fetch('puppetdb_config'))
       end
     end
   end

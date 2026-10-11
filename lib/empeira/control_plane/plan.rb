@@ -237,6 +237,7 @@ module Empeira
         mounts << "type=tmpfs,dst=#{Configuration::Eyaml::DESTINATION}" if eyaml_staged?
         mounts << bind(files.path('server-puppetdb.conf'), '/empeira-server/puppetdb.conf') if database?
         mounts << bind(server_start_script, '/empeira-server/start.sh')
+        mounts << bind(server_environment_script, Server::EnvironmentConfiguration::READER)
         mounts
       end
 
@@ -245,11 +246,15 @@ module Empeira
           command: ['/bin/sh', '/empeira-server/start.sh', server_runtime.startup.fetch('entrypoint'),
                     server_runtime.paths.fetch('puppetdb_config'), eyaml_staged? ? 'staged' : 'direct',
                     database? ? 'puppetdb' : 'no-puppetdb', *server_runtime.startup.fetch('arguments')],
-          configuration: File.read(server_start_script) }
+          configuration: [File.read(server_start_script), File.read(server_environment_script)].join("\n") }
       end
 
       def server_start_script
         Pathname(__dir__).join('../../../resources/relay/server_start.sh').realpath
+      end
+
+      def server_environment_script
+        Pathname(__dir__).join('../../../resources/relay/server_environment.rb').realpath
       end
 
       def server_image

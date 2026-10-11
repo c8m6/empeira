@@ -403,7 +403,8 @@ runtime values without inferring them from the image name. Missing or unsafe
 runtime fields fail configuration validation. Managed servers use
 `environment_timeout = 0` in the native `[server]` section. The startup wrapper
 uses `puppet config set` before the configured entrypoint, independently of image
-environment-variable mappings. `up` checks `puppet config print` against the
+environment-variable mappings. Startup and `up` read Puppet's native server
+settings without selecting an environment override, against the
 confdir containing `server.runtime.paths.puppetdb_config`; custom Puppetserver
 `jruby-puppet.master-conf-dir` must refer to that same directory. Puppetserver
 HOCON master directories take precedence over Puppet CLI defaults. A changed
@@ -412,6 +413,10 @@ entrypoint that overwrites it fails verification. CA, SSL and database storage
 are preserved. The next catalog request reloads live code without
 an Empeira content scan or admin API invalidation. An explicit `environment.conf`
 can override this server setting; keep its timeout at zero for immediate edits.
+Such overrides are preserved and do not prevent server startup or cause repeated
+restarts. `puppet config print environment_timeout --section server` includes the
+selected environment's override, so it can report `unlimited` while the native
+server setting is zero. Inspect both configuration layers when diagnosing caching.
 
 `puppetdb.runtime` holds the independent OpenVoxDB process contract. Custom
 images may override its executable, numeric user, Java and main arguments,

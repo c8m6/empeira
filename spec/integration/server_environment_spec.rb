@@ -49,6 +49,23 @@ RSpec.describe 'Effective server environment configuration', :integration do
           expect(JSON.parse(result.stdout)).to include(hash_including('certname' => 'environment-node'))
         end
 
+        it 'starts and remains idempotent with an explicit environment timeout override without rewriting it' do
+          override = "environment_timeout = unlimited\n"
+          project.join('environment.conf').write(override)
+          app.infrastructure.up
+          server = service('server')
+          reader = [Empeira::ControlPlane::Health::RUBY, Empeira::Server::EnvironmentConfiguration::READER,
+                    '--confdir', '/etc/puppetlabs/puppet']
+          native = runtime.service_exec(server, reader)
+          expect(native).to be_success, native.stderr
+          expect(native.stdout).to eq('0')
+          expect(setting(server, 'environment_timeout')).to eq('unlimited')
+          expect(project.join('environment.conf').read).to eq(override)
+          expect(app.infrastructure.up.changed).to be(false)
+          expect(service('server').fetch('id')).to eq(server.fetch('id'))
+          expect(project.join('environment.conf').read).to eq(override)
+        end
+
         def service(key)
           runtime.inspect_service(Empeira::Services::Definition.new(key: key, workspace: app.context.workspace))
         end

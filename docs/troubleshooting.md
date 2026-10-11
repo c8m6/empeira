@@ -132,6 +132,19 @@ restrictions and does not grant normal access afterward. See [proxy](proxy.md).
 
 ## Hiera and EYAML
 
+Mount visibility failures identify the local source, container destination and
+sanitized native exit status/output. A stopped container cannot run a mount probe;
+inspect its existing server logs rather than assuming a sharing or permission
+problem. A successful probe with different directory listings indicates a
+different engine view of the source. Empeira does not weaken mount checks or
+change host permissions automatically.
+
+An explicit `environment_timeout` in the project's `environment.conf` overrides
+the native server setting. Empeira preserves it. Bare `puppet config print`
+includes that override; server startup and reconciliation verify only the native
+server value. Set the environment override to zero or remove it when immediate
+code reloads are required. No explicit cache invalidation is performed.
+
 `config show` includes `effective_hiera_mounts`. A skipped optional source is
 reported during `up`; mount it locally or correct the source path, then run `up`
 again. Set `required: true` when absence must stop startup. Invalid targets,

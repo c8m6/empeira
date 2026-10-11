@@ -12,7 +12,7 @@ module Empeira
         mounts.each do |mount|
           fields = mount.split(',').select { |field| field.include?('=') }.to_h { |field| field.split('=', 2) }
           if File.file?(fields.fetch('src'))
-            verify_file(resource, fields.fetch('dst'))
+            verify_file(resource, fields.fetch('src'), fields.fetch('dst'))
           else
             verify_directory(resource, fields.fetch('src'), fields.fetch('dst'))
           end
@@ -21,12 +21,12 @@ module Empeira
 
       private
 
-      def verify_file(resource, destination)
+      def verify_file(resource, source, destination)
         code = 'exit(File.file?(ARGV[0]) && File.readable?(ARGV[0]) ? 0 : 1)'
         result = @runtime.service_exec(resource, [ControlPlane::Health::RUBY, '-e', code, destination])
         return if result.success?
 
-        raise Error, 'Container engine cannot read the configured file mount (EYAML or server.mounts)'
+        failed_probe!(result, source, destination, 'Cannot verify the configured file mount (EYAML or server.mounts)')
       end
 
       def verify_directory(resource, source, destination)
@@ -35,10 +35,22 @@ module Empeira
         result = @runtime.service_exec(resource, [ControlPlane::Health::RUBY, '-e', code, destination])
         return if result.success? && result.stdout == expected
 
-        raise Error,
-              'Container engine cannot read the local control/Hiera/server directory. Configure shared paths first.'
+        reason = if result.success?
+                   'Container directory listing differs from the local mount source'
+                 else
+                   'Cannot execute the container directory mount probe'
+                 end
+        failed_probe!(result, source, destination, reason)
       rescue SystemCallError
-        raise Error, 'Cannot read local control/Hiera/server mount directory to verify the mount', cause: nil
+        location = Execution::Diagnostics.safe_text(source.to_s)
+        raise Error, "Cannot read local mount directory to verify the mount: #{location}", cause: nil
+      end
+
+      def failed_probe!(result, source, destination, reason)
+        paths = Execution::Diagnostics.safe_text("Source: #{source}\nDestination: #{destination}")
+        details = Execution::Diagnostics.command(result, operation: 'Verify server mount visibility',
+                                                         tool: ControlPlane::Health::RUBY)
+        raise Error, "#{reason}\n#{paths}\n#{details}", cause: nil
       end
     end
   end
