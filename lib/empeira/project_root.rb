@@ -7,16 +7,16 @@ module Empeira
   class ProjectRoot
     attr_reader :path
 
-    def self.resolve(value, runner: nil)
-      value.is_a?(self) ? value : new(value, runner: runner || Execution::Runner.new)
+    def self.resolve(value, runner: nil, recovery: false)
+      value.is_a?(self) ? value : new(value, runner: runner || Execution::Runner.new, recovery: recovery)
     end
 
-    def initialize(path, runner: Execution::Runner.new)
+    def initialize(path, runner: Execution::Runner.new, recovery: false)
       directory = Pathname(path).realpath
       raise ConfigurationError, 'project path must be an existing directory' unless directory.directory?
 
       @path = git_root(directory, runner).freeze
-      require_marker!
+      require_marker! unless recovery
       freeze
     rescue ExecutionError
       raise ConfigurationError, 'An Empeira Git project is required; ensure Git is installed and accessible.',

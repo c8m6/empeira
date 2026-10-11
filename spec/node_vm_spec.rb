@@ -697,7 +697,9 @@ RSpec.describe Empeira::Node::VM do
     original = JSON.generate(inventory)
     path.write(original)
     expect(provider.instance_variable_get(:@qemu)).not_to receive(:stop)
-    expect { provider.destroy(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::StateError, /previous Empeira/)
+    expect do
+      provider.destroy(name: 'vm-host')
+    end.to raise_error(Empeira::Error, /instance or disk identity is incomplete/)
     expect(path.read).to eq(original)
   end
 

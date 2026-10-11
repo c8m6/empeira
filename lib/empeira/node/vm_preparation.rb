@@ -71,13 +71,16 @@ module Empeira
         @cloud.finish(record, guest: @guest)
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Verified certificate retirement precedes enrollment and ready-state persistence.
       def finish_vm(record, server, packages)
         @progress.stage(70, 'Installing/configuring Puppet agent...')
         prepare_agent(record, packages)
         reconcile_interfaces(record)
         @progress.stage(85, 'Signing VM certificate...')
         certificate_runtime = ::Empeira::VM::CertificateRuntime.new(runtime: @runtime, guest: @guest, record: record)
-        Certificates.new(runtime: certificate_runtime, server: server).enroll({ 'vm' => true }, record) { save }
+        certificates = Certificates.new(runtime: certificate_runtime, server: server)
+        certificates.clean_retired(@state, record.fetch('hostname')) { save } if @state['retired_certificates']
+        certificates.enroll({ 'vm' => true }, record) { save }
         reconcile_guest(record)
         record['provisioned'] = true
         record['state'] = 'running'

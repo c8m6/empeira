@@ -19,12 +19,18 @@ module Empeira
         provider(request.provider).run(request)
       end
 
-      %i[start stop destroy inspect_resource shell console exec puppet logs].each do |operation|
+      %i[start stop inspect_resource shell console exec puppet logs].each do |operation|
         define_method(operation) do |name:, **options|
           record = Infrastructure::Store.new(context: @context).load&.dig('nodes', name.downcase)
           selected = record&.fetch('provider') || 'container'
           provider(selected).public_send(operation, name: name, **options)
         end
+      end
+
+      def destroy(name:)
+        Infrastructure::Cleanup.new(context: @context, runner: @runner,
+                                    runtimes: @dependencies.fetch(:runtimes),
+                                    progress: @dependencies.fetch(:progress)).node(name)
       end
 
       def ssh(name:, user: nil, identity: nil, port: nil)

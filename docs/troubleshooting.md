@@ -101,8 +101,8 @@ and inspect AVC messages if it denies a guest operation. Removing the interprete
 service, VirtIO port or filesystem can interrupt management. Empeira preserves
 storage, reports unknown completion and uses no authentication fallback. Console
 credentials stay under Puppet's control; there are no later password resets.
-Older VM layouts require explicit destruction with the previous Empeira revision
-and recreation. Existing VMs are never migrated or deleted automatically.
+Older VM layouts require explicit `node destroy` and recreation. Current destroy
+uses stored ownership without requiring a compatible guest layout. Existing VMs are never migrated or deleted automatically.
 
 VM creation failures retain the original diagnostic and add the retained node's
 cleanup command. Inspect the underlying failure first; an incomplete VM requires

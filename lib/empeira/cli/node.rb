@@ -54,15 +54,19 @@ module Empeira
       %w[start stop destroy shell console puppet logs].each do |operation|
         descriptions = { 'shell' => 'Open an interactive root terminal (runtime exec or VM VirtIO PTY)',
                          'console' => 'Attach to the private VM serial console; Ctrl+] detaches',
-                         'destroy' => 'Destroy an existing node' }
+                         'destroy' => 'Remove an owned node without version or guest-access requirements' }
         desc "#{operation} HOSTNAME", descriptions.fetch(operation, "#{operation.capitalize} an existing node")
+        if operation == 'destroy'
+          option :project_path, type: :string,
+                                desc: 'Former absolute Git root path for recovery without a control repository'
+        end
         define_method(operation == 'shell' ? 'shell_node' : operation) do |hostname|
           if %w[shell console ssh logs].include?(operation)
             result = application.nodes.public_send(operation, name: hostname)
             raise SystemExit, result.exit_status if operation == 'ssh' && !result.success?
             raise Error, "Node #{operation} failed" unless result.success?
           else
-            progressing("#{operation.capitalize} node...") do |app|
+            progressing("#{operation.capitalize} node...", recovery: operation == 'destroy') do |app|
               app.nodes.public_send(operation, name: hostname)
             end
           end

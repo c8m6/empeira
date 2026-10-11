@@ -40,12 +40,8 @@ module Empeira
       end
 
       def destroy(name:)
-        mutate do
-          @bootstrap_proxy.cleanup(@state)
-          changed = !!remove_vm(name.downcase)
-          refresh_dns if changed
-          Providers::Result.new(resource: nil, changed: changed)
-        end
+        Infrastructure::Cleanup.new(context: context, runner: @runner, runtime: @runtime,
+                                    progress: @progress).node(name)
       end
 
       def destroy_all(state:)

@@ -324,6 +324,37 @@ are added, and no shell input is written to Empeira logs. Diagnostic shells disa
 the default persistent history file; VM Bash startup preserves interactive configuration
 and then makes `HISTFILE=/dev/null` read-only.
 
+## Recovery destroy
+
+`destroy` and `node destroy` ignore release requirements, current project configuration,
+normal-operation inventory schemas and guest management versions. They use only
+safely interpretable stored ownership plus observed native IDs/labels or the owned
+QEMU monitor identity. Normal operations retain their compatibility gates. Destroy
+never invokes guest commands, starts infrastructure, or requires a Puppetserver.
+
+With a missing marker but an existing Git root, invoke destroy from that root.
+If the repository itself has disappeared, supply its former absolute canonical Git
+root path. Invoke these commands from any accessible working directory:
+
+```console
+empeira node destroy host1 --project-path /former/control-repo
+empeira destroy --project-path /former/control-repo
+```
+
+Empeira derives the existing workspace identity from that path and the same user
+home as before. The repository, marker and current configuration need not exist.
+Use the same platform state location as the original workspace. Selection never
+scans/adopts arbitrary containers by name, and native ownership checks still apply.
+
+Already absent resources succeed. A deletion failure retains its node/resource
+record and ownership evidence while other positively identified resources continue
+to be removed. Remaining resources are listed and incomplete cleanup returns nonzero.
+Foreign IDs/labels, unsafe paths, symlinks, unverifiable live QEMU processes and active
+VM session guards block their corresponding deletions. Unknown resource groups remain
+recorded for investigation. Node destroy preserves other nodes and shared services,
+networks and volumes. Workspace destroy removes owned CA/database volumes and generated
+files, preserving the stable mutation-lock inode, control code, modules and shared caches.
+
 ## VM console recovery
 
 Each VM has a private Unix-domain serial socket created by its QEMU process.

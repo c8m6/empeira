@@ -43,6 +43,19 @@ RSpec.describe Empeira::VM::QemuRuntime do
     expect(directory.join('monitor.sock').to_s.bytesize).to be <= 100
   end
 
+  it 'retains an unrecorded live QEMU process when its private PID file exists but its monitor is unavailable' do
+    root = locations.workspace(workspace)
+    FileUtils.mkdir_p(root, mode: 0o700)
+    path = runtime.send(:pid_path, 'host1')
+    FileUtils.mkdir_p(path.dirname)
+    path.write('23456')
+    allow(Process).to receive(:kill).with(0, 23_456).and_return(1)
+    expect { runtime.stop(record.merge('pid' => nil)) }.to raise_error(Empeira::Error, /disk retained/)
+    expect(path).to exist
+  ensure
+    FileUtils.remove_entry(root) if root&.directory?
+  end
+
   it 'removes the private fallback monitor directory after the VM stops' do
     allow(locations).to receive(:temporary).and_return(Pathname("/#{'x' * 120}"))
     directory = runtime.send(:monitor_directory, 'host1')

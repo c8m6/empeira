@@ -26,6 +26,7 @@ module Empeira
         @runtime.available?
       end
 
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Verify retired certificate ownership before the existing enrollment transaction.
       def run(request)
         mutate do
           @progress.stage(10, 'Checking control plane and reserving hostname...')
@@ -34,7 +35,9 @@ module Empeira
           prepare_image(image, record)
           resource = create_node(definition, record)
           @progress.stage(65, 'Preparing node certificate...')
-          Certificates.new(runtime: @runtime, server: server).enroll(resource, record) { save }
+          certificates = Certificates.new(runtime: @runtime, server: server)
+          certificates.clean_retired(@state, record.fetch('hostname')) { save } if @state['retired_certificates']
+          certificates.enroll(resource, record) { save }
           reconcile_guest(resource, record)
           complete_provisioning(record)
           @progress.stage(85, 'Running Puppet agent...')

@@ -62,6 +62,16 @@ RSpec.describe Empeira::Infrastructure::Service do
     expect(store(app).load).to be_nil
   end
 
+  it 'preserves deferred certificate ownership proof across infrastructure reconciliation' do
+    app = application
+    app.infrastructure.up
+    inventory = store(app).load
+    inventory['retired_certificates'] = { 'retired.example.test' => 'a' * 64 }
+    store(app).write(inventory)
+    app.infrastructure.up
+    expect(store(app).load.fetch('retired_certificates')).to eq('retired.example.test' => 'a' * 64)
+  end
+
   it 'destroys the owning runtime when project and user configuration are invalid' do
     original = application(engine: 'docker')
     original.infrastructure.up
@@ -79,11 +89,12 @@ RSpec.describe Empeira::Infrastructure::Service do
     expect(runner.networks['docker']).to be_empty
   end
 
-  it 'still enforces a valid project version requirement during destroy' do
+  it 'bypasses a project version requirement only for recovery destroy' do
     File.write(File.join(@directory, '.empeira.yaml'), "requirements: {empeira: '>= 999.0'}\n")
     app = application(recovery: true)
-    expect { app.infrastructure.destroy }.to raise_error(Empeira::Error, /version requirement/)
-    expect(store(app).directory).not_to exist
+    expect { app.infrastructure.destroy }.not_to raise_error
+    expect { application.infrastructure.up }.to raise_error(Empeira::Error, /version requirement/)
+    expect(store(app).load).to be_nil
   end
 
   it 'allows destroy with a schema-invalid project configuration and no inventory' do
@@ -104,7 +115,7 @@ RSpec.describe Empeira::Infrastructure::Service do
     expect(File.read(path)).to eq(original)
   end
 
-  [nil, 2, 3].each do |version|
+  [nil, 1, Empeira::VM::Management::VERSION + 1].each do |version|
     it "rejects incompatible VM SSH layout #{version.inspect} without state changes or resource removal" do
       app = application
       app.infrastructure.up

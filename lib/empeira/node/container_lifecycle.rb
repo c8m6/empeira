@@ -33,12 +33,8 @@ module Empeira
       end
 
       def destroy(name:)
-        mutate do
-          @progress.stage(30, 'Removing node certificate and container...')
-          changed = !!remove_node(name.downcase)
-          refresh_dns if @state&.dig('resources', 'network', 'id')
-          Providers::Result.new(resource: nil, changed: changed)
-        end
+        Infrastructure::Cleanup.new(context: context, runner: @runner, runtime: @runtime,
+                                    progress: @progress).node(name)
       end
 
       def puppet(name:)

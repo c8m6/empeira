@@ -77,7 +77,7 @@ module Empeira
       end
 
       def process_alive?(record)
-        pid = record['pid']
+        pid = record['pid'] || unrecorded_pid(record)
         return false unless pid.is_a?(Integer) && pid.positive?
 
         Process.kill(0, pid)
@@ -86,6 +86,20 @@ module Empeira
         false
       rescue Errno::EPERM
         true
+      end
+
+      def unrecorded_pid(record)
+        path = pid_path(record.fetch('hostname'))
+        return unless path.exist? || path.symlink?
+
+        root = @context.locations.workspace(@context.workspace)
+        Infrastructure::OwnedFiles.verify_removable!(path, root: root)
+        value = File.read(path, 32).strip
+        unless value.match?(/\A[1-9][0-9]{0,9}\z/)
+          raise Error, 'QEMU PID file is not safely interpretable; VM disk retained'
+        end
+
+        Integer(value, 10)
       end
 
       def serial_log(hostname)

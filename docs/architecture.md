@@ -228,7 +228,7 @@ inventory or workspace services, and are removed after each invocation. Git/SSH 
 registry credentials remain owned by their native tools. `up` acquires missing
 images only and never synchronizes modules. See [Hiera and modules](hiera-and-eyaml.md).
 
-## Diagnostic access
+## Diagnostic access and recovery
 
 Exec and VM PTY shells extend the existing framed VirtIO guest adapter. Eight private
 VirtIO-Serial ports have pinned socket identities and exclusive session slots; each
@@ -238,6 +238,14 @@ without a management network or host daemon. A local raw terminal forwards bytes
 resize and normal guest job control; cancellation kills the owned session groups.
 Container exec uses native numeric-root execution and a guest Ruby supervisor with a
 private completion receipt so native-client errors cannot impersonate guest exits.
+
+Recovery uses the same workspace lock/inventory and existing runtime, QEMU monitor
+and peer teardown adapters. It reads ownership fields without operational schema,
+version, guest, base-image or current configuration gates. Every mutation still
+checks native identity and safe paths. Resource records are removed only after confirmed
+removal; partial failures retain evidence and continue independent cleanup. Retired
+public certificate fingerprints permit later verified hostname reuse without requiring
+a live CA during node removal. The mutation-lock inode remains stable after destroy.
 
 ## Execution and secrets
 

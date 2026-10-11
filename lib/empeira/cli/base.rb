@@ -37,7 +37,8 @@ module Empeira
         def application(node: false, progress: Empeira::Progress.new, recovery: false)
           overrides = runtime_overrides
           overrides = Configuration::Merge.call(overrides, node_overrides) if node
-          Application.new(project_path: Dir.pwd, overrides: overrides, progress: progress, recovery: recovery)
+          Application.new(project_path: Dir.pwd, overrides: overrides, progress: progress, recovery: recovery,
+                          recovery_path: recovery ? options[:project_path] : nil)
         end
 
         def progressing(message, node: false, recovery: false)

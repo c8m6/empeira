@@ -33,12 +33,26 @@ RSpec.describe Empeira::Completion::Catalog do
   it 'completes diagnostics and recovery flags without parsing the guest argument vector' do
     expect(catalog.candidates(['node', ''], 1)).to include('exec', 'shell', 'console')
     expect(catalog.candidates(%w[node exec host1 --t], 3)).to eq(['--timeout'])
+    expect(catalog.candidates(%w[node destroy host1 --project-], 3)).to eq(['--project-path'])
+    expect(catalog.candidates(%w[destroy --project-], 1)).to eq(['--project-path'])
+    expect(catalog.candidates(%w[node shell host1 --project-], 3)).to be_empty
     expect(catalog.candidates(%w[node exec host1 -- sh --t], 5)).to be_empty
   end
 
   it 'completes provider and runtime values after options' do
     expect(catalog.candidates(['node', 'run', 'host1', '--provider', ''], 4)).to eq(%w[container vm])
     expect(catalog.candidates(['config', 'show', '--container-engine', ''], 3)).to eq(%w[podman docker])
+  end
+
+  it 'offers destroy node names from recovery inventory without loading incompatible guest layouts or configuration' do
+    app = Empeira::Application.new
+    store = Empeira::Infrastructure::Store.new(context: app.context, recovery: true)
+    store.with_lock do
+      store.write('schema_version' => 999, 'workspace' => app.context.workspace.id, 'runtime' => 'podman',
+                  'resources' => {}, 'nodes' => { 'old.example.test' => { 'management_layout' => 0 } })
+    end
+    File.write(File.join(@directory, '.empeira.yaml'), "invalid: [\n")
+    expect(catalog.candidates(%w[node destroy old], 2)).to eq(['old.example.test'])
   end
 
   it 'offers run options after the hostname without requiring a provider selection' do
@@ -108,6 +122,12 @@ RSpec.describe Empeira::Completion::Catalog do
     words = ['node', 'run', 'h', '--os', '=', 'example', '--version', '']
     expect(catalog.candidates(words, words.size - 1)).to eq(['1'])
     allow_any_instance_of(Empeira::Node::Service).to receive(:names).and_return(%w[alpha beta])
+    app = Empeira::Application.new
+    store = Empeira::Infrastructure::Store.new(context: app.context, recovery: true)
+    store.with_lock do
+      store.write('schema_version' => 999, 'workspace' => app.context.workspace.id, 'runtime' => 'podman',
+                  'resources' => {}, 'nodes' => { 'alpha' => {}, 'beta' => {} })
+    end
     expect_any_instance_of(Empeira::Runtime::Container).not_to receive(:check_available!)
     %w[start stop destroy shell ssh puppet logs].each do |operation|
       words = ['node', operation, 'a']

@@ -64,7 +64,7 @@ class ServiceRuntime
     address = options['runtime_ip'] || options['ip'] || "172.20.0.#{services.size + 128}"
     services[definition.key] = identity(definition).merge(
       'state' => 'created',
-      'networks' => { options.fetch('network') => { 'IPAddress' => address } },
+      'networks' => { options.fetch('network') => { 'IPAddress' => address, 'MacAddress' => options['mac_address'] } },
       'ports' => {}, 'published_ports' => {}, 'dns' => options['dns'] ? [options['dns']] : []
     )
     if options['ports']&.any?
