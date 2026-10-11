@@ -70,11 +70,11 @@ module Empeira
         [RbConfig.ruby, helper.to_s, name, resource.fetch('id'), *(port ? [port.to_s] : [])]
       end
 
-      def stream_service(resource, arguments, interactive: false, logs: false)
+      def stream_service(resource, arguments, interactive: false, logs: false, user: nil)
         command = if logs
                     ['logs', '--follow', resource.fetch('id')]
                   else
-                    ['exec', *(interactive ? ['--interactive'] : []),
+                    ['exec', *(user ? ['--user', user] : []), *(interactive ? ['--interactive'] : []),
                      *(interactive && $stdin.tty? && $stdout.tty? ? ['--tty'] : []), resource.fetch('id'), *arguments]
                   end
         runner.stream(name, arguments: command)

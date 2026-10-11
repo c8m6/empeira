@@ -19,11 +19,15 @@ module Empeira
       end
 
       def open
-        path = @qemu.management_socket(@record)
+        @qemu.with_management_socket(@record) do |path, expected|
+          connect(path, expected) { yield self }
+        end
+      end
+
+      def connect(path, expected)
         original = path.lstat
         @socket = UNIXSocket.new(path)
         current = path.lstat
-        expected = @record['management_socket']
         unless [original.dev, original.ino] == [current.dev, current.ino] &&
                expected == { 'device' => current.dev, 'inode' => current.ino }
           raise Providers::OwnershipError, 'VM management socket changed while connecting'
@@ -34,6 +38,14 @@ module Empeira
         yield self
       ensure
         @socket&.close
+      end
+
+      def readable?
+        @buffer.include?("\n")
+      end
+
+      def io
+        @socket
       end
 
       def handshake!
@@ -59,12 +71,12 @@ module Empeira
         end
       end
 
-      # rubocop:disable-next Metrics/AbcSize, Metrics/CyclomaticComplexity -- Frame size, deadline and session identity are checked together.
+      # rubocop:disable-next Metrics/AbcSize, Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity -- Frame size, deadline and session identity are checked together.
       def receive(timeout:)
-        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+        deadline = timeout && (Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout)
         until @buffer.include?("\n")
-          remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
-          raise Timeout::Error if remaining <= 0 || !@socket.wait_readable(remaining)
+          remaining = deadline && (deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC))
+          raise Timeout::Error if (remaining && remaining <= 0) || !@socket.wait_readable(remaining)
 
           @buffer << @socket.readpartial(CHUNK)
           raise Error, 'VM management response is oversized' if @buffer.bytesize > LIMIT
@@ -83,10 +95,15 @@ module Empeira
       def cancel
         send_frame('type' => 'cancel')
         deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 3
-        loop { break if receive(timeout: deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC))['type'] == 'exit' }
+        loop do
+          frame = receive(timeout: deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC))
+          next unless frame['type'] == 'exit'
+
+          GuestOutput.new.consume_completion(frame)
+          break
+        end
       rescue StandardError
-        # Closing the VirtIO port also terminates the owned guest process group.
-        nil
+        raise Guest::TransportError, 'VM guest session cancellation is unconfirmed; node retained', cause: nil
       end
     end
   end

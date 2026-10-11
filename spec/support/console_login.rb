@@ -10,7 +10,7 @@ module LiveConsoleLogin
     allow(app.runner).to receive(:console).and_wrap_original do |original, path, **options|
       original.call(path, **options, input: input, output: output)
     end
-    expect(app.nodes.shell(name: name)).to be_success
+    expect(app.nodes.console(name: name)).to be_success
     result = writer.value
     expect(result).to include('uid=0(root)')
     result

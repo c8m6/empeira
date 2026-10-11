@@ -86,6 +86,7 @@ empeira config validate
 empeira up
 empeira node run host1
 empeira node puppet host1
+empeira node exec host1 -- id
 empeira node shell host1
 ```
 
@@ -108,6 +109,8 @@ empeira destroy
 
 `destroy` permanently removes the workspace's owned nodes, CA and database data.
 The control repository, module directory and shared image caches are preserved.
+`node shell` opens a root terminal; `node console` keeps the VM serial login separate.
+See [diagnostic access and recovery](docs/nodes.md#root-diagnostic-commands-and-interactive-shell).
 
 ## Documentation
 

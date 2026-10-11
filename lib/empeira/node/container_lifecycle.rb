@@ -54,8 +54,26 @@ module Empeira
 
       def shell(name:)
         mutate do
-          @runtime.stream_service(running(fetch(name)), RuntimeProxy.command(context, ['/bin/bash', '-i']),
-                                  interactive: true)
+          resource = running(fetch(name))
+          raise Error, 'Node shell requires a local terminal' unless $stdin.tty? && $stdout.tty?
+
+          arguments = RuntimeProxy.command(context, ['env', 'HISTFILE=/dev/null', '/bin/bash', '-i'])
+          @runtime.stream_service(resource, arguments, interactive: true, user: '0')
+        end
+      end
+
+      def console(name:)
+        raise Error, "Container node #{name} has no serial VM console; use node shell or node exec"
+      end
+
+      def exec(name:, arguments:, timeout: nil, output: $stdout, error: $stderr)
+        DiagnosticCommand.validate!(arguments, timeout)
+        mutate do
+          Execution::Terminal.with_interrupts do
+            @progress.streaming do
+              @runtime.diagnostic_exec(running(fetch(name)), arguments, timeout: timeout, output: output, error: error)
+            end
+          end
         end
       end
 

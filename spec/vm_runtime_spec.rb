@@ -99,8 +99,12 @@ RSpec.describe Empeira::VM::QemuRuntime do
   it 'rejects replaced, permissive and unrecorded management sockets before privilege or cleanup' do
     runtime.send(:prepare_monitor_directory, 'host1')
     socket_path = runtime.send(:management_path, 'host1')
-    server = UNIXServer.new(socket_path)
-    File.chmod(0o600, socket_path)
+    servers = Empeira::VM::Management::SLOTS.times.map do |slot|
+      path = runtime.send(:management_path, 'host1', slot)
+      socket = UNIXServer.new(path)
+      File.chmod(0o600, path)
+      socket
+    end
     allow(runtime).to receive(:running?).and_return(true)
     runtime.send(:capture_management_socket!, record)
     expect(runtime.management_socket(record)).to eq(socket_path)
@@ -118,9 +122,42 @@ RSpec.describe Empeira::VM::QemuRuntime do
     expect(socket_path).to exist
   ensure
     replacement&.close
-    server&.close
-    File.unlink(socket_path) if socket_path&.socket?
+    servers&.each(&:close)
+    Empeira::VM::Management::SLOTS.times.each do |slot|
+      path = runtime.send(:management_path, 'host1', slot)
+      File.unlink(path) if path.socket?
+    end
     File.unlink(hidden) if hidden&.socket?
+  end
+
+  it 'allocates distinct concurrent slots, fails at capacity and releases only its own slot' do
+    runtime.send(:prepare_monitor_directory, 'host1')
+    sockets = Empeira::VM::Management::SLOTS.times.map do |slot|
+      UNIXServer.new(runtime.send(:management_path, 'host1', slot))
+    end
+    runtime.send(:capture_management_socket!, record)
+    allow(runtime).to receive(:running?).and_return(true)
+    acquired = Queue.new
+    release = Queue.new
+    users = Empeira::VM::Management::SLOTS.times.map do
+      Thread.new do
+        runtime.with_management_socket(record) do |path, _|
+          acquired << path
+          release.pop
+        end
+      end
+    end
+    paths = Empeira::VM::Management::SLOTS.times.map { Timeout.timeout(5) { acquired.pop } }
+    expect(paths.uniq.size).to eq(Empeira::VM::Management::SLOTS)
+    expect { runtime.with_management_socket(record) { raise 'Overlapping session' } }
+      .to raise_error(Empeira::Error, /sessions are busy/)
+    release << true
+    Timeout.timeout(5) { sleep 0.01 while users.all?(&:alive?) }
+    runtime.with_management_socket(record) { |path, _| expect(paths).to include(path) }
+  ensure
+    users&.each { release << true }
+    users&.each(&:value)
+    sockets&.each(&:close)
   end
 
   it 'waits for the monitor greeting and command acknowledgement before disconnecting' do

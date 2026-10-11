@@ -49,6 +49,8 @@ RSpec.describe Empeira::Node::Container do
   end
 
   before do
+    allow($stdin).to receive(:tty?).and_return(true)
+    allow($stdout).to receive(:tty?).and_return(true)
     allow(Empeira::Node::AgentInstallation).to receive(:new).and_return(
       instance_double(Empeira::Node::AgentInstallation, install: nil)
     )
@@ -330,8 +332,9 @@ RSpec.describe Empeira::Node::Container do
     expect(client).to receive(:session).with(hash_including('id' => record['id']), user: nil, identity: nil)
     provider.ssh(name: 'test-node')
     expect(runtime).to receive(:stream_service).with(
-      hash_including('id' => record['id']), Empeira::Node::RuntimeProxy.command(app.context, ['/bin/bash', '-i']),
-      interactive: true
+      hash_including('id' => record['id']),
+      Empeira::Node::RuntimeProxy.command(app.context, ['env', 'HISTFILE=/dev/null', '/bin/bash', '-i']),
+      interactive: true, user: '0'
     )
     provider.shell(name: 'test-node')
     provider.stop(name: 'test-node')

@@ -228,6 +228,17 @@ inventory or workspace services, and are removed after each invocation. Git/SSH 
 registry credentials remain owned by their native tools. `up` acquires missing
 images only and never synchronizes modules. See [Hiera and modules](hiera-and-eyaml.md).
 
+## Diagnostic access
+
+Exec and VM PTY shells extend the existing framed VirtIO guest adapter. Eight private
+VirtIO-Serial ports have pinned socket identities and exclusive session slots; each
+bounded worker owns its process session and PTY. Idle workers block on I/O. Commands,
+uploads and interactive sessions retain one instance token and per-session identity
+without a management network or host daemon. A local raw terminal forwards bytes,
+resize and normal guest job control; cancellation kills the owned session groups.
+Container exec uses native numeric-root execution and a guest Ruby supervisor with a
+private completion receipt so native-client errors cannot impersonate guest exits.
+
 ## Execution and secrets
 
 All external processes use `Execution::Runner` with explicit arguments, environment,

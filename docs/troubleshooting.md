@@ -108,8 +108,9 @@ VM creation failures retain the original diagnostic and add the retained node's
 cleanup command. Inspect the underlying failure first; an incomplete VM requires
 explicit node destruction and recreation after the cause is corrected.
 
-For a container, shell is runtime exec. For a VM, it is the serial console and
-works with SSH stopped. Press Enter, then use the current console credentials.
+For a container, shell is runtime exec. For a VM, shell is a root PTY over private
+VirtIO and works with root locked or SSH stopped. `node console` is the separate
+serial recovery path. Press Enter there, then use the current console credentials.
 The initial default is `root` / `empeira`, unless disabled/overridden or changed by
 Puppet. **Ctrl-] detaches**. Empeira does not reset credentials to repair a failed login.
 Stopped nodes need `node start`. Investigate changed SSH host keys instead of
@@ -187,7 +188,7 @@ A failed bootstrap retains the container or VM and hostname for diagnosis:
 ```console
 empeira node logs vm1
 empeira node ssh vm1
-empeira node shell vm1
+empeira node console vm1
 empeira node destroy vm1
 empeira node run vm1 --provider vm
 ```

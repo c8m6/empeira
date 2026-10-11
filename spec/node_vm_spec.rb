@@ -515,7 +515,7 @@ RSpec.describe Empeira::Node::VM do
       expect { provider.destroy(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::Locked)
       Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
     end
-    expect(provider.shell(name: 'vm-host')).to be_success
+    expect(provider.console(name: 'vm-host')).to be_success
     expect(provider.stop(name: 'vm-host').changed).to be(true)
   end
 
@@ -550,7 +550,7 @@ RSpec.describe Empeira::Node::VM do
       provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
       provider.run(request)
       allow(provider.instance_variable_get(:@qemu)).to receive(:console).and_raise(error)
-      expect { provider.shell(name: 'vm-host') }.to raise_error(error)
+      expect { provider.console(name: 'vm-host') }.to raise_error(error)
       expect(provider.stop(name: 'vm-host').changed).to be(true)
     end
   end
@@ -663,13 +663,13 @@ RSpec.describe Empeira::Node::VM do
     provider.run(request)
     expect(provider.instance_variable_get(:@qemu)).to receive(:console).with(hash_including('hostname' => 'vm-host'))
     expect(provider.instance_variable_get(:@guest)).not_to receive(:stream)
-    provider.shell(name: 'vm-host')
+    provider.console(name: 'vm-host')
     client = instance_double(Empeira::Node::UserSSH)
     allow(Empeira::Node::UserSSH).to receive(:new).and_return(client)
     expect(client).to receive(:session).with(hash_including('hostname' => 'vm-host'), user: 'deploy', identity: 'key')
     provider.ssh(name: 'vm-host', user: 'deploy', identity: 'key')
     provider.stop(name: 'vm-host')
-    expect { provider.shell(name: 'vm-host') }.to raise_error(Empeira::Error, /node start/)
+    expect { provider.console(name: 'vm-host') }.to raise_error(Empeira::Error, /node start/)
     expect { provider.ssh(name: 'vm-host') }.to raise_error(Empeira::Error, /node start/)
   end
 

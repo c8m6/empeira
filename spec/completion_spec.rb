@@ -30,6 +30,12 @@ RSpec.describe Empeira::Completion::Catalog do
     expect(catalog.candidates(%w[proxy s], 1)).to eq(['show'])
   end
 
+  it 'completes diagnostics and recovery flags without parsing the guest argument vector' do
+    expect(catalog.candidates(['node', ''], 1)).to include('exec', 'shell', 'console')
+    expect(catalog.candidates(%w[node exec host1 --t], 3)).to eq(['--timeout'])
+    expect(catalog.candidates(%w[node exec host1 -- sh --t], 5)).to be_empty
+  end
+
   it 'completes provider and runtime values after options' do
     expect(catalog.candidates(['node', 'run', 'host1', '--provider', ''], 4)).to eq(%w[container vm])
     expect(catalog.candidates(['config', 'show', '--container-engine', ''], 3)).to eq(%w[podman docker])

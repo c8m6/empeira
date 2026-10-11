@@ -131,7 +131,7 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
       input&.close!
       output&.close!
     end
-    expect(app.nodes.shell(name: 'incomplete-vm')).to be_success
+    expect(app.nodes.console(name: 'incomplete-vm')).to be_success
     allow(app.runner).to receive(:console).and_call_original
     expect { app.nodes.puppet(name: 'incomplete-vm') }.to raise_error(Empeira::Error, /bootstrap is incomplete/)
     app.nodes.destroy(name: 'incomplete-vm')

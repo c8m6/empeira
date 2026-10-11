@@ -64,7 +64,18 @@ module Empeira
       end
 
       def shell(name:)
+        interactive_vm(name) { |record| @guest.shell(record) }
+      end
+
+      def console(name:)
         interactive_vm(name) { |record| @qemu.console(record) }
+      end
+
+      def exec(name:, arguments:, timeout: nil, output: $stdout, error: $stderr)
+        DiagnosticCommand.validate!(arguments, timeout)
+        interactive_vm(name) do |record|
+          @guest.stream(record, arguments, timeout: timeout, output: output, error: error)
+        end
       end
 
       def ssh(name:, user: nil, identity: nil, port: nil)

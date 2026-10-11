@@ -3,7 +3,20 @@
 module Empeira
   module CLI
     class Node < Base
-      map 'run' => :run_node, 'shell' => :shell_node
+      map 'run' => :run_node, 'shell' => :shell_node, 'exec' => :exec_node
+
+      desc 'exec HOSTNAME -- COMMAND [ARGUMENTS...]', 'Run a root guest command without SSH or implicit shell parsing'
+      option :timeout, type: :numeric, desc: 'Guest command timeout in seconds (default: unlimited)'
+      def exec_node(hostname, *_arguments)
+        arguments = @guest_arguments || []
+        Empeira::Node::DiagnosticCommand.validate!(arguments, options[:timeout])
+        result = application.nodes.exec(name: hostname, arguments: arguments, timeout: options[:timeout])
+        if result.timed_out
+          warn 'Guest command timed out; its process groups were stopped.'
+          raise SystemExit, 124
+        end
+        raise SystemExit, result.exit_status
+      end
 
       desc 'run HOSTNAME', 'Create a container or VM node and run its agent'
       option :provider, type: :string, default: 'container', enum: Empeira::Node.registry.names,
@@ -38,15 +51,20 @@ module Empeira
         end
       end
 
-      %w[start stop destroy shell puppet logs].each do |operation|
-        desc "#{operation} HOSTNAME", "#{operation.capitalize} an existing node"
+      %w[start stop destroy shell console puppet logs].each do |operation|
+        descriptions = { 'shell' => 'Open an interactive root terminal (runtime exec or VM VirtIO PTY)',
+                         'console' => 'Attach to the private VM serial console; Ctrl+] detaches',
+                         'destroy' => 'Destroy an existing node' }
+        desc "#{operation} HOSTNAME", descriptions.fetch(operation, "#{operation.capitalize} an existing node")
         define_method(operation == 'shell' ? 'shell_node' : operation) do |hostname|
-          if %w[shell ssh logs].include?(operation)
+          if %w[shell console ssh logs].include?(operation)
             result = application.nodes.public_send(operation, name: hostname)
             raise SystemExit, result.exit_status if operation == 'ssh' && !result.success?
             raise Error, "Node #{operation} failed" unless result.success?
           else
-            progressing("#{operation.capitalize} node...") { |app| app.nodes.public_send(operation, name: hostname) }
+            progressing("#{operation.capitalize} node...") do |app|
+              app.nodes.public_send(operation, name: hostname)
+            end
           end
         end
       end

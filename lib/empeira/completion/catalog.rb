@@ -10,17 +10,19 @@ module Empeira
         ['update'] => ['help', *Updates::Service::TARGETS],
         ['proxy'] => %w[help show],
         ['config'] => %w[help show validate],
-        ['node'] => %w[help run start stop destroy list shell ssh puppet logs],
+        ['node'] => %w[help run start stop destroy list exec shell console ssh puppet logs],
         ['completion'] => %w[help bash],
         ['version'] => ['--verbose']
       }.tap { |commands| Immutable.deep_freeze(commands) }
       GLOBAL_OPTIONS = %w[--container-engine --help].freeze
       NODE_OPTIONS = %w[--provider --os --version --memory --cpus].freeze
       VALUE_OPTIONS = %w[--container-engine --provider --os --version --memory --cpus --user
-                         --identity --port].freeze
+                         --identity --port --timeout].freeze
 
       def candidates(words, index)
         before = words.take(index)
+        return [] if before.include?('--')
+
         @before = before
         prefix = words[index].to_s
         context = command_path(before)
@@ -92,8 +94,8 @@ module Empeira
       end
 
       def node_names(context)
-        return unless context.size == 2 && context.first == 'node' && %w[start stop destroy shell ssh puppet
-                                                                         logs].include?(context.last)
+        return unless context.size == 2 && context.first == 'node' && %w[start stop destroy exec shell console ssh
+                                                                         puppet logs].include?(context.last)
 
         completion_application.nodes.names
       rescue Error
@@ -132,6 +134,7 @@ module Empeira
         result = GLOBAL_OPTIONS.dup
         result << '--version' if context.empty?
         result.push('--user', '--identity', '--port') if context == %w[node ssh]
+        result << '--timeout' if context == %w[node exec]
         result.concat(NODE_OPTIONS) if context == %w[node run]
         result
       end

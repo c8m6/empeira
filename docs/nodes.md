@@ -10,7 +10,9 @@ empeira node run vm1 --provider vm --memory 2048 --cpus 2
 empeira node list
 empeira node puppet host1
 empeira node logs host1
+empeira node exec host1 -- id
 empeira node shell host1
+empeira node console vm1
 empeira node ssh host1
 empeira node stop host1
 empeira node start host1
@@ -35,7 +37,8 @@ VM nodes use `provider: vm`. Both providers verify this readable external fact b
 enrollment; Facter's normal `facts.virtual` remains unchanged.
 Creation reserves identity atomically, including failed attempts.
 `stop` preserves the disk and identity, `start` resumes them, and `destroy` permanently
-removes the owned resource and its specific CA identity before releasing the name.
+removes the owned resource before releasing the name. Its public CA key fingerprint
+is retained for verified cleanup before the next enrollment under that name.
 Puppet exit codes 0 and 2 succeed. A failed catalog retains diagnostic state.
 
 Puppet output uses ANSI colors when both stdout and stderr are terminals. Redirecting
@@ -53,9 +56,10 @@ reconciliation, guest configuration, command-mock update or VM disk inspection.
 If the server is unavailable, the agent reports its native error and Empeira saves
 the exit code. Apply configuration changes with `up` or resume with `node start`.
 `node logs` streams runtime output for containers and the serial log for VMs.
-Node deletion needs the reachable workspace CA after enrollment;
-restore the control plane with `up` if it was stopped externally. Whole-workspace
-`destroy` removes the CA together with nodes.
+Node deletion uses host/runtime mechanisms and requires no running guest or CA.
+The retired public certificate fingerprint remains in workspace inventory; creating
+the same hostname later cleans only its matching CA identity before enrollment.
+Whole-workspace `destroy` removes the CA together with nodes.
 
 ## Environment cache and live code
 
@@ -148,14 +152,14 @@ startup files can still deliberately override their environment; they should
 retain the distribution's global initialization. Modified owned fragments or
 unsafe global paths stop reconciliation with a diagnosis.
 
-| Provider | `node shell` | `node ssh` |
-| --- | --- | --- |
-| Container | Runtime exec into `/bin/bash` | Real OpenSSH to the guest daemon |
-| VM | Direct QEMU serial console | Real OpenSSH to the guest daemon |
+| Provider | `node exec` | `node shell` | `node console` | `node ssh` |
+| --- | --- | --- | --- | --- |
+| Container | Native runtime execution as UID 0 | Native interactive root Bash | Not available | Real OpenSSH to the guest daemon |
+| VM | Private VirtIO execution as UID 0 | Private VirtIO root PTY, Bash or POSIX sh | Direct QEMU serial console with guest login | Real OpenSSH to the guest daemon |
 
 Direct access is useful for repair even when SSH, PAM, login profiles or network
 configuration is broken. SSH exercises the login path that Puppet actually configures.
-Neither access command starts a stopped node implicitly. Use `node start` first.
+None of these commands starts a stopped node implicitly. Use `node start` first.
 Both retain normal interactive output without a progress overlay.
 
 For container nodes, the default SSH username is the local execution user's account
@@ -180,7 +184,7 @@ case-insensitive `*`/`?` globs; omitted fields preserve their existing value.
 See [personal SSH configuration](configuration.md#optional-user-preferences) for
 the schema and identity-file checks. VM management uses its private VirtIO channel
 for bootstrap, enrollment and Puppet independently of these preferences.
-Shell/console access is unchanged.
+SSH preferences do not affect `exec`, `shell` or `console`.
 
 ```console
 empeira node ssh host1
@@ -245,7 +249,7 @@ and private `/var/lib/empeira` home. Its public key goes into that home's
 key, home and system-SSHD changes. Authentication failures never cause repairs.
 
 If management is unavailable, Empeira preserves the overlay and reports unknown
-guest completion without replaying installation. Use `node shell` for the private
+guest completion without replaying installation. Use `node console` for the private
 serial console and `node logs` for the serial log. In the console inspect
 `journalctl -u empeira-management.service`, `cloud-init status --long`, the
 VirtIO port, Python 3 and the unit. Console passwords apply only during initial
@@ -253,9 +257,9 @@ seed setup and remain under Puppet's control afterward. Removing Python, the
 management unit, VirtIO support or the root filesystem can still interrupt this
 privileged guest facility; there is no authentication fallback or automatic deletion.
 
-Earlier management layouts fail before mutation. Preserve the VM and use the
-previous Empeira revision to destroy it explicitly, then recreate it with this
-revision. `management_layout` and socket identity are internal inventory metadata,
+Earlier management layouts fail before normal operation. Use the current
+`node destroy` to remove the positively identified VM, then recreate it. Destroy
+does not require a compatible guest management layout or working guest. `management_layout` and socket identity are internal inventory metadata,
 not YAML options.
 
 Packaged container images install and start OpenSSH, generating host keys at first
@@ -268,17 +272,62 @@ Empeira uses the private privileged VirtIO channel internally to install the VM 
 enroll certificates and run Puppet. User-facing SSH opens an ordinary interactive
 login without the internal provisioning command or automatic sudo.
 
-VM SSH and serial sessions release the workspace mutation lock after ownership and
+VM exec, shell, SSH and serial sessions release the workspace mutation lock after ownership and
 running-state checks. Parallel sessions and read-only status remain available. A
 shared instance guard prevents `node stop`, `node destroy` or restart from replacing
 the VM while a session is attached; detach first and retry the conflicting operation.
 Other nodes and workspace commands can proceed. Instance lock files stay stable;
 their open descriptors are released on detach, disconnect, errors and signals.
 
+## Root diagnostic commands and interactive shell
+
+```console
+empeira node exec host1 -- id
+empeira node exec host1 --timeout 120 -- journalctl -u ssh.service -n 100 --no-pager
+empeira node exec host1 -- sh -c 'echo hello && id'
+empeira node shell host1
+```
+
+Everything after `--` is a literal guest argument vector. Shell operators are
+interpreted only when you explicitly run a shell such as `sh -c`. stdout and stderr
+stream separately without truncation or saved transcripts. The CLI returns the
+confirmed guest exit status, including 255. Missing executables return 127. Transport
+or unconfirmed cancellation failures report an error and retain the node; they are
+never treated as confirmed guest exits.
+
+Exec has no default timeout. `--timeout` accepts positive seconds up to 86400;
+timeout returns 124 after controlled guest process-group cleanup. Ctrl+C cancels the
+owned session and its process groups. Internal bootstrap and Puppet deadlines keep
+their existing values. Container exec uses the agent's embedded Ruby interpreter
+as a guest-only cancellation supervisor; a container without that interpreter cannot
+confirm this diagnostic protocol and reports a transport failure. In process-init
+containers SSHD is PID 1; stopping that daemon stops the whole container. Native
+exec and shell require a running container. Podman systemd-init containers retain
+root runtime access when the independent SSH service is stopped.
+
+VM shell allocates a controlling PTY under numeric UID 0 and invokes Bash with `-i`,
+or the existing POSIX `sh` if Bash is absent. It bypasses login authentication without
+changing shadow, PAM, sudoers or SSHD. A Puppet-managed root shadow value `!` and a
+stopped system SSH daemon do not prevent exec or shell. Both local input and output
+must be terminals; otherwise shell fails clearly before opening a guest session.
+Initial rows/columns and subsequent SIGWINCH resizes reach the guest PTY. ANSI,
+completion, Ctrl+C/D/Z, foreground jobs and full-screen terminal applications use
+normal guest terminal semantics. Shell output uses the PTY's merged stream.
+
+Host raw mode exists only for the session and is restored after exit, errors and
+handled termination signals. EOF or transport disconnect closes the PTY and kills
+owned guest session groups. Failed cancellation is reported explicitly. Eight private
+VirtIO slots permit independent concurrent sessions with pinned socket identities
+and nonblocking slot locks; an exhausted pool fails clearly. Existing VMs require
+explicit recreation to receive management layout 2. No network ports or SSH transport
+are added, and no shell input is written to Empeira logs. Diagnostic shells disable
+the default persistent history file; VM Bash startup preserves interactive configuration
+and then makes `HISTFILE=/dev/null` read-only.
+
 ## VM console recovery
 
 Each VM has a private Unix-domain serial socket created by its QEMU process.
-`node shell vm1` attaches to that existing endpoint without starting another QEMU.
+`node console vm1` attaches to that existing endpoint without starting another QEMU.
 Press Enter to obtain a prompt. **Ctrl-] detaches** and leaves the VM running.
 The connection prints the detach instruction. With `vm.console.root_password: null`,
 it also suggests `empeira node ssh vm1`; it does not assign a replacement password.

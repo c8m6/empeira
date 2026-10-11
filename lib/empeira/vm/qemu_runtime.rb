@@ -120,6 +120,26 @@ module Empeira
         path
       end
 
+      def with_management_socket(record)
+        Management.validate!(record)
+        raise Error, 'VM is stopped; management unavailable' unless running?(record)
+
+        Management::SLOTS.times do |slot|
+          path = management_path(record.fetch('hostname'), slot)
+          expected = slot.zero? ? record['management_socket'] : record.dig('management_sockets', slot.to_s)
+          verify_management_socket!(record, path, expected: expected)
+          lock = management_slot_lock(path)
+          next unless lock
+
+          begin
+            return yield path, expected
+          ensure
+            lock.close
+          end
+        end
+        raise Error, 'All eight VM management sessions are busy; detach a session and retry'
+      end
+
       private
 
       def console_guidance(hostname)
@@ -191,32 +211,37 @@ module Empeira
       end
 
       def management_devices(hostname)
-        ['-device', 'virtio-serial-pci,id=management',
-         '-chardev', "socket,id=management,path=#{escape(management_path(hostname))},server=on,wait=off",
-         '-device', "virtserialport,chardev=management,name=#{Management::CHANNEL}"]
+        ['-device', 'virtio-serial-pci,id=management', *Management::SLOTS.times.flat_map do |slot|
+          identifier = slot.zero? ? 'management' : "management#{slot}"
+          ['-chardev', "socket,id=#{identifier},path=#{escape(management_path(hostname, slot))},server=on,wait=off",
+           '-device', "virtserialport,chardev=#{identifier},name=org.empeira.management.#{slot}"]
+        end]
       end
 
-      def management_path(hostname)
-        monitor_directory(hostname).join('guest.sock')
+      def management_path(hostname, slot = 0)
+        monitor_directory(hostname).join(slot.zero? ? 'guest.sock' : "guest-#{slot}.sock")
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Pin each private VirtIO endpoint before exposing management.
       def capture_management_socket!(record)
-        path = management_path(record.fetch('hostname'))
-        validate_monitor_directory!(path.dirname)
-        metadata = path.lstat
-        unless metadata.socket? && metadata.uid == Process.uid
-          raise Providers::OwnershipError, 'QEMU management endpoint is unsafe; VM retained'
-        end
+        record['management_sockets'] = Management::SLOTS.times.to_h do |slot|
+          path = management_path(record.fetch('hostname'), slot)
+          validate_monitor_directory!(path.dirname)
+          metadata = path.lstat
+          unless metadata.socket? && metadata.uid == Process.uid
+            raise Providers::OwnershipError, 'QEMU management endpoint is unsafe; VM retained'
+          end
 
-        File.chmod(0o600, path)
-        record['management_socket'] = { 'device' => metadata.dev, 'inode' => metadata.ino }
-        verify_management_socket!(record, path)
+          File.chmod(0o600, path)
+          [slot.to_s, { 'device' => metadata.dev, 'inode' => metadata.ino }]
+        end
+        record['management_socket'] = record['management_sockets'].fetch('0')
+        verify_management_socket!(record, management_path(record.fetch('hostname')))
       end
 
-      def verify_management_socket!(record, path)
+      def verify_management_socket!(record, path, expected: record['management_socket'])
         validate_monitor_directory!(path.dirname)
         metadata = path.lstat
-        expected = record['management_socket']
         unless metadata.socket? && metadata.uid == Process.uid && metadata.mode.nobits?(0o077) &&
                expected == { 'device' => metadata.dev, 'inode' => metadata.ino }
           raise Providers::OwnershipError,
@@ -230,10 +255,42 @@ module Empeira
       end
 
       def unlink_management_socket(record)
-        path = management_path(record.fetch('hostname'))
-        return unless path.exist? || path.symlink?
+        Management::SLOTS.times do |slot|
+          path = management_path(record.fetch('hostname'), slot)
+          if path.exist? || path.symlink?
+            expected = slot.zero? ? record['management_socket'] : record.dig('management_sockets', slot.to_s)
+            verify_management_socket!(record, path, expected: expected)
+            File.unlink(path)
+          end
+          lock = Pathname("#{path}.lock")
+          unlink_management_lock(lock) if lock.exist? || lock.symlink?
+        end
+      end
 
-        verify_management_socket!(record, path)
+      # rubocop:disable-next Metrics/AbcSize, Metrics/CyclomaticComplexity -- Ownership and nonblocking acquisition precede transferring the live descriptor.
+      def management_slot_lock(path)
+        target = Pathname("#{path}.lock")
+        raise Providers::OwnershipError, 'VM management session lock is a symlink' if target.symlink?
+
+        # rubocop:disable-next Style/FileOpen -- The caller owns and closes the acquired slot descriptor.
+        lock = File.open(target, File::RDWR | File::CREAT | File::NOFOLLOW, 0o600)
+        metadata = lock.stat
+        unless metadata.file? && metadata.uid == Process.uid && metadata.mode.nobits?(0o077)
+          raise Providers::OwnershipError, 'VM management session lock ownership is invalid'
+        end
+
+        acquired = lock.flock(File::LOCK_EX | File::LOCK_NB)
+        acquired ? lock : nil
+      ensure
+        lock&.close unless acquired
+      end
+
+      def unlink_management_lock(path)
+        metadata = path.lstat
+        unless metadata.file? && metadata.uid == Process.uid && metadata.mode.nobits?(0o077)
+          raise Providers::OwnershipError, 'VM management session lock ownership is invalid'
+        end
+
         File.unlink(path)
       end
 

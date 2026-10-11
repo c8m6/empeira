@@ -17,14 +17,16 @@ RSpec.describe Empeira::VM::Management do
     expect(agent).to include('os.geteuid() != 0', 'start_new_session=True', 'os.killpg', 'os.replace')
     expect(agent).not_to include('getpwnam', '/etc/shadow', 'sudo', 'sshd')
     expect(files.keys).not_to include('/root/.ssh/authorized_keys')
+    expect(files.fetch(described_class::SHELL_RC).fetch('content')).to include('HISTFILE=/dev/null',
+                                                                               'readonly HISTFILE')
   end
 
   it 'rejects missing, old and unknown layouts without mutating their records' do
     expect(Empeira::Node::Inventory.valid_vm_management_layout?(record)).to be(true)
-    [nil, 0, 2, 3, '1', true].each do |version|
+    [nil, 0, 1, described_class::VERSION + 1, '1', true].each do |version|
       invalid = record.merge('management_layout' => version)
       original = Marshal.dump(invalid)
-      expect { described_class.validate!(invalid) }.to raise_error(Empeira::Error, /preserve the VM.*recreate/)
+      expect { described_class.validate!(invalid) }.to raise_error(Empeira::Error, /node destroy.*recreate/)
       expect(Empeira::Node::Inventory.valid_vm_management_layout?(invalid)).to be(false)
       expect(Marshal.dump(invalid)).to eq(original)
     end

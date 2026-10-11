@@ -12,9 +12,9 @@ module Empeira
       end
 
       def consume(channel, timeout:)
-        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+        deadline = timeout && (Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout)
         loop do
-          frame = channel.receive(timeout: deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC))
+          frame = channel.receive(timeout: deadline && (deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)))
           case frame['type']
           when 'started' then next
           when 'stdout', 'stderr' then emit(frame)
@@ -24,6 +24,10 @@ module Empeira
         end
       rescue ArgumentError, KeyError
         raise Error, 'VM management returned malformed output data', cause: nil
+      end
+
+      def consume_completion(frame)
+        completion(frame)
       end
 
       private

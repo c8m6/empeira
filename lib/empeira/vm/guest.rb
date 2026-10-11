@@ -34,6 +34,12 @@ module Empeira
         execute(record, arguments, timeout: timeout, output: output, error: error)
       end
 
+      def shell(record, input: $stdin, output: $stdout)
+        raise Error, 'Node shell requires a local terminal' unless input.tty? && output.tty?
+
+        transfer(record) { |channel| GuestShell.new(input: input, output: output).consume(channel) }
+      end
+
       def copy_to(record, source, destination, mode: '0644')
         File.open(source, 'rb') do |file|
           transfer(record) { |channel| GuestUpload.new(channel).write(file, destination, mode: mode) }
@@ -70,7 +76,7 @@ module Empeira
 
         transfer(record) do |channel|
           channel.send_frame('type' => 'exec', 'argv' => arguments, 'timeout' => timeout)
-          GuestOutput.new(output: output, error: error).consume(channel, timeout: timeout + 5)
+          GuestOutput.new(output: output, error: error).consume(channel, timeout: timeout && (timeout + 5))
         end
       end
 
@@ -85,6 +91,8 @@ module Empeira
       end
 
       def validate_timeout!(timeout)
+        return if timeout.nil?
+
         return if timeout.is_a?(Numeric) && timeout.finite? && timeout.positive? && timeout <= 86_400
 
         raise ExecutionError, 'Guest timeout must be positive and at most one day'

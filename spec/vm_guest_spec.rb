@@ -8,6 +8,12 @@ RSpec.describe Empeira::VM::Guest do
   let(:qemu) { instance_double(Empeira::VM::QemuRuntime, management_socket: path) }
   let(:guest) { described_class.new(context: nil, runner: nil, qemu: qemu) }
 
+  before do
+    allow(qemu).to receive(:with_management_socket) do |_record, &block|
+      block.call(path, record['management_socket'])
+    end
+  end
+
   # rubocop:disable-next Metrics/AbcSize -- Exercise the production framed channel against an isolated peer.
   def serve
     server = UNIXServer.new(path)
@@ -18,7 +24,7 @@ RSpec.describe Empeira::VM::Guest do
       hello = JSON.parse(socket.gets)
       identity = hello.fetch('id')
       send = ->(frame) { socket.write("#{JSON.generate(frame.merge('id' => identity))}\n") }
-      send.call('type' => 'hello', 'token' => record.fetch('peer').fetch('token'), 'version' => 1)
+      send.call('type' => 'hello', 'token' => record.fetch('peer').fetch('token'), 'version' => Empeira::VM::Management::VERSION)
       yield socket, send
     ensure
       socket&.close
@@ -67,7 +73,8 @@ RSpec.describe Empeira::VM::Guest do
       expect(JSON.parse(socket.gets)['type']).to eq('exec')
     end
     expect { guest.run(record, ['package-install']) }
-      .to raise_error(described_class::TransportError, /completion is unknown.*retained/)
+      .to raise_error(described_class::TransportError,
+                      /completion.*unknown.*retained|cancellation.*unconfirmed.*retained/)
     @worker.value
   end
 
@@ -117,7 +124,7 @@ RSpec.describe Empeira::VM::Guest do
     @worker = Thread.new do
       socket = @server.accept
       hello = JSON.parse(socket.gets)
-      socket.write("#{JSON.generate(hello.merge('token' => 'b' * 32, 'version' => 1))}\n")
+      socket.write("#{JSON.generate(hello.merge('token' => 'b' * 32, 'version' => Empeira::VM::Management::VERSION))}\n")
       expect(socket.gets).to be_nil
     ensure
       socket&.close

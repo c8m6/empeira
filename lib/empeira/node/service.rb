@@ -19,7 +19,7 @@ module Empeira
         provider(request.provider).run(request)
       end
 
-      %i[start stop destroy inspect_resource shell puppet logs].each do |operation|
+      %i[start stop destroy inspect_resource shell console exec puppet logs].each do |operation|
         define_method(operation) do |name:, **options|
           record = Infrastructure::Store.new(context: @context).load&.dig('nodes', name.downcase)
           selected = record&.fetch('provider') || 'container'

@@ -4,12 +4,14 @@ import atexit,base64,json,os,socket,subprocess,sys,tempfile,time,threading
 from pathlib import Path
 with tempfile.TemporaryDirectory() as root:
     path=root+'/port.sock'; server=socket.socket(socket.AF_UNIX);server.bind(path);server.listen(1)
-    harness="""import os,runpy,socket,sys,stat
+    harness="""import os,runpy,socket,sys,stat,pwd,types
 sock=socket.socket(socket.AF_UNIX);sock.connect(sys.argv[2]);fd=sock.detach();os.set_blocking(fd,False)
 real_open=os.open;os.open=lambda path,*args,**kw: fd if path=='test-port' else real_open(path,*args,**kw)
 os.geteuid=lambda:0
 source=open(sys.argv[1]).read().replace("ROOT = '/run/empeira-management'", 'ROOT = '+repr(sys.argv[3]))
+source=source.replace("SHELL_RC = '/usr/local/libexec/empeira-management-shell-rc'", 'SHELL_RC = '+repr(os.path.join(os.path.dirname(sys.argv[1]), 'shell_rc.sh')))
 stage_root=sys.argv[3]
+pwd.getpwuid=lambda uid:types.SimpleNamespace(pw_dir=os.path.dirname(stage_root))
 os.environ['RUNTIME_DIRECTORY']=stage_root
 real_write=os.write
 def write(fd_number,data):
@@ -95,4 +97,60 @@ exec(compile(source,'guest_agent.py','exec'))
     else: raise AssertionError('Fatal transport I/O left an owned command alive')
     reader.close();conn.close()
 
-    print('large stdout/stderr, exit 6, missing command, closed-pipe timeout, cancel, disconnect reap, fatal I/O cleanup, binary upload and cleanup passed')
+    process=subprocess.Popen([sys.executable,str(h),sys.argv[1],path,root+'/pty-stage'],stderr=None)
+    conn,_=server.accept();conn.settimeout(5);reader=conn.makefile('rb')
+    send(type='hello',token='synthetic-instance');assert recv()['type']=='hello'
+    send(type='shell',size=[27,93],term='xterm-256color')
+    output=bytearray();credit=False
+    def shell_read(until):
+        global credit
+        deadline=time.monotonic()+5
+        while not until():
+            assert time.monotonic()<deadline,bytes(output)
+            frame=recv()
+            if frame['type']=='ready':credit=True
+            elif frame['type']=='stdout':output.extend(base64.b64decode(frame['data']))
+            elif frame['type']=='exit':raise AssertionError(('Unexpected shell exit',frame,bytes(output)))
+            else:assert frame['type']=='started',frame
+    def shell_input(data):
+        global credit
+        shell_read(lambda:credit)
+        send(type='input',data=base64.b64encode(data).decode());credit=False
+    def shell_command(command,marker):
+        output.clear();shell_input(command.encode()+b'\n')
+        shell_read(lambda:marker in output)
+    shell_read(lambda:credit)
+    shell_command("stty size; printf 'INITIAL_DONE\\n'",b'27 93\r\n')
+    send(type='resize',size=[39,111])
+    shell_command("stty size; printf 'RESIZE_DONE\\n'",b'39 111\r\n')
+    shell_command("printf '\\033[31mCOLOR_OK\\033[0m\\n'",b'\x1b[31mCOLOR_OK\x1b[0m')
+    # Use the same guest PTY path as full-screen tools and verify controlling-terminal/job-control semantics.
+    shell_command("test -t 0 && test -t 1 && printf 'PTY_%s\\n' VERIFIED",b'PTY_VERIFIED\r\n')
+    foreground=root+'/foreground-pid'
+    shell_input(("sh -c 'echo $$ > "+foreground+"; exec sleep 30'\n").encode())
+    deadline=time.monotonic()+3
+    while not Path(foreground).exists():assert time.monotonic()<deadline;time.sleep(.01)
+    owned_pid=int(Path(foreground).read_text())
+    shell_input(b'\x1a')
+    shell_read(lambda:b'Stopped' in output)
+    shell_input(b'fg\n');time.sleep(.1);shell_input(b'\x03')
+    shell_command("printf 'INT_%s\\n' RECOVERED",b'INT_RECOVERED\r\n')
+    try:os.kill(owned_pid,0)
+    except ProcessLookupError:pass
+    else:raise AssertionError('Foreground process survived Ctrl+C')
+    shell_input(b'\x04')
+    while True:
+        frame=recv()
+        if frame['type']=='exit':assert frame['status']==0;break
+    # A new session must work after PTY EOF; cancel owns all background process groups.
+    send(type='shell',size=[24,80],term='xterm');credit=False;output.clear();shell_read(lambda:credit)
+    background=root+'/background-pid'
+    shell_input(("sleep 30 & echo $! > "+background+"\n").encode())
+    deadline=time.monotonic()+3
+    while not Path(background).exists():assert time.monotonic()<deadline;time.sleep(.01)
+    owned_pid=int(Path(background).read_text());send(type='cancel')
+    while recv()['type']!='exit':pass
+    stat_path=Path('/proc/'+str(owned_pid)+'/stat')
+    assert not stat_path.exists() or stat_path.read_text().rpartition(') ')[2].startswith('Z '), 'Background job survived shell cancellation'
+    reader.close();conn.close();process.terminate();process.wait(timeout=5)
+    print('large stdout/stderr, exit 6, missing command, closed-pipe timeout, cancel, disconnect reap, fatal I/O cleanup, binary upload and cleanup passed; PTY, resize, ANSI, Ctrl+C/D/Z, foreground and background cleanup passed')

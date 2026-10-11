@@ -184,7 +184,9 @@ The shared lab is cooperative, not an adversarial tenant boundary. PuppetDB HTTP
 is unauthenticated inside the isolated network, never host-published. Normal
 agent/server/CA TLS remains intact; global autosigning is disabled.
 
-`node shell` is direct runtime exec or a private VM serial console. Container
+`node exec` is numeric-root native runtime or private VirtIO execution. `node shell`
+is interactive runtime exec or a private VirtIO root PTY. `node console` is the
+separate private VM serial console with unchanged guest login. Container
 `node ssh` uses the local username and normal OpenSSH identities/agent/config. VM
 `node ssh` defaults to the existing `empeira` account and managed key, including
 incomplete running nodes. Preserve independent `--user`/`--identity` overrides.

@@ -56,11 +56,12 @@ RSpec.describe Empeira::CLI::Main do
     expect(cli('node', 'help').stdout).to include('ssh HOSTNAME', 'shell HOSTNAME')
     File.write(File.join(@directory, '.empeira.yaml'),
                YAML.dump('proxy' => { 'global' => ['https://invalid.example'] }))
-    %w[shell ssh logs list stop destroy].each do |operation|
+    %w[shell console ssh logs list stop].each do |operation|
       args = ['node', operation]
       args << 'test-node' unless operation == 'list'
       expect(cli(*args).stderr).to include('proxy.global')
     end
+    expect(cli('node', 'destroy', 'test-node')).to be_success
   end
 
   it 'reports skipped optional Hiera mounts and rejects unsupported fields' do
@@ -124,6 +125,23 @@ RSpec.describe Empeira::CLI::Main do
     result = cli('node', 'run', 'host1', '--provider', 'qemu')
     expect(result).not_to be_success
     expect(result.stderr).to include('container', 'vm')
+  end
+
+  it 'passes command arguments after -- literally and forwards a confirmed guest exit code' do
+    service = instance_double(Empeira::Node::Service)
+    allow(Empeira::Node::Service).to receive(:new).and_return(service)
+    arguments = ['sh', '-c', 'printf "%s" "$1"; exit 6', 'sh', 'literal $(touch forbidden); --timeout']
+    expect(service).to receive(:exec).with(name: 'test.example.net', arguments: arguments, timeout: 120)
+                                     .and_return(Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 6,
+                                                                                timed_out: false))
+    expect do
+      described_class.start(['node', 'exec', 'test.example.net', '--timeout', '120', '--', *arguments])
+    end.to raise_error(SystemExit) { |error| expect(error.status).to eq(6) }
+  end
+
+  it 'documents separate exec, interactive shell and serial console commands' do
+    expect(cli('node', 'help').stdout).to include('exec HOSTNAME', 'shell HOSTNAME', 'console HOSTNAME')
+    expect(cli('node', 'help', 'exec').stdout).to include('--timeout', 'unlimited', 'without SSH')
   end
 
   it 'turns node options into a provider-neutral request' do

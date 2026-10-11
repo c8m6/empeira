@@ -2,6 +2,7 @@
 
 module Empeira
   module Node
+    # rubocop:disable-next Metrics/ModuleLength -- Provider inventories share one explicit ownership envelope.
     module Inventory
       def self.valid?(nodes)
         return false unless nodes.is_a?(Hash)
@@ -51,7 +52,20 @@ module Empeira
       end
 
       def self.valid_management_socket?(record)
-        socket = record['management_socket']
+        valid_socket_identity?(record['management_socket']) && valid_management_slots?(record)
+      end
+
+      # rubocop:disable-next Metrics/CyclomaticComplexity -- Match all slot identities and the original primary endpoint.
+      def self.valid_management_slots?(record)
+        return true unless record.key?('management_sockets')
+
+        slots = record['management_sockets']
+        slots.is_a?(Hash) && slots.keys.sort == (0...::Empeira::VM::Management::SLOTS).map(&:to_s) &&
+          slots.values.all? { |value| !value.nil? && valid_socket_identity?(value) } &&
+          slots['0'] == record['management_socket']
+      end
+
+      def self.valid_socket_identity?(socket)
         socket.nil? || (socket.is_a?(Hash) && socket.keys.sort == %w[device inode] &&
           socket.values.all? { |value| value.is_a?(Integer) && value >= 0 })
       end
