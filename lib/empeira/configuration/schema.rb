@@ -15,6 +15,7 @@ module Empeira
         'requirements' => { 'empeira' => :requirement },
         'runtime' => { 'container_engine' => :engine },
         'modules' => { 'path' => :module_path },
+        'addons' => :addons,
         'server' => { 'runtime' => :server_runtime, 'mounts' => :server_mounts,
                       'environment' => :environment,
                       'memory' => :positive_integer, 'cpus' => :positive_integer, 'timeout' => :positive_integer },
@@ -42,6 +43,15 @@ module Empeira
                        'image' => { 'repository' => :image_repository, 'tag' => :image_tag } },
         'containers' => { 'additional' => :additional_services }
       }.tap { |rules| Immutable.deep_freeze(rules) }
+
+      # Schema fields containing secrets or opaque user-supplied content. Never export
+      # these to addons, even when their nested keys do not resemble secret names.
+      ADDON_PRIVATE_PATHS = [
+        %w[vm console root_password], %w[eyaml private_key], %w[browser start_url],
+        %w[server runtime startup arguments], %w[puppetdb runtime java_arguments],
+        %w[puppetdb runtime main_arguments], %w[containers additional * environment],
+        %w[containers additional * command], %w[containers additional * configuration content]
+      ].tap { |paths| Immutable.deep_freeze(paths) }
 
       CHECKS = {
         registry: [Images::Reference.method(:registry?),
@@ -98,6 +108,7 @@ module Empeira
         validate_fragment!(data)
         require_keys!(data, RULES, [])
         CommandMocks.validate!(data.dig('mocks', 'commands'), 'mocks.commands', effective: true)
+        Addons.validate!(data.fetch('addons'), effective: true)
         validate_operational!(data)
         @cross_field_rules.each { |rule| rule.call(data) }
         data
@@ -172,11 +183,12 @@ module Empeira
         end
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- One schema-to-validator dispatch table.
       def structured_validator(rule)
         { additional_services: AdditionalServices.method(:validate!), proxy_rules: Network::HostPolicy.method(:validate!),
           hiera_mounts: HieraMountSchema.method(:validate!), command_mocks: CommandMocks.method(:validate!),
           server_mounts: ServerMounts.method(:validate!), dns_rewrites: DNSRewrites.method(:validate!),
-          image: ImageSchema.method(:validate!),
+          image: ImageSchema.method(:validate!), addons: Addons.method(:validate!),
           node_images: NodeImages.method(:nodes),
           agent: AgentSchema.method(:validate!), bootstrap_guests: BootstrapGuests.method(:validate!),
           bootstrap_packages: Node::PackageBootstrap.method(:validate!),

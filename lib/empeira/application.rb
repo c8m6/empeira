@@ -43,6 +43,10 @@ module Empeira
                            build_info: @build_info, progress: @progress)
     end
 
+    def addons
+      Addons::Service.new(context: context, runner: runner)
+    end
+
     def nodes
       Node::Service.new(context: context, runner: runner, **@factories, build_info: @build_info, progress: @progress,
                         ssh_preferences: @ssh_preferences)

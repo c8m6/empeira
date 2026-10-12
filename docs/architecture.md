@@ -44,6 +44,7 @@ flowchart TD
 | VM engine | QEMU process, acceleration, console and overlay lifecycle |
 | Image source | Upstream metadata, integrity verification and immutable VM base images |
 | Execution | Argument-array processes, timeouts, streaming and diagnostic redaction |
+| Addons | Declarative manifests, user Git snapshots and standalone process handoff; no infrastructure dependency |
 
 VM interface rules resolve through Configuration using the shared hostname glob
 matcher. The VM provider invokes the guest interface reconciler through its existing
@@ -229,6 +230,18 @@ pulls/builds. Helpers use the runtime's normal bridge, require no infrastructure
 inventory or workspace services, and are removed after each invocation. Git/SSH and
 registry credentials remain owned by their native tools. `up` acquires missing
 images only and never synchronizes modules. See [Hiera and modules](hiera-and-eyaml.md).
+
+Standalone [addons](addons.md) reuse `Application`'s configuration and project
+context without constructing runtime services. `Modules::HostGit` acquires mirrors
+with the user's native authentication; addon acquisition disables hooks and
+submodules. Native Git resolves the same `ref^{commit}` expression used by r10k,
+without its container helper. Native Git materializes local snapshots using a
+disposable index with configured filters and hooks disabled; publication is atomic
+under a per-source user-cache lock.
+They do not participate in infrastructure inventory or component fingerprints.
+The execution runner hands off directly to the entrypoint, and the existing
+completion catalog/Bash adapter reads its manifest. `up` prepares missing addons
+after infrastructure readiness and reports addon failures independently.
 
 ## Diagnostic access and recovery
 

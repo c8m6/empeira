@@ -2,6 +2,7 @@
 
 require 'open3'
 require 'timeout'
+require_relative 'launch_error'
 
 module Empeira
   module Execution
@@ -48,6 +49,22 @@ module Empeira
         Console.new.attach(path, input: input, output: output, guidance: guidance)
       end
 
+      # A terminal-preserving handoff: signals, process identity and status belong
+      # directly to the standalone program, with no forwarding proxy or shell.
+      def replace(executable, arguments: [], environment: {})
+        validate!(executable, arguments, environment, nil)
+        explicit_format!(executable)
+        log(arguments, environment)
+        Kernel.exec(environment, [executable, executable], *arguments)
+      rescue Errno::ENOENT
+        raise LaunchError.new('executable or its interpreter was not found', exit_status: 127), cause: nil
+      rescue Errno::E2BIG
+        raise LaunchError.new('environment and arguments exceed the operating system size limit', exit_status: 126),
+              cause: nil
+      rescue SystemCallError
+        raise LaunchError.new('executable could not be started', exit_status: 126), cause: nil
+      end
+
       # Inherited output streams immediately; closing control cancels the owned guest session.
       def controlled_stream(executable, arguments:, input:, control:, output: $stdout, error: $stderr)
         validate!(executable, arguments, {}, nil)
@@ -86,6 +103,19 @@ module Empeira
       end
 
       private
+
+      # Ruby otherwise silently interprets plain executable text with /bin/sh.
+      # Native ELF/Mach-O binaries and scripts with an explicit interpreter are
+      # the executable formats supported by Linux, WSL2 and macOS.
+      def explicit_format!(executable)
+        header = File.binread(executable, 4)
+        native = ["\x7fELF".b, "\xfe\xed\xfa\xce".b, "\xce\xfa\xed\xfe".b,
+                  "\xfe\xed\xfa\xcf".b, "\xcf\xfa\xed\xfe".b, "\xca\xfe\xba\xbe".b,
+                  "\xbe\xba\xfe\xca".b, "\xca\xfe\xba\xbf".b, "\xbf\xba\xfe\xca".b]
+        return if header.start_with?('#!') || native.include?(header)
+
+        raise LaunchError.new('entrypoint must be a native executable or a script with a shebang', exit_status: 126)
+      end
 
       def reap_controlled_stream(pid)
         Timeout.timeout(4) { Process.wait(pid) }

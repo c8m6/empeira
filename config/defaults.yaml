@@ -1,4 +1,7 @@
 version: 1
+
+# Standalone Git addons; no addon code runs during synchronization or completion.
+addons: {}
 mocks:
   commands: {}
 requirements:

@@ -7,10 +7,11 @@ module Empeira
     # Source acquisition deliberately uses the invoking user's Git/OpenSSH context.
     # Persistent bare repositories are mounted read-only; SSH credentials never enter the helper.
     class HostGit
-      def initialize(runner:, project:, progress: Progress.new)
+      def initialize(runner:, project:, progress: Progress.new, passive: false)
         @runner = runner
         @project = project
         @progress = progress
+        @passive = passive
       end
 
       # rubocop:disable-next Metrics/AbcSize -- Acquire each host source and notify its module before network access.
@@ -24,6 +25,20 @@ module Empeira
           fail_acquisition(entry.fetch('name'), result) unless result.success?
           [entry.fetch('name'), mirror.to_s]
         end
+      end
+
+      def self.valid_remote?(remote)
+        return false unless remote.is_a?(String) && !remote.start_with?('-') && !remote.match?(/[\x00-\x1f]/)
+        return remote.match?(/\A(?:[\w.-]+@)?[\w.-]+:[^:].*\z/) unless remote.include?('://')
+
+        valid_uri?(URI.parse(remote))
+      rescue URI::InvalidURIError
+        false
+      end
+
+      def self.valid_uri?(uri)
+        %w[ssh http https].include?(uri.scheme) && uri.host && !uri.host.start_with?('-') &&
+          (uri.scheme == 'ssh' ? uri.password.nil? : uri.userinfo.nil?)
       end
 
       private
@@ -48,6 +63,10 @@ module Empeira
       end
 
       def clone(arguments)
+        if @passive
+          arguments = ['-c', "core.hooksPath=#{File::NULL}", '-c', 'core.fsmonitor=false',
+                       '-c', 'submodule.recurse=false', '-c', 'protocol.ext.allow=never', *arguments]
+        end
         if $stdin.tty? && $stderr.tty?
           @runner.buffered('git', arguments: arguments, directory: @project)
         else
@@ -65,21 +84,7 @@ module Empeira
       def valid_entry?(entry)
         entry.is_a?(Hash) && entry.keys.sort == %w[name remote] &&
           entry['name'].is_a?(String) && entry['name'].match?(Configuration::HieraMountSchema::NAME) &&
-          valid_remote?(entry['remote'])
-      end
-
-      def valid_remote?(remote)
-        return false unless remote.is_a?(String) && !remote.start_with?('-') && !remote.match?(/[\x00-\x1f]/)
-        return remote.match?(/\A(?:[\w.-]+@)?[\w.-]+:[^:].*\z/) unless remote.include?('://')
-
-        valid_uri?(URI.parse(remote))
-      rescue URI::InvalidURIError
-        false
-      end
-
-      def valid_uri?(uri)
-        %w[ssh http https].include?(uri.scheme) && uri.host && !uri.host.start_with?('-') &&
-          (uri.scheme == 'ssh' ? uri.password.nil? : uri.userinfo.nil?)
+          self.class.valid_remote?(entry['remote'])
       end
     end
   end

@@ -24,6 +24,13 @@ To reproduce either CI test job, activate the corresponding Ruby, install the lo
 bundle and run `bundle exec rspec --exclude-pattern 'spec/integration/**/*_spec.rb'`.
 Runtime and VM compatibility remain separate manual gates.
 
+Addon tests (`spec/addon_*_spec.rb`) use the existing loopback Git fixture,
+concurrent CLI subprocesses, a real PTY and the generated Bash completion. They
+exercise branches, tags and commit refs without external Git services or container
+startup. The complete `spec/fixtures/addon` is also the documented minimal addon.
+When extending configuration, review `Schema::ADDON_PRIVATE_PATHS`: secret fields
+and opaque content require explicit exclusion from the addon environment API.
+
 Runtime proxy regression coverage runs real guest helpers against isolated fake
 guest roots, checks foreign APT/DNF ownership, and exercises privileged VM command
 environment separately from bootstrap. Never execute these helpers against the

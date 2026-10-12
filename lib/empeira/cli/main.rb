@@ -6,10 +6,36 @@ require_relative 'node'
 require_relative 'proxy'
 require_relative 'completion'
 require_relative 'update'
+require_relative 'addons'
 
 module Empeira
   module CLI
     class Main < Base
+      # Strip the opaque addon argv before Thor can interpret --help, --version,
+      # assignments, or a literal -- as Core options.
+      def self.start(given_args = ARGV, config = {})
+        index = addon_index(given_args)
+        if index && given_args[index + 1]&.match?(Configuration::Addons::NAME)
+          config = config.merge(addon_arguments: given_args.drop(index + 2))
+          given_args = [*given_args[index, 2], *given_args.take(index)]
+        end
+        super
+      end
+
+      def self.addon_index(arguments)
+        index = 0
+        index += arguments[index].include?('=') ? 1 : 2 while arguments[index]&.start_with?('--container-engine')
+        index if arguments[index] == 'addon'
+      end
+
+      desc 'addon NAME [ARGUMENTS...]', 'Run a configured standalone addon'
+      def addon(name)
+        application.addons.execute(name, @addon_arguments || [])
+      end
+
+      desc 'addons SUBCOMMAND', 'Manage configured Git addons'
+      subcommand 'addons', Addons
+
       desc 'version', 'Show build version'
       option :verbose, type: :boolean, desc: 'Include revision and build time'
       map '--version' => :version
@@ -34,8 +60,18 @@ module Empeira
 
       desc 'up', 'Ensure isolated workspace infrastructure'
       def up
-        result = progressing('Preparing workspace...') { |app| app.infrastructure.up }
+        addon_error = nil
+        result = progressing('Preparing workspace...') do |app|
+          ready = app.infrastructure.up
+          begin
+            app.addons.synchronize(missing_only: true)
+          rescue Empeira::Addons::Error => e
+            addon_error = e
+          end
+          ready
+        end
         say(result.changed ? 'Workspace control plane is ready.' : 'Workspace control plane is already ready.')
+        raise addon_error if addon_error
       end
 
       desc 'browser', 'Start the disposable internal browser and print its loopback HTTPS URL'

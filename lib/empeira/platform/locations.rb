@@ -23,6 +23,10 @@ module Empeira
         home.join('.empeira.yaml')
       end
 
+      def addons
+        home.join('.empeira', 'addons').expand_path
+      end
+
       def image(identity)
         cache.join('images', identity.cache_key)
       end

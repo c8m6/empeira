@@ -6,6 +6,9 @@ require_relative '../lib/empeira/cli/main'
 
 begin
   Empeira::CLI::Main.start(ARGV)
+rescue Empeira::Addons::Error => e
+  $stderr.write "#{e.message}\n"
+  exit e.exit_status
 rescue Empeira::Error => e
   # CLI errors must remain visible even when Ruby warnings are disabled.
   $stderr.write "Error: #{e.message}\n"
