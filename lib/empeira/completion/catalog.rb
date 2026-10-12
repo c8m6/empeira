@@ -1,12 +1,16 @@
 # frozen_string_literal: true
 
+require_relative 'addons'
+
 module Empeira
   module Completion
     # Shared CLI vocabulary and context parsing stay in one shell-neutral catalog.
     # rubocop:disable-next Metrics/ClassLength
     class Catalog
       COMMANDS = {
-        [] => %w[help version config proxy up status down destroy node images self-update update browser completion],
+        [] => %w[help version config proxy up status down destroy node images self-update update browser completion
+                 addon addons],
+        ['addons'] => %w[help list info sync update],
         ['update'] => ['help', *Updates::Service::TARGETS],
         ['proxy'] => %w[help show],
         ['config'] => %w[help show validate],
@@ -19,13 +23,16 @@ module Empeira
       VALUE_OPTIONS = %w[--container-engine --provider --os --version --memory --cpus --user
                          --identity --port --timeout --project-path].freeze
 
+      attr_reader :addon_completion
+
       def candidates(words, index)
         before = words.take(index)
+        context = command_path(before)
+        return addon_candidates(words, index, context) if addon_context?(context)
         return [] if before.include?('--')
 
         @before = before
         prefix = words[index].to_s
-        context = command_path(before)
         assignment = assignment_prefix(prefix, before)
         return assignment_candidates(assignment, context) if assignment
 
@@ -35,6 +42,18 @@ module Empeira
       end
 
       private
+
+      def addon_context?(context)
+        context.first == 'addon' || context == %w[addons info]
+      end
+
+      def addon_candidates(words, index, context)
+        @addon_completion = Addons.new
+        offset = words.index(context.first) + (context.first == 'addon' ? 1 : 2)
+        @addon_completion.candidates(words.drop(offset), index - offset, management: context.first == 'addons')
+      rescue Error, SystemCallError
+        []
+      end
 
       def context_choices(context)
         Array(node_names(context)) + COMMANDS.fetch(context, []) + options(context)

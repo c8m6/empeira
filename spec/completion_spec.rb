@@ -100,7 +100,7 @@ RSpec.describe Empeira::Completion::Catalog do
   it 'keeps command vocabulary aligned with the public Thor commands' do
     { [] => Empeira::CLI::Main, ['node'] => Empeira::CLI::Node,
       ['update'] => Empeira::CLI::Update, ['config'] => Empeira::CLI::Config,
-      ['proxy'] => Empeira::CLI::Proxy }.each do |path, cli|
+      ['proxy'] => Empeira::CLI::Proxy, ['addons'] => Empeira::CLI::Addons }.each do |path, cli|
       commands = cli.commands.values.reject(&:hidden?).map { |command| command.usage.split.first }
       expect(described_class::COMMANDS.fetch(path).sort).to eq((commands + ['help']).uniq.sort)
     end

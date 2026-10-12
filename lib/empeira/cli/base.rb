@@ -28,6 +28,7 @@ module Empeira
 
       def initialize(args = [], local_options = {}, config = {})
         @guest_arguments = config[:guest_arguments]
+        @addon_arguments = config[:addon_arguments]
         super
       end
 

@@ -117,6 +117,7 @@ See [diagnostic access and recovery](docs/nodes.md#root-diagnostic-commands-and-
 ## Documentation
 
 - [Configuration](docs/configuration.md): defaults, software selection and overrides.
+- [Standalone addons](docs/addons.md): Git-based helper programs, manifests and environment API.
 - [Nodes](docs/nodes.md): lifecycle, shell/SSH, VM images and bootstrap.
 - [Hiera and EYAML](docs/hiera-and-eyaml.md): local data mounts and Puppetfile modules.
 - [Networking](docs/networking.md) and [proxy policy](docs/proxy.md).

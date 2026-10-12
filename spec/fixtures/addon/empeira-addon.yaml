@@ -1,0 +1,38 @@
+schema: 1
+description: Minimal standalone example addon
+executable: bin/example
+commands:
+  echo:
+    description: Print the supplied arguments
+    arguments:
+      - name: input
+        completion: file
+      - name: output
+        completion: file
+    options:
+      --format:
+        description: Select an output format
+        completion: enum
+        values: [yaml, text]
+      --input:
+        completion: file
+      --directory:
+        completion: directory
+      --verbose:
+        completion: none
+  directory:
+    description: Print a directory argument
+    arguments:
+      - name: destination
+        completion: directory
+  choose:
+    description: Print a selected value
+    arguments:
+      - name: value
+        completion: enum
+        values: [first, second]
+  plain:
+    description: Accept an argument without completion
+    arguments:
+      - name: value
+        completion: none
