@@ -31,10 +31,30 @@ the same hostname. Before the first Puppet run, Empeira installs
 ```yaml
 empeira:
   provider: container
+  hierarchy: empeira
 ```
 
 VM nodes use `provider: vm`. Both providers verify this readable external fact before
-enrollment; Facter's normal `facts.virtual` remains unchanged.
+enrollment; Facter's normal `facts.virtual` remains unchanged. The fixed
+`hierarchy: empeira` selector enables [shared Hiera overrides](hiera-and-eyaml.md).
+Existing provisioned nodes receive the updated fact on `up`, `node start` or
+`node puppet`; unchanged fact revisions require no extra guest probe.
+
+New nodes use their full inventory name as the kernel hostname, including multiple
+domain components, with a maximum of 64 bytes. Containers already supply that name
+to the runtime; new VMs persist it through cloud-init (`prefer_fqdn_over_hostname`),
+`/etc/hostname` and `/etc/hosts`. A guest cloud-init fragment preserves the initialized
+hostname on later boots, including after temporary seed configuration is removed.
+`hostname` and `hostname -f` return the FQDN, while
+Facter keeps its native short `networking.hostname`, domain and full
+`networking.fqdn`. Puppet certname remains the inventory name. Only guest files are
+configured; the physical host is never changed.
+
+Existing VMs retain their hostname configuration: Puppet may already manage those
+files, so `up` and `node start` do not overwrite them. Recreate an old VM to apply
+the new FQDN initialization. Stop/start preserves the new configuration unless
+Puppet or the guest administrator deliberately changes it.
+
 Creation reserves identity atomically, including failed attempts.
 `stop` preserves the disk and identity, `start` resumes them, and `destroy` permanently
 removes the owned resource before releasing the name. Its public CA key fingerprint

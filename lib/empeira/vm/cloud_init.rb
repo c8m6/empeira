@@ -94,7 +94,7 @@ module Empeira
 
       def cloud_config(record, public_key, console: true)
         scripts = bootstrap_files
-        { 'hostname' => record.fetch('hostname').split('.').first,
+        { 'hostname' => record.fetch('hostname'), 'prefer_fqdn_over_hostname' => true,
           'fqdn' => record.fetch('hostname'), 'manage_etc_hosts' => true,
           'users' => [system_user],
           'ssh_pwauth' => false, 'disable_root' => true,
@@ -114,7 +114,9 @@ module Empeira
       def cloud_files(scripts)
         Node::Bootstrap.new(provider: 'vm').files.map do |file|
           { 'path' => file.path, 'permissions' => format('%04o', file.mode), 'content' => file.content }
-        end + [{ 'path' => '/etc/sysctl.d/90-empeira-ipv4.conf', 'permissions' => '0644',
+        end + [{ 'path' => '/etc/cloud/cloud.cfg.d/99-empeira-hostname.cfg', 'permissions' => '0644',
+                 'content' => "preserve_hostname: true\n" },
+               { 'path' => '/etc/sysctl.d/90-empeira-ipv4.conf', 'permissions' => '0644',
                  'content' => "net.ipv6.conf.all.disable_ipv6=1\nnet.ipv6.conf.default.disable_ipv6=1\n" }] + scripts
       end
 

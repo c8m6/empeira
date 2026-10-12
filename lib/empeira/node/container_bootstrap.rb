@@ -27,6 +27,18 @@ module Empeira
         end
       end
 
+      # rubocop:disable-next Naming/PredicateMethod -- Reconciliation mutates owned guest state and reports changes.
+      def reconcile(resource:, bootstrap:)
+        bootstrap.files.map do |file|
+          arguments = [Certificates::RUBY, '-e', VERIFY, file.path, file.content, format('%04o', file.mode)]
+          next false if @runtime.service_exec(resource, arguments).success?
+
+          run!(resource, INSTALL, file, 'install')
+          run!(resource, VERIFY, file, 'verify')
+          true
+        end.any?
+      end
+
       private
 
       def run!(resource, code, file, action)

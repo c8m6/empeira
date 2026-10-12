@@ -79,9 +79,9 @@ Help, validation and completion expose registry names without constructing provi
   clear inherited pins unless their own digest is supplied.
 
 Test ordinary production Puppet code without requiring Empeira-specific branches.
-The sole classification exception is `facts.empeira.provider` (`container` or `vm`),
-installed and verified before the first catalog. Never expose runtime/backend facts
-or generalize this classification API.
+The classification exceptions are `facts.empeira.provider` (`container` or `vm`)
+and the fixed `facts.empeira.hierarchy` selector (`empeira`), installed and verified
+before the first catalog. Never expose runtime/backend facts or generalize this API.
 
 ## Configuration
 

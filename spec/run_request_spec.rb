@@ -27,4 +27,12 @@ RSpec.describe Empeira::Node::RunRequest do
     config['node_defaults']['future_setting'] = 'not a request attribute'
     expect { described_class.from_config(hostname: 'host1', provider: 'vm', config: config) }.not_to raise_error
   end
+
+  it 'rejects new names exceeding the kernel hostname limit while accepting a 64-byte FQDN' do
+    valid = "#{'a' * 50}.example.test"
+    expect(valid.bytesize).to eq(63)
+    expect { described_class.new(**attributes, hostname: "a#{valid}") }.not_to raise_error
+    expect { described_class.new(**attributes, hostname: "aa#{valid}") }
+      .to raise_error(Empeira::Error, /64/)
+  end
 end

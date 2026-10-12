@@ -20,6 +20,8 @@ module Empeira
         end
         ContainerBootstrap.new(runtime: @runtime).apply(resource: resource,
                                                         bootstrap: Bootstrap.new(provider: 'container'))
+        record['empeira_fact'] = ExternalFact.fingerprint('container')
+        save
         PackageSources.verify!(execute: execute)
       end
 

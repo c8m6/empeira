@@ -24,7 +24,14 @@ module Empeira
       def self.valid_guest_settings?(record)
         CommandMocks.valid_inventory?(record.fetch('command_mocks', {})) &&
           (!record.key?('runtime_proxy') || RuntimeProxy.valid_inventory?(record['runtime_proxy'])) &&
-          (!record.key?('interactive_tools') || InteractiveTools.valid_inventory?(record['interactive_tools']))
+          (!record.key?('interactive_tools') || InteractiveTools.valid_inventory?(record['interactive_tools'])) &&
+          valid_fact_revision?(record)
+      end
+
+      def self.valid_fact_revision?(record)
+        return true unless record.key?('empeira_fact')
+
+        record['empeira_fact'].is_a?(String) && record['empeira_fact'].match?(/\A[0-9a-f]{64}\z/)
       end
 
       def self.valid_container?(record)

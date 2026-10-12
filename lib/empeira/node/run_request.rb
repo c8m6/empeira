@@ -41,10 +41,11 @@ module Empeira
 
       def validate_hostname!(hostname)
         label = /\A[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\z/
-        return if hostname.is_a?(String) && !hostname.empty? && hostname.length <= 253 &&
+        return if hostname.is_a?(String) && !hostname.empty? && hostname.length <= 64 &&
                   hostname.split('.', -1).all? { |part| part.match?(label) }
 
-        raise Error, 'hostname must consist of DNS labels of 1 to 63 letters, digits or internal hyphens'
+        raise Error, 'hostname must contain DNS labels of 1 to 63 letters, digits or internal hyphens ' \
+                     'and fit the 64-byte guest kernel hostname limit'
       end
     end
   end

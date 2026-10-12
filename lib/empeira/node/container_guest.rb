@@ -6,8 +6,21 @@ module Empeira
       private
 
       def reconcile_guest(resource, record)
+        fact_changed = reconcile_provider_fact(resource, record)
         environment_changed = prepare_guest_environment(resource, record)
-        reconcile_command_mocks(resource, record) || environment_changed
+        reconcile_command_mocks(resource, record) || environment_changed || fact_changed
+      end
+
+      # rubocop:disable-next Naming/PredicateMethod -- Reconciliation mutates owned guest state and reports changes.
+      def reconcile_provider_fact(resource, record)
+        digest = ExternalFact.fingerprint('container')
+        return false if record['empeira_fact'] == digest
+
+        ContainerBootstrap.new(runtime: @runtime).reconcile(resource: resource,
+                                                            bootstrap: Bootstrap.new(provider: 'container'))
+        record['empeira_fact'] = digest
+        save
+        true
       end
 
       def prepare_guest_environment(resource, record)

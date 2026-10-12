@@ -114,7 +114,8 @@ Nodes share lifecycle contracts: create rejects an existing name, stop preserves
 state, start resumes it, and destroy removes owned state. Already satisfied lifecycle
 operations return `changed: false`; absent start/stop and ownership conflicts fail.
 Names are unique across both providers under the shared workspace transaction.
-The only Empeira classification fact is `facts.empeira.provider`.
+The structured Empeira classification fact contains `facts.empeira.provider` and
+the fixed `facts.empeira.hierarchy: empeira` Hiera selector.
 
 ## Persistent state and ownership
 
@@ -213,8 +214,9 @@ bindings. Target lookups remain authoritative for `empeira.internal` and never
 fall through externally. No separate DNS inventory or provider-specific state is
 introduced. DNS image/definition replacement retains its existing node protection.
 
-Transparent TCP redirects reuse the same gateway policy, fingerprint and discovery
-boundary. Exact external source pairs are translated to observed internal services
+Transparent TCP and UDP DNS redirects reuse the same gateway policy, fingerprint
+and discovery boundary. Exact IP/protocol/port tuples are translated to observed
+internal services
 with DNAT/SNAT; unresolved targets remain denied. Reconciliation blocks stale targets
 before recreation and publishes their new addresses after service startup. Changed
 NAT revokes namespace-local connection state while DROP is active. Unchanged rules
