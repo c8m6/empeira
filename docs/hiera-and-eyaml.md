@@ -6,8 +6,16 @@ another ordinary Puppet environment name. Environment caching is disabled so loc
 uncommitted manifests, modules and data are visible without image rebuilds. The
 repository supplies its normal `environment.conf`, `hiera.yaml`, manifests and
 vendored modules. Puppetfile modules are synchronized explicitly with `update modules` into `modules.path`.
-Empeira adds only `facts.empeira.provider` to nodes before their
-first catalog. It does not edit the repository's `hiera.yaml`.
+Empeira installs the structured `facts.empeira` fact before the first catalog:
+
+```yaml
+empeira:
+  provider: vm # container on container nodes
+  hierarchy: empeira
+```
+
+The hierarchy selector is always the literal string `empeira`. Empeira does not edit
+the repository's `hiera.yaml`.
 
 Repositories that need disposable-node overrides can optionally add this hierarchy:
 
@@ -15,14 +23,48 @@ Repositories that need disposable-node overrides can optionally add this hierarc
 hierarchy:
   - name: "Empeira provider"
     path: "virtual/empeira-%{facts.empeira.provider}.yaml"
+  - name: "Empeira common"
+    path: "virtual/%{facts.empeira.hierarchy}.yaml"
   - name: "Virtualization"
     path: "virtual/%{facts.virtual}.yaml"
 ```
 
-The first path resolves to `virtual/empeira-container.yaml` or
-`virtual/empeira-vm.yaml`. `facts.virtual` remains Facter's own platform fact.
-The files can live in the normal control repository or existing Hiera mounts;
-generic repositories need no Empeira-specific hierarchy.
+Priority lookups select the first matching value: provider-specific overrides in
+`virtual/empeira-vm.yaml` or `virtual/empeira-container.yaml`, then shared overrides
+in `virtual/empeira.yaml`, then the normal virtualization data. Merge lookups retain
+ordinary Hiera merge semantics. For example:
+
+`virtual/empeira-vm.yaml`:
+
+```yaml
+example::profile: vm
+```
+
+`virtual/empeira-container.yaml`:
+
+```yaml
+example::profile: container
+```
+
+`virtual/empeira.yaml`:
+
+```yaml
+example::dns_servers: [198.18.0.53]
+```
+
+A production node without `facts.empeira` cannot select either Empeira file and uses
+only `virtual/<facts.virtual>.yaml`. The native lookup integration gate verifies
+this negative case with the configured server image, including an existing common
+file. Do not add a static `path: virtual/empeira.yaml`: that would apply the shared
+overrides to production nodes too. `facts.virtual` remains Facter's own platform fact.
+
+Existing provisioned nodes receive the selector on their next `up`, `node start`
+or `node puppet`; the owned fact file is verified before recording its revision.
+Unchanged revisions reuse the inventory stamp without extra guest probes. The fact
+file is reserved for Empeira; Puppet should not manage it. Empeira never edits the
+user's hierarchy or adds server-side selection logic. The files can live in the
+normal control repository or existing Hiera mounts; generic repositories need no
+Empeira-specific hierarchy.
 
 ## External Hiera repositories
 

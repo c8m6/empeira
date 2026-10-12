@@ -39,10 +39,22 @@ module Empeira
       end
 
       def reconcile_guest(record)
+        fact_changed = reconcile_provider_fact(record)
         proxy_changed = reconcile_runtime_proxy(record)
         tools_changed = reconcile_interactive_tools(record)
         interfaces_changed = reconcile_interfaces(record)
-        reconcile_command_mocks(record) || interfaces_changed || proxy_changed || tools_changed
+        reconcile_command_mocks(record) || interfaces_changed || proxy_changed || tools_changed || fact_changed
+      end
+
+      # rubocop:disable-next Naming/PredicateMethod -- Reconciliation mutates owned guest state and reports changes.
+      def reconcile_provider_fact(record)
+        digest = ExternalFact.fingerprint('vm')
+        return false if record['empeira_fact'] == digest
+
+        VMBootstrap.new(guest: @guest).reconcile(record: record, bootstrap: Bootstrap.new(provider: 'vm'))
+        record['empeira_fact'] = digest
+        save
+        true
       end
 
       def reconcile_interactive_tools(record)

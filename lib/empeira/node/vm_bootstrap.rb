@@ -12,6 +12,23 @@ module Empeira
         bootstrap.files.each { |file| verify_file!(record, file) }
       end
 
+      # rubocop:disable-next Naming/PredicateMethod, Metrics/AbcSize -- Verify, atomically upload and verify the owned fact.
+      def reconcile(record:, bootstrap:)
+        bootstrap.files.map do |file|
+          content = @guest.run(record, ['cat', file.path])
+          mode = @guest.run(record, ['stat', '-c', '%a', file.path])
+          next false if valid_file?(content, mode, file)
+
+          Tempfile.create('empeira-fact') do |source|
+            source.write(file.content)
+            source.flush
+            @guest.copy_to(record, source.path, file.path, mode: format('%04o', file.mode))
+          end
+          verify_file!(record, file)
+          true
+        end.any?
+      end
+
       private
 
       def verify_file!(record, file)

@@ -42,7 +42,7 @@ RSpec.describe Empeira::VM::CloudInit do
     end
     cloud = described_class.new(context: app.context, runner: runner, executable_path: @directory)
     record = { 'os' => 'ubuntu', 'version' => '24.04', 'management_layout' => Empeira::VM::Management::VERSION,
-               'hostname' => 'host1', 'mac_address' => '52:54:00:12:34:56',
+               'hostname' => 'host1.lab.example.test', 'mac_address' => '52:54:00:12:34:56',
                'peer' => { 'token' => 'a' * 32, 'gateway' => '10.200.30.2', 'ip' => '10.203.20.32',
                            'dns' => '10.203.20.130' } }
     captured = nil
@@ -51,18 +51,24 @@ RSpec.describe Empeira::VM::CloudInit do
       original.call(directory, files)
     end
     expect(cloud.prepare(record)).to exist
-    directory = app.context.locations.workspace(app.context.workspace).join('vms', 'host1')
+    directory = app.context.locations.workspace(app.context.workspace).join('vms', 'host1.lab.example.test')
     expect(File.stat(directory.join('seed.iso')).mode & 0o077).to eq(0)
     expect(File.stat(directory.join('id_ed25519')).mode & 0o077).to eq(0)
     expect(directory.join('user-data')).not_to exist
     user_data = captured.fetch('user-data')
     parsed = YAML.safe_load(user_data.delete_prefix("#cloud-config\n"))
+    expect(parsed).to include('hostname' => record.fetch('hostname'), 'fqdn' => record.fetch('hostname'),
+                              'prefer_fqdn_over_hostname' => true)
+    persistent = parsed['write_files'].find do |entry|
+      entry['path'] == '/etc/cloud/cloud.cfg.d/99-empeira-hostname.cfg'
+    end
+    expect(YAML.safe_load(persistent.fetch('content'))).to eq('preserve_hostname' => true)
     expect(parsed['write_files'].map { |entry| entry['path'] }).to include(
       '/etc/sysctl.d/90-empeira-ipv4.conf', '/usr/local/libexec/empeira-bootstrap-0',
       Empeira::Node::ExternalFact::PATH
     )
     fact = parsed['write_files'].find { |entry| entry['path'] == Empeira::Node::ExternalFact::PATH }
-    expect(fact).to include('permissions' => '0644', 'content' => "empeira:\n  provider: vm\n")
+    expect(fact).to include('permissions' => '0644', 'content' => Empeira::Node::ExternalFact.content('vm'))
     expect(parsed['runcmd'].last).to eq(['/usr/local/libexec/empeira-bootstrap-0'])
     expect(parsed).not_to have_key('apt')
     expect(user_data).not_to include('synthetic private key', 'dns-forward', 'archive.example.test',

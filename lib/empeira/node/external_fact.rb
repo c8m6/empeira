@@ -2,7 +2,7 @@
 
 module Empeira
   module Node
-    # One public logical provider fact is present before the first catalog.
+    # Logical provider and the fixed native Hiera selector are present before the first catalog.
     module ExternalFact
       PATH = '/etc/puppetlabs/facter/facts.d/empeira.yaml'
       PROVIDERS = %w[container vm].freeze
@@ -10,7 +10,11 @@ module Empeira
       def self.content(provider)
         raise ConfigurationError, 'Unknown Empeira node provider' unless PROVIDERS.include?(provider)
 
-        "empeira:\n  provider: #{provider}\n"
+        "empeira:\n  provider: #{provider}\n  hierarchy: empeira\n"
+      end
+
+      def self.fingerprint(provider)
+        Digest::SHA256.hexdigest(content(provider))
       end
     end
   end

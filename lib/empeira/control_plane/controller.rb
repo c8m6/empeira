@@ -164,6 +164,7 @@ module Empeira
         check_service_names!
         @plan.validate_dns_rewrites!
         @plan.validate_network_redirects!
+        validate_redirect_routes!
         @plan.module_request.warnings.each { |message| @progress.warning(message) }
         @plan.module_request.verify_available!
         lockdown_existing_gateway
@@ -171,6 +172,16 @@ module Empeira
       end
 
       private
+
+      def validate_redirect_routes!
+        entries = @plan.config.dig('network', 'redirects')
+        unless entries.any? { |entry| Network::DirectEgress::BENCHMARK.include?(entry.fetch('from').fetch('ip')) }
+          return
+        end
+
+        routes = Platform::Routes.new(platform: @context.platform, runner: @runner).ipv4 + @runtime.network_subnets
+        Network::Redirects.validate_routes!(entries, routes: routes)
+      end
 
       def cleanup_files
         @plan.files.cleanup
@@ -222,7 +233,7 @@ module Empeira
 
       def existing_redirect_targets
         definitions = @plan.definitions.slice(*@plan.config.dig('network', 'redirects').map do |entry|
-          entry.fetch('to').fetch('service')
+          Network::Redirects.target_key(entry)
         end)
         ids = definitions.to_h { |key, _| [key, recorded(key)] }
         definitions.to_h { |key, definition| [key, service_resource(definition, expected_id: ids[key])] }
@@ -640,14 +651,19 @@ module Empeira
         @gateway_locked_id = resource.fetch('id')
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Negotiate legacy TCP and extended DNS capability without fallback.
       def require_redirect_capability
         return if @plan.config.dig('network', 'redirects').empty?
 
         result = @runtime.service_exec(@observed.fetch('gateway'),
                                        [Network::Gateway::EXECUTABLE, 'redirects-capability'])
-        return if result.success? && result.stdout.strip == 'tcp-redirects-v1'
+        protocols = @plan.config.dig('network', 'redirects').map do |entry|
+          entry.fetch('from').fetch('protocol', 'tcp')
+        end
+        supported = protocols.include?('udp') ? ['tcp-udp-redirects-v2'] : %w[tcp-redirects-v1 tcp-udp-redirects-v2]
+        return if result.success? && supported.include?(result.stdout.strip)
 
-        raise Error, 'Gateway does not support transparent IPv4/TCP redirects; configure a compatible ' \
+        raise Error, 'Gateway does not support transparent IPv4 TCP/UDP redirects; configure a compatible ' \
                      'images.direct_egress image'
       end
 

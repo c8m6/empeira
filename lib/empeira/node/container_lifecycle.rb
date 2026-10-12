@@ -130,6 +130,7 @@ module Empeira
 
       def agent_run(resource, record)
         require_provisioned!(record)
+        reconcile_provider_fact(resource, record)
         result = @progress.streaming do
           @runtime.stream_service(resource, RuntimeProxy.command(context, PuppetCommand.arguments))
         end

@@ -441,3 +441,25 @@ real PTY resize/job control/fullscreen output and terminal restoration, restart,
 serial console without the guest service, and cleanup after removal of the server
 and control repository with an incompatible inventory. Projects and resources
 are disposable and isolated; production infrastructure is never used.
+
+## DNS endpoint, node identity and Hiera selection gates
+
+These opt-in gates use disposable synthetic control repositories and owned helpers.
+The DNS upstream is synthetic; no production DNS server is needed. The identity
+gate requires working KVM/HVF and checks Ubuntu containers and VMs, multi-component
+FQDNs, native Facter values, certnames, restart, legacy fact upgrades and an actual
+first catalog using shared/provider Hiera data. Physical host files are checked for
+changes. Run both container engines where available:
+
+```bash
+EMPEIRA_HIERA_SELECTION_INTEGRATION=1 EMPEIRA_HIERA_SELECTION_RUNTIME=docker bundle exec rspec spec/integration/hiera_selection_spec.rb
+EMPEIRA_DNS_REDIRECT_INTEGRATION=1 EMPEIRA_DNS_REDIRECT_RUNTIME=docker bundle exec rspec spec/integration/dns_redirects_spec.rb
+EMPEIRA_NODE_IDENTITY_INTEGRATION=1 EMPEIRA_NODE_IDENTITY_RUNTIME=docker bundle exec rspec spec/integration/node_identity_spec.rb
+```
+
+Repeat with `podman`. Hiera selection uses the configured server image, including
+priority/merge lookups and a negative production-node fixture with no Empeira fact.
+The DNS gate checks UDP/TCP, internal/external names, NXDOMAIN, large-answer fallback,
+unavailable/recreated CoreDNS, a second workspace with a different subnet and
+CoreDNS address, rule removal and idempotent reconciliation. Node identity also
+checks both virtual DNS transports before and after node stop/start.

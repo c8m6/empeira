@@ -156,8 +156,8 @@ under the existing gateway and proxy policies.
 
 ## Transparent TCP redirects
 
-`network.redirects` maps exact original IPv4/TCP destination pairs to the current
-address/port of an owned internal application service. Multiple pairs may share a
+`network.redirects` maps exact original IPv4/protocol/port destination tuples to
+the current address/port of an owned internal application service. Multiple pairs may share a
 service. This supports fixed production endpoints such as PowerDNS APIs without
 changing Puppet/Hiera or implementing application logic in Empeira. Configuration
 and an example are in [configuration](configuration.md#transparent-tcp-redirects).
@@ -170,11 +170,18 @@ this source/target contract. Source addresses inside the workspace subnet or in
 loopback, link-local, unspecified or multicast/reserved ranges are rejected because
 those paths would bypass normal gateway routing.
 
+The optional source protocol defaults to TCP. UDP DNS uses the same translation
+path on port 53 to the built-in `coredns`/`dns` service. A fixed virtual endpoint such
+as `198.18.0.53` remains independent of the dynamic workspace subnet, without an
+interface alias or resolver-file rewrite. Benchmark addresses are restricted to
+validated redirect sources; overlapping host/VPN/engine routes fail before mutation.
+
 The gateway applies exact DNAT in its private namespace. Since the destination and
 client share a subnet, it also SNATs redirected flows to its internal address so
 replies return through the same conntrack translation. The test service sees the
-gateway as its TCP client; the original client sees the configured external endpoint.
-TCP bytes are unchanged, including HTTP headers and bodies. TLS remains end to end
+gateway as its client; the original client sees the configured external endpoint.
+TCP bytes (including HTTP headers/bodies) and UDP DNS messages are unchanged.
+TLS remains end to end
 and the application must validate the original endpoint's certificate as usual.
 This follows Netfilter's [same-network NAT guidance](https://www.netfilter.org/documentation/HOWTO/NAT-HOWTO-6.html).
 
@@ -183,6 +190,11 @@ target pair in the appropriate direction. It drops other packets for that origin
 pair before DNS/proxy/direct-egress grants, so a missing target never falls back to
 the external IP. Bootstrap nodes remain excluded. Target addresses come from the
 existing ownership-checked runtime discovery, with no additional inventory mapping.
+CoreDNS retains the peer layout reservation at offset 3 within each dynamic workspace
+subnet, keeping existing guest resolver addresses stable. A same-workspace recreation
+normally keeps that address. A new workspace
+with a different subnet has a different actual CoreDNS IP; the virtual endpoint
+remains unchanged. Reconciliation never stores that actual IP in redirect inventory.
 Before target recreation, the redirect is blocked; after services start, `up`
 refreshes the policy using their current addresses. A target that exits or refuses
 connections causes a connection failure. Removing a service still referenced by
@@ -200,9 +212,10 @@ No host conntrack, foreign firewall or target container configuration is changed
 The same helper runs in the Linux engine for Docker, rootless Podman, Docker Desktop
 and Podman Machine; QEMU peers use the existing adapters. Runtime isolation and
 attachment requirements still apply. Custom `images.direct_egress` images must
-implement `redirects-capability` (`tcp-redirects-v1`), the redirect plan and conntrack
-invalidation; incompatible images fail explicitly. Native macOS requires execution
-of the platform gates before claiming validation.
+implement `redirects-capability` (`tcp-udp-redirects-v2` for UDP DNS; legacy
+`tcp-redirects-v1` remains valid for TCP-only configuration), the redirect plan and
+conntrack invalidation; incompatible images fail explicitly. Native macOS requires
+execution of the platform gates before claiming validation.
 
 Redirects do not change DNS, proxy allowlists/environment, `NO_PROXY`, or bootstrap
 grants. An application explicitly using a proxy initially connects to that proxy;

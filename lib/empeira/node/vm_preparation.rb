@@ -68,6 +68,8 @@ module Empeira
         @guest.wait(record, progress: @progress)
         ::Empeira::VM::RootDisk.new(guest: @guest).verify!(record, size_gib: context.configuration.dig('vm', 'disk'))
         VMBootstrap.new(guest: @guest).verify(record: record, bootstrap: Bootstrap.new(provider: 'vm'))
+        record['empeira_fact'] = ExternalFact.fingerprint('vm')
+        save
         @cloud.finish(record, guest: @guest)
       end
 
@@ -144,6 +146,7 @@ module Empeira
       end
 
       def puppet_run(record)
+        reconcile_provider_fact(record)
         result = @progress.streaming do
           @guest.stream(record, RuntimeProxy.command(context, PuppetCommand.arguments))
         end
