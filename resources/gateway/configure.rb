@@ -48,24 +48,27 @@ module EmpeiraGateway
 
   def redirect_selector(entry)
     source = entry.fetch('from')
-    "-m conntrack --ctorigdst #{source.fetch('ip')} --ctorigdstport #{source.fetch('port')}"
+    "-m conntrack --ctorigdst #{source.fetch('ip')} --ctorigdstport #{source.fetch('port')} " \
+      "--ctproto #{source.fetch('protocol', 'tcp')}"
   end
 
+  # rubocop:disable-next Metrics/MethodLength -- Keep both conntrack directions and the final original-tuple drop together.
   def redirect_filter(plan, internal)
     plan.fetch('redirects', []).flat_map do |entry|
       target = entry['to']
+      protocol = entry.fetch('from').fetch('protocol', 'tcp')
       selector = redirect_selector(entry)
       allowed = if target
                   ["-A FORWARD -i #{internal} -o #{internal} -s #{plan.fetch('subnet')} " \
-                   "-d #{target.fetch('ip')}/32 -p tcp --dport #{target.fetch('port')} #{selector} " \
+                   "-d #{target.fetch('ip')}/32 -p #{protocol} --dport #{target.fetch('port')} #{selector} " \
                    '--ctstate DNAT --ctdir ORIGINAL -j ACCEPT',
                    "-A FORWARD -i #{internal} -o #{internal} -s #{target.fetch('ip')}/32 " \
-                   "-d #{plan.fetch('subnet')} -p tcp --sport #{target.fetch('port')} #{selector} " \
+                   "-d #{plan.fetch('subnet')} -p #{protocol} --sport #{target.fetch('port')} #{selector} " \
                    '--ctstate ESTABLISHED --ctdir REPLY -j ACCEPT']
                 else
                   []
                 end
-      [*allowed, "-A FORWARD -p tcp #{selector} -j DROP"]
+      [*allowed, "-A FORWARD -p #{protocol} #{selector} -j DROP"]
     end
   end
 
@@ -75,10 +78,12 @@ module EmpeiraGateway
       next unless target
 
       source = entry.fetch('from')
+      protocol = source.fetch('protocol', 'tcp')
       ["-A PREROUTING -i #{internal} -s #{plan.fetch('subnet')} -d #{source.fetch('ip')}/32 " \
-       "-p tcp --dport #{source.fetch('port')} -j DNAT --to-destination #{target.fetch('ip')}:#{target.fetch('port')}",
+       "-p #{protocol} --dport #{source.fetch('port')} -j DNAT " \
+       "--to-destination #{target.fetch('ip')}:#{target.fetch('port')}",
        "-A POSTROUTING -o #{internal} -s #{plan.fetch('subnet')} -d #{target.fetch('ip')}/32 " \
-       "-p tcp --dport #{target.fetch('port')} #{redirect_selector(entry)} --ctstate DNAT --ctdir ORIGINAL " \
+       "-p #{protocol} --dport #{target.fetch('port')} #{redirect_selector(entry)} --ctstate DNAT --ctdir ORIGINAL " \
        "-j SNAT --to-source #{plan.fetch('gateway')}"]
     end.flatten
   end
@@ -153,23 +158,38 @@ module EmpeiraGateway
     raise 'Invalid gateway redirect' unless entry.is_a?(Hash) && entry.keys.sort == %w[from to]
 
     source = entry.fetch('from')
-    validate_endpoint(source)
+    validate_endpoint(source, source: true)
     raise 'Redirect source collides with workspace subnet' if subnet.include?(source.fetch('ip'))
 
     target = entry['to']
+    validate_redirect_target(target, source, subnet)
+    source.values_at('ip', 'port') + [source.fetch('protocol', 'tcp')]
+  end
+
+  def validate_redirect_target(target, source, subnet)
     if target
       validate_endpoint(target)
       raise 'Redirect target is outside workspace subnet' unless subnet.include?(target.fetch('ip'))
     end
-    source
+    if source.fetch('protocol', 'tcp') == 'udp' &&
+       (source.fetch('port') != 53 || (target && target.fetch('port') != 53))
+      raise 'UDP redirects require DNS port 53'
+    end
   end
 
-  def validate_endpoint(value)
-    raise 'Invalid redirect endpoint' unless value.is_a?(Hash) && value.keys.sort == %w[ip port]
+  def validate_endpoint(value, source: false)
+    raise 'Invalid redirect endpoint' unless value.is_a?(Hash)
+
+    keys = source ? value.keys - ['protocol'] : value.keys
+    raise 'Invalid redirect endpoint' unless keys.sort == %w[ip port]
+    raise 'Invalid redirect protocol' if source && !%w[tcp udp].include?(value.fetch('protocol', 'tcp'))
 
     ipv4(value.fetch('ip'))
-    port = value.fetch('port')
-    raise 'Invalid redirect TCP port' unless port.is_a?(Integer) && port.between?(1, 65_535)
+    validate_redirect_port(value.fetch('port'))
+  end
+
+  def validate_redirect_port(port)
+    raise 'Invalid redirect port' unless port.is_a?(Integer) && port.between?(1, 65_535)
   end
 
   def validate_addresses(plan, subnet)
@@ -280,7 +300,7 @@ module EmpeiraGateway
     when 'hold' then sleep
     when 'redirects-capability'
       command('conntrack', '--version')
-      puts 'tcp-redirects-v1'
+      puts 'tcp-udp-redirects-v2'
     when 'lockdown'
       restore(lockdown)
     when 'apply' then apply(arguments.fetch(1))

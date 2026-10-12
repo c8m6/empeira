@@ -137,7 +137,7 @@ RSpec.describe EmpeiraGateway do
   it 'blocks original destinations before ordinary egress grants even without a live target' do
     value = rules(plan.merge('redirects' => [redirect.merge('to' => nil)]))
     expect(value).not_to include('DNAT --to-destination')
-    expect(value.index('--ctorigdst 192.0.2.8 --ctorigdstport 8080 -j DROP'))
+    expect(value.index('--ctorigdst 192.0.2.8 --ctorigdstport 8080 --ctproto tcp -j DROP'))
       .to be < value.index('-d 192.0.2.8/32 -p tcp --dport 8080 -j ACCEPT')
   end
 

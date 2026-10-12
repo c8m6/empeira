@@ -369,6 +369,39 @@ RSpec.describe Empeira::ControlPlane::Controller do
     end
   end
 
+  def dns_redirect_configuration
+    { 'puppetdb' => { 'enabled' => false }, 'network' => { 'redirects' => %w[udp tcp].map do |protocol|
+      { 'from' => { 'ip' => '198.18.0.53', 'port' => 53, 'protocol' => protocol },
+        'to' => { 'service' => 'coredns', 'port' => 53 } }
+    end } }
+  end
+
+  it 'requires UDP capability, resolves owned DNS and preserves an identical reconcile' do
+    config = dns_redirect_configuration
+    allow_any_instance_of(Empeira::Platform::Routes).to receive(:ipv4).and_return([])
+    allow(runtime).to receive(:network_subnets).and_return([])
+    allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
+      result = method.call(resource, arguments, **options)
+      arguments.include?('redirects-capability') ? result.with(stdout: "tcp-udp-redirects-v2\n") : result
+    end
+    expect(mutate(controller(config), :up)).to be(true)
+    expect(gateway_configuration(config).fetch('redirects').map { |rule| rule.dig('to', 'ip') })
+      .to eq(%w[172.20.0.3 172.20.0.3])
+    expect(mutate(controller(config), :up)).to be(false)
+    expect(@store.load.fetch('control_plane')).not_to have_key('redirects')
+  end
+
+  it 'rejects benchmark collisions before image acquisition or creation and refuses legacy UDP capability' do
+    config = dns_redirect_configuration
+    allow_any_instance_of(Empeira::Platform::Routes).to receive(:ipv4).and_return(['198.18.0.0/15'])
+    allow(runtime).to receive(:network_subnets).and_return([])
+    expect { mutate(controller(config), :up) }.to raise_error(Empeira::ConfigurationError, /collides/)
+    expect(runtime.calls).to be_empty
+    allow_any_instance_of(Empeira::Platform::Routes).to receive(:ipv4).and_return([])
+    expect { mutate(controller(config), :up) }.to raise_error(Empeira::Error, /Gateway does not support transparent/)
+    expect(runtime.services.fetch('gateway').fetch('state')).to eq('stopped')
+  end
+
   it 'fails explicitly and stops an old custom gateway instead of silently ignoring redirects' do
     allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
       result = method.call(resource, arguments, **options)

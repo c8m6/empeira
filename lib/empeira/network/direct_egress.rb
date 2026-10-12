@@ -9,6 +9,7 @@ module Empeira
       DNS_LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?'
       DNS_NAME = /\A#{DNS_LABEL}(?:\.#{DNS_LABEL})*\z/
       MAX_HOSTS = 256
+      BENCHMARK = IPAddr.new('198.18.0.0/15').freeze
 
       Resolved = Data.define(:entries) do
         def fingerprint
@@ -63,11 +64,15 @@ module Empeira
         raise ConfigurationError, "#{path}.host must be a lowercase DNS hostname"
       end
 
-      def validate_ip!(value, path)
+      # rubocop:disable-next Metrics/CyclomaticComplexity -- Exact IPv4 syntax and scoped benchmark exception share validation.
+      def validate_ip!(value, path, allow_benchmark: false)
         raise IPAddr::InvalidAddressError unless value.is_a?(String) && !value.include?('/')
 
         ip = IPAddr.new(value)
         raise ConfigurationError, "#{path}.ip: IPv6 is not supported; the workspace is IPv4-only" if ip.ipv6?
+        if BENCHMARK.include?(ip) && !allow_benchmark
+          raise ConfigurationError, "#{path}.ip: benchmark addresses are reserved for validated redirect sources"
+        end
         return if ip.to_s == value
 
         raise ConfigurationError, "#{path}.ip must be an explicit IPv4 address"
@@ -99,9 +104,13 @@ module Empeira
 
         private
 
+        # rubocop:disable-next Metrics/AbcSize -- Resolve one complete nonsecret destination including the benchmark exclusion.
         def resolve_entry(entry)
           host = entry['host']
           addresses = entry.key?('ip') ? [entry.fetch('ip')] : ipv4_addresses(host)
+          if addresses.any? { |address| BENCHMARK.include?(address) }
+            raise Error, 'Direct-egress resolution includes a benchmark address reserved for redirect sources'
+          end
           raise Error, "Direct-egress host did not resolve to a supported IPv4 address: #{host}" if addresses.empty?
 
           ports = entry.fetch('ports').sort

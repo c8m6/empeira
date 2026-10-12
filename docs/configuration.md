@@ -151,7 +151,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `server.mounts` | Additional server-only host bind mounts, `[]`; `source`, `target`, optional boolean `readonly` (default `true`) |
 | `puppetdb.memory` | Positive integer MiB, `768` |
 | `network.egress` | Direct TCP proxy-bypass host/port entries, `[]`; a project array replaces the default array |
-| `network.redirects` | Exact external IPv4/TCP pairs redirected to enabled internal services, `[]` |
+| `network.redirects` | Exact IPv4/protocol/port endpoints redirected to enabled internal services, `[]` |
 | `proxy.enabled` | Boolean, `false`; creates the normal HTTP/HTTPS policy proxy |
 | `proxy.global` | DNS destination array, `[]` |
 | `proxy.rules` | Additive hostname-glob rules with `hosts` and `allow` arrays, `[]` |
@@ -826,13 +826,17 @@ network:
 
 Define `api-compat` under `containers.additional` using your test service image.
 The example IPs are documentation addresses; substitute the endpoints used by your
-Puppet code. `from` accepts only `ip` and `port`; `to` accepts only `service` and
-`port`. Both ports are integer TCP ports from 1 through 65535. Sources must be exact
+Puppet code. `from` accepts `ip`, `port` and optional `protocol` (`tcp` by default).
+`to` accepts only `service` and `port`. Both ports are integers from 1 through 65535.
+Sources must be exact
 routable unicast IPv4 addresses outside the allocated workspace subnet. CIDRs,
-wildcards, duplicate source pairs, UDP, IPv6 and external target addresses are
-rejected. Service names are lowercase internal names, without `.empeira.internal`.
+wildcards, duplicate IP/protocol/port tuples, IPv6 and external target addresses are
+rejected. Omitting `protocol` and specifying `tcp` describe the same source.
+Service names are lowercase internal names, without `.empeira.internal`.
 Enabled control-plane application services and additional services are supported;
 nodes, the gateway, the browser UI relay and temporary bootstrap helpers are excluded.
+`coredns` is an alias for the built-in `dns` service and is reserved against additional
+service names.
 
 Run `empeira up` after edits. It resolves owned service addresses, replaces gateway
 policy and preserves existing nodes and the workspace network. Unknown/disabled
@@ -848,6 +852,31 @@ allowlist; use the application's direct-connection settings when testing redirec
 for example `curl --noproxy '*' http://192.0.2.8:8080/test`.
 See [redirect routing](networking.md#transparent-tcp-redirects) for connection
 revocation and runtime boundaries.
+
+### Virtual DNS endpoint
+
+UDP is supported specifically for DNS: source and target port 53, targeting the
+built-in `coredns` (or `dns`) service. Configure both transports for large responses
+and TCP fallback:
+
+```yaml
+network:
+  redirects:
+    - from: {ip: 198.18.0.53, port: 53, protocol: udp}
+      to: {service: coredns, port: 53}
+    - from: {ip: 198.18.0.53, port: 53, protocol: tcp}
+      to: {service: coredns, port: 53}
+```
+
+Use `198.18.0.53` in ordinary Puppet/Hiera DNS test data. It is a virtual destination,
+never assigned to an interface. CoreDNS keeps its dynamic workspace address and
+forwards external names to the configured `dns.upstream`; internal names remain
+authoritative. Redirects do not edit `/etc/resolv.conf`, create another DNS service
+or grant external UDP access. NXDOMAIN and TCP fallback retain normal DNS semantics.
+The benchmark range `198.18.0.0/15` is accepted only for validated redirect sources,
+never direct-egress grants. Before mutation, `up` rejects source collisions with
+host/VPN routes, engine networks and the workspace subnet. A default route alone
+is not a collision. Legacy TCP source destinations retain their existing semantics.
 
 ## Control-plane images and provenance
 

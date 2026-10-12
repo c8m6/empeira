@@ -6,10 +6,30 @@ module Empeira
     class Redirects
       EXCLUDED_TARGETS = %w[gateway browser-ui].freeze
 
+      def self.target_key(entry)
+        key = entry.fetch('to').fetch('service')
+        key == 'coredns' ? 'dns' : key
+      end
+
+      def self.validate_routes!(entries, routes:)
+        entries.each_with_index do |entry, index|
+          source = entry.fetch('from').fetch('ip')
+          next unless DirectEgress::BENCHMARK.include?(source)
+
+          collision = routes.find { |range| IPAddr.new(range).include?(source) }
+          next unless collision
+
+          raise ConfigurationError,
+                "network.redirects[#{index}].from.ip collides with host/VPN/runtime route #{collision}"
+        end
+      rescue IPAddr::InvalidAddressError
+        raise Error, 'Cannot verify virtual redirect source route collisions', cause: nil
+      end
+
       def self.validate!(entries, definitions:, subnet: nil)
         entries.each_with_index do |entry, index|
           path = "network.redirects[#{index}]"
-          target = entry.fetch('to').fetch('service')
+          target = target_key(entry)
           unless definitions.key?(target) && !EXCLUDED_TARGETS.include?(target)
             raise ConfigurationError, "#{path}.to.service #{target} is missing, disabled or not an internal " \
                                       'application service'
@@ -27,16 +47,21 @@ module Empeira
       end
 
       def resolve(definitions:, resources:)
-        entries = @entries.map do |entry|
-          key = entry.fetch('to').fetch('service')
-          resource = resources[key]
-          ip = target_address(resource, definitions.fetch(key))
-          { 'from' => entry.fetch('from'), 'to' => ip && { 'ip' => ip, 'port' => entry.fetch('to').fetch('port') } }
+        entries = @entries.map { |entry| resolved_entry(entry, definitions, resources) }
+        entries.sort_by do |entry|
+          entry.fetch('from').values_at('ip', 'port') + [entry.fetch('from').fetch('protocol', 'tcp')]
         end
-        entries.sort_by { |entry| entry.fetch('from').values_at('ip', 'port') }
       end
 
       private
+
+      def resolved_entry(entry, definitions, resources)
+        key = self.class.target_key(entry)
+        ip = target_address(resources[key], definitions.fetch(key))
+        source = entry.fetch('from').dup
+        source.delete('protocol') if source['protocol'] == 'tcp'
+        { 'from' => source, 'to' => ip && { 'ip' => ip, 'port' => entry.fetch('to').fetch('port') } }
+      end
 
       def target_address(resource, definition)
         return unless resource
