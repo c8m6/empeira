@@ -63,7 +63,7 @@ export PATH="$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
 empeira --version
 ```
 
-`--pre` selects the currently published alpha release
+`--pre` enables prerelease installation, including the first alpha
 [`v0.1.0-alpha.1`](https://github.com/c8m6/empeira/releases/tag/v0.1.0-alpha.1).
 No source checkout or Bundler is needed for a gem installation. Install Git,
 a supported container runtime and any optional VM tools separately; see
