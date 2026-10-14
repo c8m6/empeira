@@ -30,7 +30,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       EMPEIRA_PUBLISH_TAG: ${{ inputs.tag }}
-      EMPEIRA_RELEASE_JSON_PATH: ${{ runner.temp }}/empeira-release.json
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -51,6 +50,8 @@ jobs:
           git merge-base --is-ancestor "$EMPEIRA_PUBLISH_REVISION" HEAD ||
             { echo "Release tag must be reachable from main" >&2; exit 1; }
           echo "EMPEIRA_PUBLISH_REVISION=$EMPEIRA_PUBLISH_REVISION" >> "$GITHUB_ENV"
+          EMPEIRA_RELEASE_JSON_PATH="$RUNNER_TEMP/empeira-release.json"
+          echo "EMPEIRA_RELEASE_JSON_PATH=$EMPEIRA_RELEASE_JSON_PATH" >> "$GITHUB_ENV"
           gh api "repos/$GITHUB_REPOSITORY/releases/tags/$EMPEIRA_PUBLISH_TAG" > "$EMPEIRA_RELEASE_JSON_PATH"
           mkdir -p pkg
           gh release download "$EMPEIRA_PUBLISH_TAG" --pattern '*.gem' --dir pkg
