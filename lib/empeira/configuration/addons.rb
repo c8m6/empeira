@@ -18,8 +18,8 @@ module Empeira
       end
 
       def self.entry!(entry, path, effective:)
-        unless entry.is_a?(Hash) && (entry.keys - %w[git ref]).empty?
-          raise ConfigurationError, "#{path} must contain only git and ref"
+        unless entry.is_a?(Hash) && (entry.keys - %w[git ref config]).empty?
+          raise ConfigurationError, "#{path} may contain only git, ref and config"
         end
 
         require_fields!(entry, path) if effective
@@ -27,12 +27,38 @@ module Empeira
       end
 
       def self.validate_fields!(entry, path)
+        if entry.key?('config')
+          raise ConfigurationError, "#{path}.config must be a mapping" unless entry['config'].is_a?(Hash)
+
+          config_value!(entry['config'], "#{path}.config")
+        end
         if entry.key?('git') && !valid_source?(entry['git'])
           raise ConfigurationError, "#{path}.git must be a credential-free HTTP(S) or SSH Git source"
         end
         return unless entry.key?('ref') && !valid_ref?(entry['ref'])
 
         raise ConfigurationError, "#{path}.ref must be a nonempty Git reference without control characters"
+      end
+
+      def self.config_value!(value, path)
+        case value
+        when Hash
+          value.each do |key, child|
+            unless key.is_a?(String) && key.match?(/\A[a-z][a-z0-9_]*\z/)
+              raise ConfigurationError, "#{path} contains an invalid key (use lowercase letters, digits and underscores)"
+            end
+
+            config_value!(child, "#{path}.#{key}")
+          end
+        when Array
+          value.each_with_index { |child, index| config_value!(child, "#{path}[#{index}]") }
+        when Float
+          raise ConfigurationError, "#{path} must contain finite numbers" unless value.finite?
+        when String, Integer, TrueClass, FalseClass, NilClass
+          nil
+        else
+          raise ConfigurationError, "#{path} must contain only mappings, arrays and scalar values"
+        end
       end
 
       def self.require_fields!(entry, path)
