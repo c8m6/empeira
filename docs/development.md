@@ -390,8 +390,10 @@ Title and release-note edits do not repair incorrect immutable assets.
 
 Release notes use merged PR labels from `.github/release.yml`, independently of
 Conventional Commit types. See [label conventions](../CONTRIBUTING.md#release-note-labels).
-The first distribution is a GitHub-attached Ruby gem; RubyGems.org publication,
-standalone Linux/macOS binaries and automatic self-update are not implemented.
+The first alpha is distributed as a verified GitHub Release gem and published
+unchanged to [RubyGems.org](https://rubygems.org/gems/empeira) via OIDC Trusted
+Publishing. Standalone Linux/macOS binaries and automatic self-update are not
+implemented.
 
 ### RubyGems.org distribution (manual)
 
@@ -402,13 +404,13 @@ The default `dry_run: true` checks the existing GitHub release, tag ancestry,
 uploaded gem SHA-256 and embedded build metadata; it never creates a tag,
 rebuilds a gem or contacts RubyGems with publishing credentials.
 
-Before the **first** real upload, the gem owner must configure a
+For a new gem that has not yet been published, the owner must first configure a
 [Pending Trusted Publisher](https://rubygems.org/profile/oidc/pending_trusted_publishers)
-on RubyGems.org for gem `empeira`, repository owner `c8m6`, repository
-`empeira`, workflow filename `publish-rubygems.yml`, with **no GitHub
-Environment** (leave the field empty). Once configured, manually run the same
-workflow with `dry_run: false`. Only its upload step receives short-lived
-RubyGems credentials via GitHub OIDC; no persistent API key is required.
+on RubyGems.org. Empeira's publisher is already configured for gem `empeira`,
+repository owner `c8m6`, repository `empeira`, workflow filename
+`publish-rubygems.yml` and no GitHub Environment. After a successful dry-run,
+run the same workflow with `dry_run: false`. Only its upload step receives
+short-lived RubyGems credentials via GitHub OIDC; no persistent API key is required.
 
 Publishing uploads the exact previously verified GitHub Release asset, not a
 second build, and does not modify GitHub Releases or source. It fails closed

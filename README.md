@@ -54,27 +54,28 @@ validation limits are in [installation](docs/installation.md).
 
 ## Installation
 
-Until a release is available, install from source with Ruby, Bundler and Git:
+The [Empeira gem on RubyGems.org](https://rubygems.org/gems/empeira) is the
+recommended installation. With Ruby 3.4 or 4.0 already installed:
 
 ```bash
-git clone https://github.com/c8m6/empeira.git
-cd empeira
-bundle install
-export EMPEIRA_SOURCE="$PWD"
-empeira() { BUNDLE_GEMFILE="$EMPEIRA_SOURCE/Gemfile" bundle exec ruby "$EMPEIRA_SOURCE/bin/empeira" "$@"; }
+gem install --user-install empeira --pre
+export PATH="$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
 empeira --version
 ```
 
-The function lets you invoke the source CLI from your control repository. See
-[installation](docs/installation.md) for runtime prerequisites, release-gem
-installation and Bash completion.
+`--pre` enables prerelease installation, including the first alpha
+[`v0.1.0-alpha.1`](https://github.com/c8m6/empeira/releases/tag/v0.1.0-alpha.1).
+No source checkout or Bundler is needed for a gem installation. Install Git,
+a supported container runtime and any optional VM tools separately; see
+[installation](docs/installation.md) for host prerequisites, exact-version
+installation and Bash completion. Developers can also
+[run from source](docs/installation.md#source-installation-and-project-opt-in).
 
 ## Quickstart
 
 Use a dedicated Git control repository and an empty configuration marker:
 
 ```bash
-cd ..
 mkdir control-repo
 cd control-repo
 git init
@@ -126,8 +127,10 @@ See [diagnostic access and recovery](docs/nodes.md#root-diagnostic-commands-and-
 
 ## Alpha status
 
-empeira is being prepared for its first public alpha. Interfaces and inventory
-schemas may change; unsupported inventory fails closed without automatic migration.
+The first public alpha, [`v0.1.0-alpha.1`](https://github.com/c8m6/empeira/releases/tag/v0.1.0-alpha.1),
+is available on [RubyGems.org](https://rubygems.org/gems/empeira). Interfaces
+and inventory schemas may change; unsupported inventory fails closed without
+automatic migration.
 Use synthetic control code and disposable credentials. The shared network is a
 cooperative lab, and its internal PuppetDB API is unauthenticated.
 
@@ -135,7 +138,7 @@ Container process mode does not provide a full booted OS. Systemd requires Podma
 and cgroup v2. VM and shared-network support require actual host capabilities;
 macOS/HVF and arm64 runtime validation are manual gates. Native Windows, automatic
 self-update, aggregate `update all` and standalone platform binaries are unavailable.
-The initial release distribution is a Ruby gem.
+Distribution is through RubyGems.org and the matching GitHub Release gem asset.
 
 ## Community and license
 
