@@ -50,7 +50,8 @@ module Empeira
         %w[vm console root_password], %w[eyaml private_key], %w[browser start_url],
         %w[server runtime startup arguments], %w[puppetdb runtime java_arguments],
         %w[puppetdb runtime main_arguments], %w[containers additional * environment],
-        %w[containers additional * command], %w[containers additional * configuration content]
+        %w[containers additional * command], %w[containers additional * configuration content],
+        %w[addons * config]
       ].tap { |paths| Immutable.deep_freeze(paths) }
 
       CHECKS = {
