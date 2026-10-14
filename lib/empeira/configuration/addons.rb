@@ -45,7 +45,7 @@ module Empeira
         when Hash
           value.each do |key, child|
             unless key.is_a?(String) && key.match?(/\A[a-z][a-z0-9_]*\z/)
-              raise ConfigurationError, "#{path} contains an invalid key (use lowercase letters, digits and underscores)"
+              raise ConfigurationError, "#{path} has an invalid key; use lowercase letters, digits and underscores"
             end
             config_value!(child, "#{path}.#{key}")
           end
