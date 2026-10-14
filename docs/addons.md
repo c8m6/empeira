@@ -6,6 +6,18 @@ tool or Git hook installer. Core does not import their Ruby classes or know thei
 functionality. There is no plugin runtime, registry, package manager, dependency
 installer or lifecycle hook. No production helper tools ship with Empeira.
 
+## Companion addons
+
+These independently maintained addons can be installed through Empeira but are
+not bundled with the core application. See each repository for installation and
+usage details.
+
+| Addon | Description |
+| --- | --- |
+| [Convert](https://github.com/c8m6/empeira-addon-convert) | Convert YAML, JSON, XML, Java Properties and Puppet hashes, and generate EPP templates with typed defaults. |
+| [Pre-Commit](https://github.com/c8m6/empeira-addon-pre-commit) | Manage Git pre-commit hooks for control and Hiera repositories using locally built Docker or Podman images. |
+| [Sync](https://github.com/c8m6/empeira-addon-sync) | Synchronize configured files and directories with host rsync, using source and destination to define direction. |
+
 ## Configuration and commands
 
 Declare addons in the existing effective configuration, normally the control
