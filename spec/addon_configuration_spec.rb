@@ -23,10 +23,10 @@ RSpec.describe Empeira::Configuration::Addons do
   end
 
   it 'accepts optional nested addon config and deep-merges it with project settings' do
-    defaults = load_config.merge('addons' => {
-      'example' => { 'git' => git, 'ref' => 'main',
-                     'config' => { 'options' => { 'enabled' => true }, 'paths' => %w[old] } }
-    })
+    defaults = load_config.merge(
+      'addons' => { 'example' => { 'git' => git, 'ref' => 'main',
+                                  'config' => { 'options' => { 'enabled' => true }, 'paths' => %w[old] } } }
+    )
     file = File.join(@directory, 'defaults.yaml')
     File.write(file, YAML.dump(defaults))
     write_config('example' => { 'config' => { 'options' => { 'timeout' => 5 }, 'paths' => %w[new] } })
