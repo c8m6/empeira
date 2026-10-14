@@ -1,0 +1,49 @@
+# Scheduled version updates. Security updates are managed separately by GitHub.
+version: 2
+updates:
+  - package-ecosystem: "bundler"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "07:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
+    groups:
+      routine-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+  - package-ecosystem: "bundler"
+    directory: "/resources/modules"
+    schedule:
+      interval: "monthly"
+      time: "07:20"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
+    groups:
+      routine-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "08:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 3
+    groups:
+      routine-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
