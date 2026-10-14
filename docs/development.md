@@ -393,6 +393,31 @@ Conventional Commit types. See [label conventions](../CONTRIBUTING.md#release-no
 The first distribution is a GitHub-attached Ruby gem; RubyGems.org publication,
 standalone Linux/macOS binaries and automatic self-update are not implemented.
 
+### RubyGems.org distribution (manual)
+
+After a verified GitHub Release exists, use
+`.github/workflows/publish-rubygems.yml` via **Actions → Publish existing release to RubyGems.org → Run workflow**.
+Run it from `main`, entering the existing release tag (for example `v0.1.0-alpha.1`).
+The default `dry_run: true` checks the existing GitHub release, tag ancestry,
+uploaded gem SHA-256 and embedded build metadata; it never creates a tag,
+rebuilds a gem or contacts RubyGems with publishing credentials.
+
+Before the **first** real upload, the gem owner must configure a
+[Pending Trusted Publisher](https://rubygems.org/profile/oidc/pending_trusted_publishers)
+on RubyGems.org for gem `empeira`, repository owner `c8m6`, repository
+`empeira`, workflow filename `publish-rubygems.yml`, with **no GitHub
+Environment** (leave the field empty). Once configured, manually run the same
+workflow with `dry_run: false`. Only its upload step receives short-lived
+RubyGems credentials via GitHub OIDC; no persistent API key is required.
+
+Publishing uploads the exact previously verified GitHub Release asset, not a
+second build, and does not modify GitHub Releases or source. It fails closed
+if the asset differs, the tag is not on `main`, or RubyGems rejects the upload.
+RubyGems does not allow uploading the same gem name/version twice; inspect
+the existing published version before rerunning a failed push. After success,
+install the alpha with `gem install empeira --pre`. GitHub Releases remain
+the authoritative archive of release artifacts.
+
 ## Dependency and image provenance
 
 Thor is the sole application runtime gem. Development tools and the isolated r10k
