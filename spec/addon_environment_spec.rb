@@ -53,7 +53,8 @@ RSpec.describe Empeira::Addons::Environment do
                               'EMPEIRA_ADDON_CONFIG_PATHS_1' => 'hiera',
                               'EMPEIRA_ADDON_CONFIG_NESTED_TIMEOUT' => '15')
     expect(result).not_to have_key('EMPEIRA_ADDON_CONFIG_NESTED_MISSING')
-    expect(result).not_to have_key('EMPEIRA_ADDON_CONFIG_STALE')
+    expect(result).to have_key('EMPEIRA_ADDON_CONFIG_STALE')
+    expect(result['EMPEIRA_ADDON_CONFIG_STALE']).to be_nil
     expect(result.keys.grep(/EMPEIRA_CONFIG_ADDONS_.*CONFIG/)).to be_empty
     expect(result.values).not_to include('private-value')
   end
