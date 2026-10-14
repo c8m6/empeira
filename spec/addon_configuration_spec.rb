@@ -22,6 +22,29 @@ RSpec.describe Empeira::Configuration::Addons do
     )
   end
 
+  it 'accepts optional nested addon config and deep-merges it with project settings' do
+    defaults = load_config.merge('addons' => {
+      'example' => { 'git' => git, 'ref' => 'main',
+                     'config' => { 'options' => { 'enabled' => true }, 'paths' => %w[old] } }
+    })
+    file = File.join(@directory, 'defaults.yaml')
+    File.write(file, YAML.dump(defaults))
+    write_config('example' => { 'config' => { 'options' => { 'timeout' => 5 }, 'paths' => %w[new] } })
+    expect(load_config(defaults_path: file).dig('addons', 'example', 'config')).to eq(
+      'options' => { 'enabled' => true, 'timeout' => 5 }, 'paths' => %w[new]
+    )
+  end
+
+  it 'rejects invalid addon config without printing its values' do
+    [nil, 'hidden', [], { 'Bad-Key' => 'hidden' }, { 'nested' => { 'invalid.key' => 'hidden' } }].each do |value|
+      write_config('example' => { 'git' => git, 'ref' => 'main', 'config' => value })
+      expect { load_config }.to raise_error(Empeira::ConfigurationError) do |error|
+        expect(error.message).to include('addons.example.config')
+        expect(error.message).not_to include('hidden')
+      end
+    end
+  end
+
   [{}, { 'ref' => 'main' }, { 'git' => 'https://example.invalid/a' }].each do |entry|
     it "rejects missing effective fields #{entry.keys}" do
       write_config('example' => entry)
@@ -46,7 +69,7 @@ RSpec.describe Empeira::Configuration::Addons do
 
   it 'does not accept executable or addon functionality in configuration' do
     write_config('example' => { 'git' => git, 'ref' => 'main', 'executable' => 'bin/run' })
-    expect { load_config }.to raise_error(Empeira::ConfigurationError, /only git and ref/)
+    expect { load_config }.to raise_error(Empeira::ConfigurationError, /only git, ref and config/)
   end
 
   it 'retains the user preference restrictions and resolves each invocation afresh' do
