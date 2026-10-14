@@ -28,8 +28,7 @@ gem install --user-install empeira --version 0.1.0.pre.alpha.1
 
 A gem installation needs neither Bundler nor a Git checkout of Empeira. It
 installs the `thor` runtime dependency automatically; it does **not** install
-Git, Podman/Docker, QEMU, or Puppet/OpenVox node images. Do not use `sudo gem
-install` for a normal user installation. Keep the gem user's `bin` directory
+Git, Podman/Docker, QEMU, or Puppet/OpenVox node images. Do not use `sudo gem install` for a normal user installation. Keep the gem user's `bin` directory
 in your shell `PATH` to retain the command across new terminal sessions.
 
 If you previously used the source-installation `empeira()` shell function,
