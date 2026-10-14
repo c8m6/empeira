@@ -1,0 +1,25 @@
+name: Verify OpenVox release artifact
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/verify-openvox-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect upstream Ubuntu 24.04 release artifact
+        run: |
+          set -euo pipefail
+          url=https://apt.voxpupuli.org/openvox8-release-ubuntu24.04.deb
+          curl --fail --location --silent --show-error --retry 2 "$url" -o /tmp/openvox8-release.deb
+          echo "Official artifact SHA256:"
+          sha256sum /tmp/openvox8-release.deb
+          echo "Package metadata:"
+          dpkg-deb -f /tmp/openvox8-release.deb Package Version Architecture
+          echo "Contents:"
+          dpkg-deb -c /tmp/openvox8-release.deb | head -n 30
