@@ -1,4 +1,5 @@
 # Scheduled version updates. Security updates are managed separately by GitHub.
+# Revalidated against the updated proxy-image build on main.
 version: 2
 updates:
   - package-ecosystem: "bundler"
