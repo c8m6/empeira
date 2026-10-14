@@ -47,15 +47,13 @@ module Empeira
             unless key.is_a?(String) && key.match?(/\A[a-z][a-z0-9_]*\z/)
               raise ConfigurationError, "#{path} contains an invalid key (use lowercase letters, digits and underscores)"
             end
-
             config_value!(child, "#{path}.#{key}")
           end
         when Array
           value.each_with_index { |child, index| config_value!(child, "#{path}[#{index}]") }
         when Float
           raise ConfigurationError, "#{path} must contain finite numbers" unless value.finite?
-        when String, Integer, TrueClass, FalseClass, NilClass
-          nil
+        when String, Integer, TrueClass, FalseClass, NilClass then nil
         else
           raise ConfigurationError, "#{path} must contain only mappings, arrays and scalar values"
         end
