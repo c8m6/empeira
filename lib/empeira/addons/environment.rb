@@ -18,6 +18,7 @@ module Empeira
       def export(arguments: [])
         environment = @inherited.keys.grep(/^EMPEIRA_/).to_h { |key| [key, nil] }
         flatten(@context.configuration, 'EMPEIRA_CONFIG', [], environment)
+        flatten(@context.configuration.dig('addons', @name, 'config') || {}, 'EMPEIRA_ADDON_CONFIG', [], environment)
         environment.merge!(runtime)
         validate_size!(@inherited.merge(environment).compact, arguments)
         environment

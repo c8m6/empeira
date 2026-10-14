@@ -177,7 +177,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `images.direct_egress` | Recipe or explicit image reference implementing the workspace gateway contract |
 | `images.r10k.build` | Disposable r10k helper recipe, `modules/Containerfile` |
 | `modules.path` | Actual directory containing modules directly; `modules` by default, relative to the canonical repository root or absolute |
-| `addons` | Mapping of standalone addon names to `git` and `ref`; empty by default. See [addons](addons.md) for Git, manifest and environment contracts. |
+| `addons` | Mapping of standalone addon names to `git`, `ref`, and optional `config` mapping; empty by default. The addon receives its own settings as `EMPEIRA_ADDON_CONFIG_*`. See [addons](addons.md). |
 | `bootstrap.enabled` | Boolean, `false` |
 | `bootstrap.scripts` | Project-local UTF-8 script paths, `[]`; run during VM cloud-init only when enabled |
 | `images.registry` | Optional default registry host; `null` resolves hostless repositories through `docker.io` |

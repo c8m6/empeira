@@ -18,8 +18,8 @@ module Empeira
       end
 
       def self.entry!(entry, path, effective:)
-        unless entry.is_a?(Hash) && (entry.keys - %w[git ref]).empty?
-          raise ConfigurationError, "#{path} must contain only git and ref"
+        unless entry.is_a?(Hash) && (entry.keys - %w[git ref config]).empty?
+          raise ConfigurationError, "#{path} may contain only git, ref and config"
         end
 
         require_fields!(entry, path) if effective
@@ -27,12 +27,40 @@ module Empeira
       end
 
       def self.validate_fields!(entry, path)
+        validate_config!(entry['config'], "#{path}.config") if entry.key?('config')
         if entry.key?('git') && !valid_source?(entry['git'])
           raise ConfigurationError, "#{path}.git must be a credential-free HTTP(S) or SSH Git source"
         end
         return unless entry.key?('ref') && !valid_ref?(entry['ref'])
 
         raise ConfigurationError, "#{path}.ref must be a nonempty Git reference without control characters"
+      end
+
+      def self.validate_config!(config, path)
+        raise ConfigurationError, "#{path} must be a mapping" unless config.is_a?(Hash)
+
+        config_value!(config, path)
+      end
+
+      def self.config_value!(value, path)
+        case value
+        when Hash then config_mapping!(value, path)
+        when Array then value.each_with_index { |child, index| config_value!(child, "#{path}[#{index}]") }
+        when Float
+          raise ConfigurationError, "#{path} must contain finite numbers" unless value.finite?
+        when String, Integer, TrueClass, FalseClass, NilClass then nil
+        else raise ConfigurationError, "#{path} must contain only mappings, arrays and scalar values"
+        end
+      end
+
+      def self.config_mapping!(value, path)
+        value.each do |key, child|
+          unless key.is_a?(String) && key.match?(/\A[a-z][a-z0-9_]*\z/)
+            raise ConfigurationError, "#{path} has an invalid key; use lowercase letters, digits and underscores"
+          end
+
+          config_value!(child, "#{path}.#{key}")
+        end
       end
 
       def self.require_fields!(entry, path)

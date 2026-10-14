@@ -38,6 +38,27 @@ RSpec.describe Empeira::Addons::Environment do
                               'EMPEIRA_CONTROL_REPO' => @directory, 'EMPEIRA_VERSION' => 'development')
   end
 
+  it 'exports only the selected addon config without leaking other addon settings' do
+    config = { 'addons' => {
+      'example' => { 'git' => 'https://example.invalid/one.git', 'ref' => 'main',
+                     'config' => { 'auto_build' => true, 'paths' => %w[control hiera],
+                                   'nested' => { 'timeout' => 15, 'missing' => nil } } },
+      'other' => { 'git' => 'https://example.invalid/two.git', 'ref' => 'main',
+                   'config' => { 'secret' => 'private-value' } }
+    } }
+    result = export(config, inherited: { 'EMPEIRA_ADDON_CONFIG_STALE' => 'forged' })
+    expect(result).to include('EMPEIRA_ADDON_CONFIG_AUTO_BUILD' => 'true',
+                              'EMPEIRA_ADDON_CONFIG_PATHS_COUNT' => '2',
+                              'EMPEIRA_ADDON_CONFIG_PATHS_0' => 'control',
+                              'EMPEIRA_ADDON_CONFIG_PATHS_1' => 'hiera',
+                              'EMPEIRA_ADDON_CONFIG_NESTED_TIMEOUT' => '15')
+    expect(result).not_to have_key('EMPEIRA_ADDON_CONFIG_NESTED_MISSING')
+    expect(result).to have_key('EMPEIRA_ADDON_CONFIG_STALE')
+    expect(result['EMPEIRA_ADDON_CONFIG_STALE']).to be_nil
+    expect(result.keys.grep(/EMPEIRA_CONFIG_ADDONS_.*CONFIG/)).to be_empty
+    expect(result.values).not_to include('private-value')
+  end
+
   it 'removes inherited reserved names, including absent and sensitive fields, without changing user variables' do
     inherited = { 'USER_VALUE' => 'preserved', 'EMPEIRA_ADDON_NAME' => 'forged', 'EMPEIRA_CONFIG_ABSENT' => 'stale',
                   'EMPEIRA_CONFIG_VM_CONSOLE_ROOT_PASSWORD' => 'secret', 'EMPEIRA_SPOOFED' => 'forged' }

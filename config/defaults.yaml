@@ -163,7 +163,7 @@ agent:
       ubuntu24.04:
         url: "https://apt.voxpupuli.org/openvox8-release-ubuntu24.04.deb"
         destinations: [apt.voxpupuli.org]
-        sha256: "e32ac8de65339d6d3210c12a2def95b9252be4b7c8e4e66b465caf0c67499af6"
+        sha256: "40b8052bcece23ed707e609504dd14b178dc662652455f2d30e9c8e614955a94"
         suffix: "-1+ubuntu24.04"
       el8:
         url: "https://yum.voxpupuli.org/openvox8-release-el-8.noarch.rpm"

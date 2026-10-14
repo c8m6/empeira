@@ -16,13 +16,21 @@ addons:
   converter:
     git: https://github.com/example/empeira-converter.git
     ref: v1.2.0
+    config:
+      output_format: yaml
+      paths: [data, defaults]
   git-hooks:
     git: git@example.org:team/empeira-git-hooks.git
     ref: main
 ```
 
-Each entry contains only `git` and `ref`; both must be nonempty strings after
-merging. Names start with a lowercase letter and contain lowercase letters,
+Each entry requires `git` and `ref` and may optionally contain `config`, a mapping
+of addon-specific settings. The addon itself interprets those settings; the
+`converter` example above is illustrative, not a built-in Empeira option.
+Config keys use lowercase letters, digits and underscores, starting with a letter;
+values may be nested mappings, arrays or simple YAML scalars. Do not put secrets
+in addon config: it is visible in project configuration and the addon's environment.
+`git` and `ref` must be nonempty strings after merging. Names start with a lowercase letter and contain lowercase letters,
 digits, underscores or hyphens, up to 63 characters. Built-in defaults contain
 `addons: {}`. Mappings deep-merge and project overrides may replace just a ref.
 Normal defaults/project/user/CLI precedence and validation remain in force.
@@ -203,6 +211,24 @@ produces `EMPEIRA_CONFIG_PROXY_ENABLED=true`,
 `EMPEIRA_CONFIG_PROXY_GLOBAL_1=github.com`,
 `EMPEIRA_CONFIG_SERVER_MOUNTS_COUNT=1`, and the variables
 `EMPEIRA_CONFIG_SERVER_MOUNTS_0_SOURCE`, `_TARGET`, `_READONLY`.
+
+### Per-addon configuration
+
+Only the selected addon's `config` mapping is additionally exported as
+`EMPEIRA_ADDON_CONFIG_*`. It uses the same flattening rules as the effective
+configuration above. For the example, `converter` receives:
+
+```text
+EMPEIRA_ADDON_CONFIG_OUTPUT_FORMAT=yaml
+EMPEIRA_ADDON_CONFIG_PATHS_COUNT=2
+EMPEIRA_ADDON_CONFIG_PATHS_0=data
+EMPEIRA_ADDON_CONFIG_PATHS_1=defaults
+```
+
+Other addons' `config` values are **not** included in the general
+`EMPEIRA_CONFIG_*` export or the selected addon's export. The optional
+`config` mapping deep-merges like other project mappings; arrays replace.
+No new addon API version, configuration file or install hook is needed.
 
 Runtime context is separate:
 
