@@ -3,8 +3,38 @@
 Empeira runs natively on Linux and macOS. Windows uses **WSL2 → Linux → Empeira**;
 native Windows Ruby is unsupported. The gemspec requires **Ruby >= 3.4**; the
 supported Ruby versions are **3.4 and 4.0**. Normal CI tests both on Ubuntu;
-release gems are built with Ruby 3.4. Use source installation until a release gem
-is available. No RubyGems.org publication is assumed.
+release gems are built with Ruby 3.4. The current public alpha is
+[`v0.1.0-alpha.1`](https://github.com/c8m6/empeira/releases/tag/v0.1.0-alpha.1)
+and is available on [RubyGems.org](https://rubygems.org/gems/empeira).
+
+## Install from RubyGems.org (recommended)
+
+After installing Ruby 3.4+ and the appropriate host tools/container runtime
+described below, install Empeira from RubyGems.org:
+
+```bash
+gem install --user-install empeira --pre
+export PATH="$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
+empeira --version
+empeira help
+```
+
+The `--pre` flag is needed while Empeira is available as a prerelease. For an
+exact installation of the first alpha, use:
+
+```bash
+gem install --user-install empeira --version 0.1.0.pre.alpha.1
+```
+
+A gem installation needs neither Bundler nor a Git checkout of Empeira. It
+installs the `thor` runtime dependency automatically; it does **not** install
+Git, Podman/Docker, QEMU, or Puppet/OpenVox node images. Do not use `sudo gem
+install` for a normal user installation. Keep the gem user's `bin` directory
+in your shell `PATH` to retain the command across new terminal sessions.
+
+If you previously used the source-installation `empeira()` shell function,
+remove that function from your shell configuration and start a new shell before
+testing the installed executable. The source function otherwise takes precedence.
 
 ## Linux and WSL2
 
@@ -14,23 +44,22 @@ Install Ruby 3.4+ with your established Ruby version manager before using Empeir
 Ubuntu 22.04 and Debian 12 also need a newer Ruby. Installing the distribution's
 default `ruby` package does not satisfy the gemspec on these hosts.
 
-Core/source development dependencies and SSH access:
+Host utilities and SSH access:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y git build-essential openssh-client iproute2
+sudo apt-get install -y git openssh-client iproute2
 # Activate Ruby 3.4+ using your Ruby version manager before continuing.
-gem install bundler
 ruby --version
 gem --version
-bundle --version
 git --version
 ssh -V
 ```
 
-The selected Ruby installation must supply `gem` and matching development headers;
-`gem install bundler` supplies `bundle`. `build-essential` builds native development
-gems; additional Ruby build prerequisites depend on your version manager.
+The selected Ruby installation must supply `gem`. Bundler, a source checkout and
+a C/C++ build toolchain are not required to install the published Empeira gem.
+They may be needed for source development or for setting up your Ruby environment;
+see [source installation](#source-installation-and-project-opt-in).
 `openssh-client` supplies `ssh` and `ssh-keygen` for regular node SSH. VM management
 uses private VirtIO-Serial and Python 3 already present in the selected cloud image.
 `iproute2` supplies host route inspection for automatic workspace subnet allocation. Coreutils supplies
@@ -131,11 +160,8 @@ Install Homebrew using its [official instructions](https://brew.sh/), then core:
 ```bash
 brew install git ruby@3.4 openssh
 export PATH="$(brew --prefix ruby@3.4)/bin:$PATH"
-gem install --user-install bundler
-export PATH="$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
 ruby --version
 gem --version
-bundle --version
 git --version
 ssh -V
 ```
@@ -189,7 +215,13 @@ not establish those results. See the [VM validation gates](development.md#vm-and
 
 ## Source installation and project opt-in
 
+For development or unreleased changes, run Empeira directly from a Git checkout.
+This alternative requires Bundler and the development dependencies (including a
+build toolchain where native gems need it). Set up Bundler first, then:
+
 ```bash
+gem install --user-install bundler
+export PATH="$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
 git clone https://github.com/c8m6/empeira.git
 cd empeira
 bundle config set --local path vendor/bundle
@@ -213,21 +245,22 @@ invocation and paths with spaces work. No Puppet-file heuristic or `--project`
 selector exists. The source shell function preserves the current directory.
 Version/help/self-update work outside Git (self-update currently reports unavailable).
 
-## Release gem installation
+## Install the GitHub Release gem (alternative)
 
-Download the `.gem` asset from a [GitHub release](https://github.com/c8m6/empeira/releases)
-when one is available, then install it with your existing Ruby environment:
+The [GitHub Releases](https://github.com/c8m6/empeira/releases) page also
+provides the exact `.gem` asset built and verified by the release pipeline.
+For example, after downloading the first alpha:
 
 ```bash
-gem install --user-install ./empeira-VERSION.gem
+gem install --user-install ./empeira-0.1.0.pre.alpha.1.gem
 export PATH="$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
 empeira --version
 ```
 
-Replace `VERSION` with the downloaded asset's filename. RubyGems installs the Thor
-runtime dependency; no third-party agents, images or binaries are bundled. The
-release version is embedded in BuildInfo. Standalone binaries and automatic
-self-update are unavailable. Do not use `sudo gem install` for normal operation.
+Both distribution paths use the same verified gem for the corresponding release.
+The release version is embedded in BuildInfo. No third-party agents, images or
+binaries are bundled. Standalone platform binaries and automatic self-update
+remain unavailable.
 
 For other Linux distributions, install equivalent Ruby/Git/runtime packages through
 your established host setup. Guest OS support does not imply a tested host recipe.
