@@ -1,0 +1,90 @@
+name: Publish existing release to RubyGems.org
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing, published GitHub release tag (for example v0.1.0-alpha.1)
+        type: string
+        required: true
+      dry_run:
+        description: Verify only; do not upload to RubyGems.org
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rubygems-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EMPEIRA_PUBLISH_TAG: ${{ inputs.tag }}
+      EMPEIRA_RELEASE_JSON_PATH: ${{ runner.temp }}/empeira-release.json
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          ruby-version: '3.4'
+      - name: Download the existing GitHub release gem
+        run: |
+          set -euo pipefail
+          ruby -I. -r./script/release_support -e '
+            tag = ENV.fetch("EMPEIRA_PUBLISH_TAG")
+            ReleaseSupport.validate!(tag, tag.include?("-") ? tag.split("-")[1].split(".")[0] : "stable")
+          '
+          git rev-parse "refs/tags/$EMPEIRA_PUBLISH_TAG^{commit}" > "$RUNNER_TEMP/release-sha"
+          EMPEIRA_PUBLISH_REVISION="$(cat "$RUNNER_TEMP/release-sha")"
+          git merge-base --is-ancestor "$EMPEIRA_PUBLISH_REVISION" HEAD ||
+            { echo "Release tag must be reachable from main" >&2; exit 1; }
+          echo "EMPEIRA_PUBLISH_REVISION=$EMPEIRA_PUBLISH_REVISION" >> "$GITHUB_ENV"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$EMPEIRA_PUBLISH_TAG" > "$EMPEIRA_RELEASE_JSON_PATH"
+          mkdir -p pkg
+          gh release download "$EMPEIRA_PUBLISH_TAG" --pattern '*.gem' --dir pkg
+      - name: Validate published tag, artifact SHA256 and embedded BuildInfo
+        run: |
+          set -euo pipefail
+          ruby -I. -r./script/release_support -rjson -e '
+            tag = ENV.fetch("EMPEIRA_PUBLISH_TAG")
+            revision = ENV.fetch("EMPEIRA_PUBLISH_REVISION")
+            release = JSON.parse(File.read(ENV.fetch("EMPEIRA_RELEASE_JSON_PATH")))
+            channel = tag.include?("-") ? tag.split("-")[1].split(".")[0] : "stable"
+            abort "Expected an already published release" if release.fetch("draft") || release.fetch("tag_name") != tag
+            abort "Release channel mismatch" unless release.fetch("prerelease") == (channel != "stable")
+            paths = Dir["pkg/*.gem"]
+            abort "Expected exactly one gem artifact" unless paths.one?
+            path = paths.first
+            assets = release.fetch("assets")
+            abort "Expected exactly one release asset" unless assets.one?
+            asset = assets.first
+            expected = { "name" => File.basename(path), "state" => "uploaded",
+                         "size" => File.size(path), "digest" => "sha256:#{Digest::SHA256.file(path).hexdigest}" }
+            abort "Release asset metadata or SHA256 mismatch" unless asset.slice(*expected.keys) == expected
+            embedded = JSON.parse(ReleaseSupport.archive_files(path).fetch("lib/empeira/build.json"))
+            abort "Embedded revision differs from release tag" unless embedded.fetch("revision") == revision
+            checksum = ReleaseSupport.verify!(path, tag: tag, channel: channel, revision: revision,
+                                              build_time: embedded.fetch("build_time"))
+            puts "Verified #{File.basename(path)} from #{tag} (#{revision}) SHA256 #{checksum}"
+          '
+      - name: Authenticate to RubyGems.org using OIDC
+        if: ${{ !inputs.dry_run }}
+        uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+      - name: Publish the verified, unchanged gem
+        if: ${{ !inputs.dry_run }}
+        run: gem push "$(find pkg -maxdepth 1 -name '*.gem' -type f -print -quit)" --host https://rubygems.org
+      - name: Dry-run summary
+        if: ${{ inputs.dry_run }}
+        run: echo "Artifact verified. No RubyGems credentials requested and no gem was published."
