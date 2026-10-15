@@ -14,8 +14,12 @@ class OfficialAddonSource < AddonSource
 
   def prepare_git
     git('init', '--quiet', '--initial-branch=fixture', @directory.to_s)
-    @checkout.children.reject { |path| path.basename.to_s == '.git' }.each do |path|
-      FileUtils.cp_r(path, @directory)
+    # Addon CI nests its Core checkout and dependency cache here. Export only
+    # tracked addon files so neither nested repositories nor caches enter Git.
+    git('-C', @checkout.to_s, 'ls-files', '-z').split("\0").each do |relative|
+      target = @directory.join(relative)
+      target.dirname.mkpath
+      FileUtils.cp(@checkout.join(relative), target, preserve: true)
     end
     commit_changes
     git('-C', @directory.to_s, 'tag', 'v1')
