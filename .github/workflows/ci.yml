@@ -51,19 +51,19 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: c8m6/empeira-addon-convert
-          ref: 760c6c3415d44fd50eaec036017a3b881fb3feb5
+          ref: fddf5c754375634aac0f046dacb4ed1bc5eea665
           path: .compat-addons/empeira-addon-convert
           persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: c8m6/empeira-addon-pre-commit
-          ref: 2841581aef02f52bb918f34e32c51ba9274d850b
+          ref: f955c130c468f860e451148adfe5288aff71b259
           path: .compat-addons/empeira-addon-pre-commit
           persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: c8m6/empeira-addon-sync
-          ref: 4c821bbced1ccd229294d438c557d1787085d4c4
+          ref: 4e247969e2d480f04df409ef7d33936a5764db9e
           path: .compat-addons/empeira-addon-sync
           persist-credentials: false
       - name: Exercise official addons through Core with isolated Git sources
