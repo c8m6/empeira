@@ -45,6 +45,13 @@ RSpec.describe 'Ruby compatibility contract' do
       end
     end
     expect(validated.new(name: 'custom')).to be_frozen
+    expect(validated.new('custom')).to eq(validated.new(name: 'custom'))
+    expect(validated['custom']).to eq(validated.new(name: 'custom'))
+    [nil, false, 'fixture'].each do |value|
+      expect { record_type.new(value, status: :running) }.to raise_error(ArgumentError)
+    end
+    expect(Empeira::Providers::Resource.new('fixture', 'owner', :running))
+      .to eq(Empeira::Providers::Resource.new(name: 'fixture', owner: 'owner', state: :running))
 
     empty = Empeira::Compatibility::DataFactory.define
     expect(empty.new).to be_frozen

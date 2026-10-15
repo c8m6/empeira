@@ -37,9 +37,22 @@ module Empeira
           end
         end
         value_class = Class.new(base_class)
+        define_constructors(value_class)
         value_class.include(self)
         value_class.class_eval(&definition) if definition
         value_class
+      end
+
+      # rubocop:disable-next Metrics/AbcSize -- Normalize native Data constructors before custom initialization.
+      def define_constructors(value_class)
+        value_class.define_singleton_method(:new) do |*positional, **keywords|
+          raise ArgumentError, 'cannot mix positional and keyword arguments' unless positional.empty? || keywords.empty?
+          raise ArgumentError, 'too many positional arguments' if positional.size > members.size
+
+          keywords = members.take(positional.size).zip(positional).to_h unless positional.empty?
+          super(**keywords).freeze
+        end
+        value_class.define_singleton_method(:[]) { |*positional, **keywords| new(*positional, **keywords) }
       end
     end
   end
