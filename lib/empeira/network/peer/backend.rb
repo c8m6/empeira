@@ -6,7 +6,7 @@ module Empeira
       class Backend
         attr_reader :context, :runtime, :runner, :store
 
-        def self.build(context:, **)
+        def self.build(context:, **options)
           klass = if context.container_engine == 'docker'
                     DockerAdapter
                   elsif context.platform.os == :macos
@@ -14,7 +14,7 @@ module Empeira
                   else
                     LinuxPodman
                   end
-          klass.new(context: context, **)
+          klass.new(context: context, **options)
         end
 
         def initialize(context:, runtime:, runner:, store:)

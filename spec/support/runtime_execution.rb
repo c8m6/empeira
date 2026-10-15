@@ -13,8 +13,8 @@ class RuntimeExecution
     @sequence = 0
   end
 
-  def run(engine, arguments:, **)
-    return Empeira::Execution::Runner.new.run(engine, arguments: arguments, **) if engine == 'git'
+  def run(engine, arguments:, **options)
+    return Empeira::Execution::Runner.new.run(engine, arguments: arguments, **options) if engine == 'git'
     return Empeira::Execution::Result.new(stdout: '[]', stderr: '', exit_status: 0, timed_out: false) if engine == 'ip'
 
     calls << [engine, arguments]

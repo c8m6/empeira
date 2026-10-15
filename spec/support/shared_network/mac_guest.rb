@@ -4,8 +4,8 @@ require_relative 'guest'
 
 module SharedNetworkProof
   class MacGuest < Guest
-    def initialize(socket:, **)
-      super(**)
+    def initialize(socket:, **options)
+      super(**options)
       @socket = socket
     end
 

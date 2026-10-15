@@ -3,8 +3,8 @@
 module SharedNetworkProof
   # Explicit software-emulated artifact diagnostic. It cannot validate Podman, TAP, KVM or host isolation.
   class SocketGuest < Guest
-    def initialize(socket:, listen:, **)
-      super(**)
+    def initialize(socket:, listen:, **options)
+      super(**options)
       @socket = socket
       @listen = listen
     end
