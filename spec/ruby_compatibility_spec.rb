@@ -38,5 +38,9 @@ RSpec.describe 'Ruby compatibility contract' do
       end
     end
     expect(validated.new(name: 'custom')).to be_frozen
+
+    empty = Empeira::Compatibility::DataFactory.define
+    expect(empty.new).to be_frozen
+    expect(empty.new.to_h).to eq({})
   end
 end
