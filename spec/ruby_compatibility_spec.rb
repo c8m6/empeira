@@ -16,8 +16,8 @@ RSpec.describe 'Ruby compatibility contract' do
   it 'uses a Bundler and r10k dependency resolution compatible with Ruby 3.1' do
     %w[Gemfile.lock resources/modules/Gemfile.lock].each do |relative_path|
       lock = File.read(File.expand_path("../#{relative_path}", __dir__))
-      expect(lock).to include("fast_gettext (3.1.0)")
-      expect(lock).to include("multi_json (1.18.0)")
+      expect(lock).to include('fast_gettext (3.1.0)')
+      expect(lock).to include('multi_json (1.18.0)')
       expect(lock).to include("BUNDLED WITH\n  2.6.9")
       expect(lock).not_to include('fast_gettext (4.')
     end

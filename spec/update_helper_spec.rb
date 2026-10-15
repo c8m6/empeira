@@ -78,8 +78,9 @@ RSpec.describe Empeira::Runtime::UpdateHelper do
       end
 
       it 'recovers and removes an owned creation after a failed create response' do
-        allow(runtime).to receive(:update_command).and_wrap_original do |method, arguments, **options|
-          result = method.call(arguments, **options)
+        original_update_command = runtime.method(:update_command)
+        allow(runtime).to receive(:update_command) do |arguments, **options|
+          result = original_update_command.call(arguments, **options)
           raise Empeira::Providers::ExecutionError, 'creation response lost' if arguments.first == 'create'
 
           result
@@ -108,8 +109,9 @@ RSpec.describe Empeira::Runtime::UpdateHelper do
           .to raise_error(Empeira::Providers::OwnershipError, /network/)
         expect(@created).to be(false)
         @resource = nil
-        allow(runtime).to receive(:update_command).and_wrap_original do |method, arguments, **options|
-          result = method.call(arguments, **options)
+        original_update_command = runtime.method(:update_command)
+        allow(runtime).to receive(:update_command) do |arguments, **options|
+          result = original_update_command.call(arguments, **options)
           raise Empeira::Providers::ExecutionError, 'creation response lost' if arguments.first == 'create'
 
           result

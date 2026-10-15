@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'empeira'
+require_relative '../../lib/empeira'
 
 # Preloaded only by CLI subprocess tests: never read the developer's user preferences.
 module IsolatedCLILocations

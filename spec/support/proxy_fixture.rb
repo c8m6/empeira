@@ -42,9 +42,10 @@ class ProxyFixture
 
   def start_service(key, image, address, **options)
     @runtime.ensure_image(image)
+    mounts = ["type=bind,src=#{@directory},dst=/fixture,readonly"]
     definition = Empeira::Services::Definition.new(key: key, workspace: @app.context.workspace,
                                                    network: @egress.backend_name, memory: 64, image: image, user: '0',
-                                                   mounts: ["type=bind,src=#{@directory},dst=/fixture,readonly"], **options)
+                                                   mounts: mounts, **options)
     arguments = @runtime.send(:create_service_arguments, definition)
     arguments.insert(1, '--ip', address)
     execute(arguments)

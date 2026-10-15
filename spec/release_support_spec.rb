@@ -120,7 +120,8 @@ RSpec.describe ReleaseSupport do
     end.to raise_error(ArgumentError, /version/)
     expect(File.exist?(metadata) ? File.binread(metadata) : nil).to eq(original)
     expect(Gem::Package.new(path).spec.runtime_dependencies.map(&:name)).to eq(['thor'])
-    Bundler.with_unbundled_env { verify_installed_cli(path) }
+    thor_home = Gem::Specification.find_by_name('thor').base_dir
+    Bundler.with_unbundled_env { verify_installed_cli(path, dependency_home: thor_home) }
   end
 
   it 'rejects workflow dispatch from any branch other than main without building or publishing' do
@@ -134,11 +135,11 @@ RSpec.describe ReleaseSupport do
   end
 
   # rubocop:disable-next Metrics/AbcSize -- Exercise installation and actual CLI metadata in an isolated gem home.
-  def verify_installed_cli(path)
+  def verify_installed_cli(path, dependency_home:)
     directory = File.join(@directory, 'installed')
     runner = Empeira::Execution::Runner.new
     environment = { 'RUBYOPT' => nil, 'RUBYLIB' => nil, 'BUNDLE_GEMFILE' => nil, 'BUNDLE_BIN_PATH' => nil,
-                    'GEM_HOME' => directory, 'GEM_PATH' => ([directory] + Gem.path).uniq.join(File::PATH_SEPARATOR) }
+                    'GEM_HOME' => directory, 'GEM_PATH' => ([directory, dependency_home] + Gem.path).uniq.join(File::PATH_SEPARATOR) }
     result = runner.run(RbConfig.ruby, arguments: ['-S', 'gem', 'install', '--local', '--ignore-dependencies',
                                                    '--no-document', '--install-dir', directory, path],
                                        environment: environment, timeout: 30)
@@ -147,7 +148,7 @@ RSpec.describe ReleaseSupport do
     expect(File.read(installed_metadata)).to include('1.2.3-alpha.1')
     result = runner.run(RbConfig.ruby, arguments: [File.join(directory, 'bin/empeira'), 'version', '--verbose'],
                                        environment: environment)
-    expect(result).to be_success
+    expect(result).to be_success, "Installed CLI stderr: #{result.stderr}"
     expect(result.stdout).to include('1.2.3-alpha.1', 'a' * 40, '2026-01-01T00:00:00Z')
   end
 end

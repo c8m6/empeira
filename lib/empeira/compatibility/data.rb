@@ -7,6 +7,7 @@ module Empeira
     module DataFactory
       module_function
 
+      # rubocop:disable Metrics/AbcSize, Metrics/MethodLength -- Ruby 3.1 must emulate Data initializer semantics.
       def define(*members, &definition)
         base_class = if members.empty?
                        Class.new do
@@ -37,7 +38,7 @@ module Empeira
           end
 
           def with(**changes)
-            self.class.new(**to_h.merge(changes))
+            self.class.new(**to_h, **changes)
           end
         end
         value_class = Class.new(base_class)
@@ -45,6 +46,7 @@ module Empeira
         value_class.class_eval(&definition) if definition
         value_class
       end
+      # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
     end
   end
 end

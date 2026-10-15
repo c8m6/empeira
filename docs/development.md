@@ -100,8 +100,12 @@ This does not establish native macOS, container-engine or accelerated VM
 integration results for every Ruby version. Integration and release builds remain
 on Ruby 3.4.
 
-Source development and the module-helper use Bundler 2.6.9, which supports the
-Ruby 3.1 minimum. The r10k transitive dependency `fast_gettext` is constrained
+Source development and the module-helper use Bundler 2.6.9 for Ruby 3.x,
+which supports the Ruby 3.1 minimum. Ruby 4 CI upgrades to Bundler 4.0.22
+and changes only the `BUNDLED WITH` entries in both lockfiles before testing,
+preventing RubyGems platform-constant warnings from contaminating subprocess
+output. To replicate Ruby 4 CI locally, install Bundler 4.0.22, change both
+lockfile Bundler versions to 4.0.22, and run `bundle _4.0.22_ install`. The r10k transitive dependency `fast_gettext` is constrained
 to the Ruby-3.1-compatible 3.1 series instead of 4.x (which requires Ruby 3.2),
 and `multi_json` is pinned to 1.18.0 instead of 1.21.x (which also needs 3.2).
 The existing gem versions are otherwise retained. Run tests under each Ruby

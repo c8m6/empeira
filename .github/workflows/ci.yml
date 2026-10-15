@@ -31,6 +31,12 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
+      - name: Use Bundler 4 for Ruby 4 to avoid RubyGems constant warnings
+        if: matrix.ruby == '4.0'
+        run: |
+          gem install bundler -v 4.0.22 --no-document
+          sed -i 's/^  2\.6\.9$/  4.0.22/' Gemfile.lock resources/modules/Gemfile.lock
+          bundle _4.0.22_ install
       - name: Check Ruby syntax including entrypoints, helpers and tests
         run: |
           ruby -c empeira.gemspec
