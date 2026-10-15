@@ -31,5 +31,12 @@ RSpec.describe 'Ruby compatibility contract' do
     expect(record.with(status: :stopped)).to eq(record_type.new(name: 'fixture', status: :stopped))
     expect { record.status = :stopped }.to raise_error(FrozenError)
     expect { record_type.new(name: 'fixture') }.to raise_error(ArgumentError)
+
+    validated = Empeira::Compatibility::DataFactory.define(:name) do
+      def initialize(name:)
+        super(name: name.dup.freeze)
+      end
+    end
+    expect(validated.new(name: 'custom')).to be_frozen
   end
 end
