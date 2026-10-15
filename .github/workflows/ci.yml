@@ -63,7 +63,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: c8m6/empeira-addon-pre-commit
-          ref: f955c130c468f860e451148adfe5288aff71b259
+          ref: f974ffd60fd4236a46fbfca41ad5a2f046ccd476
           path: .compat-addons/empeira-addon-pre-commit
           persist-credentials: false
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
