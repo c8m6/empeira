@@ -8,7 +8,8 @@ module Empeira
       module_function
 
       def define(*members, &definition)
-        value_class = Struct.new(*members, keyword_init: true) do
+        value_class = members.empty? ? Struct.new : Struct.new(*members, keyword_init: true)
+        value_class.class_eval do
           def initialize(*positional, **keywords)
             fields = self.class.members
             raise ArgumentError, 'too many positional arguments' if positional.size > fields.size
@@ -16,8 +17,8 @@ module Empeira
             supplied = fields.take(positional.size).zip(positional).to_h.merge(keywords)
             missing = fields - supplied.keys
             unexpected = supplied.keys - fields
-            raise ArgumentError, "missing keywords: #{'#{missing.join(", ")}'}" unless missing.empty?
-            raise ArgumentError, "unknown keywords: #{'#{unexpected.join(", ")}'}" unless unexpected.empty?
+            raise ArgumentError, "missing keywords: #{missing.join(', ')}" unless missing.empty?
+            raise ArgumentError, "unknown keywords: #{unexpected.join(', ')}" unless unexpected.empty?
 
             super(**supplied)
             freeze
@@ -27,6 +28,7 @@ module Empeira
             self.class.new(**to_h.merge(changes))
           end
         end
+        value_class.include(self)
         value_class.class_eval(&definition) if definition
         value_class
       end
