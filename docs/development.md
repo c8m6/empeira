@@ -102,7 +102,8 @@ on Ruby 3.4.
 
 Source development and the module-helper use Bundler 2.6.9, which supports the
 Ruby 3.1 minimum. The r10k transitive dependency `fast_gettext` is constrained
-to the Ruby-3.1-compatible 3.1 series instead of 4.x (which requires Ruby 3.2).
+to the Ruby-3.1-compatible 3.1 series instead of 4.x (which requires Ruby 3.2),
+and `multi_json` is pinned to 1.18.0 instead of 1.21.x (which also needs 3.2).
 The existing gem versions are otherwise retained. Run tests under each Ruby
 version after installing the locked bundle; do not infer compatibility from a
 successful syntax-only check.

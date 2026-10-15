@@ -35,7 +35,7 @@ GEM
     log4r (1.1.10)
     logger (1.7.0)
     minitar (1.1.0)
-    multi_json (1.21.2)
+    multi_json (1.18.0)
     net-http (0.9.1)
       uri (>= 0.11.1)
     prime (0.1.4)
@@ -68,6 +68,7 @@ PLATFORMS
 
 DEPENDENCIES
   fast_gettext (~> 3.1.0)
+  multi_json (= 1.18.0)
   r10k (= 5.0.3)
 
 
