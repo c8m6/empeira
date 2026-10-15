@@ -47,7 +47,8 @@ signed repositories or verified package artifacts are selected separately.
 - Explicit Puppetfile module and image updates.
 
 Hosts: Linux, macOS and Windows through WSL2/Linux. Ruby 3.1 is the minimum; Ruby 3.1, 3.2, 3.3, 3.4 and 4.0 are supported;
-CI runs deterministic tests on all five versions.
+CI runs deterministic tests and official addon/Core acceptance on all five versions
+on Linux and macOS, plus the existing Linux Docker/OpenVox smoke on every Ruby.
 Podman with Netavark is the default; Docker requires a Linux engine 28+ with
 isolated bridge support. VMs require usable KVM or HVF. Platform setup and
 validation limits are in [installation](docs/installation.md).

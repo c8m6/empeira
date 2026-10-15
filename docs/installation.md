@@ -2,7 +2,7 @@
 
 Empeira runs natively on Linux and macOS. Windows uses **WSL2 → Linux → Empeira**;
 native Windows Ruby is unsupported. The gemspec requires **Ruby >= 3.1**; supported Ruby versions are **3.1, 3.2,
-3.3, 3.4 and 4.0**. Normal CI tests all five on Ubuntu;
+3.3, 3.4 and 4.0**. Normal CI tests all five on Ubuntu and native macOS;
 release gems are built with Ruby 3.4. The first public alpha is
 [`v0.1.0-alpha.1`](https://github.com/c8m6/empeira/releases/tag/v0.1.0-alpha.1)
 and is available on [RubyGems.org](https://rubygems.org/gems/empeira).

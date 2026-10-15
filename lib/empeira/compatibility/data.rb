@@ -7,21 +7,11 @@ module Empeira
     module DataFactory
       module_function
 
-      # rubocop:disable Metrics/AbcSize, Metrics/MethodLength -- Ruby 3.1 must emulate Data initializer semantics.
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Ruby 3.1 must emulate Data initializer semantics.
       def define(*members, &definition)
-        base_class = if members.empty?
-                       Class.new do
-                         def self.members
-                           []
-                         end
-
-                         def to_h
-                           {}
-                         end
-                       end
-                     else
-                       Struct.new(*members, keyword_init: true)
-                     end
+        # The explicit nil class name also permits zero members and preserves
+        # Struct's value equality, hashing and pattern matching for empty records.
+        base_class = Struct.new(nil, *members, keyword_init: true)
         base_class.class_eval do
           def initialize(*positional, **keywords)
             fields = self.class.members
@@ -40,13 +30,17 @@ module Empeira
           def with(**changes)
             self.class.new(**to_h, **changes)
           end
+
+          def initialize_copy(other)
+            super
+            freeze
+          end
         end
         value_class = Class.new(base_class)
         value_class.include(self)
         value_class.class_eval(&definition) if definition
         value_class
       end
-      # rubocop:enable Metrics/AbcSize, Metrics/MethodLength
     end
   end
 end

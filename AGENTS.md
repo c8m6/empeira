@@ -269,9 +269,12 @@ Bash completion when CLI behavior changes. Run relevant real provider/integratio
 gates when capabilities exist. Report unavailable checks precisely; never claim
 unexecuted runtime, VM, remote CI or publishing checks as successful.
 
-Normal quality CI runs deterministic RSpec on Ubuntu with Ruby 3.4 and 4.0.
-RuboCop and both bundler-audit checks run only on Ruby 3.4; release builds use Ruby 3.4.
-A focused Docker/OpenVox PR smoke runs the existing real node test. Broader runtime,
+Normal quality CI runs deterministic RSpec and official addon/Core acceptance on
+Ubuntu and macOS with Ruby 3.1, 3.2, 3.3, 3.4 and 4.0. Ruby 3.1 is the minimum.
+RuboCop and both bundler-audit checks run only on Ubuntu with Ruby 3.4; release
+builds use Ruby 3.4.
+A focused Docker/OpenVox PR smoke runs the existing real node test on all five
+Ruby versions with at most two concurrent jobs. Broader runtime,
 browser, network and VM suites are manual; VM gates require capable self-hosted
 runners. Avoid automatic heavy matrices and schedules. Linux/macOS/WSL2 validation
 must reflect actual execution; native Windows Ruby is not a substitute.

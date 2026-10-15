@@ -139,7 +139,8 @@ RSpec.describe ReleaseSupport do
     directory = File.join(@directory, 'installed')
     runner = Empeira::Execution::Runner.new
     environment = { 'RUBYOPT' => nil, 'RUBYLIB' => nil, 'BUNDLE_GEMFILE' => nil, 'BUNDLE_BIN_PATH' => nil,
-                    'GEM_HOME' => directory, 'GEM_PATH' => ([directory, dependency_home] + Gem.path).uniq.join(File::PATH_SEPARATOR) }
+                    'GEM_HOME' => directory,
+                    'GEM_PATH' => ([directory, dependency_home] + Gem.path).uniq.join(File::PATH_SEPARATOR) }
     result = runner.run(RbConfig.ruby, arguments: ['-S', 'gem', 'install', '--local', '--ignore-dependencies',
                                                    '--no-document', '--install-dir', directory, path],
                                        environment: environment, timeout: 30)

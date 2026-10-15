@@ -17,11 +17,15 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    env:
+      BUNDLER_VERSION: ${{ matrix.ruby == '4.0' && '4.0.22' || '2.6.9' }}
+      BUNDLE_FROZEN: 'true'
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-24.04, macos-15]
         ruby: ['3.1', '3.2', '3.3', '3.4', '4.0']
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -30,22 +34,40 @@ jobs:
       - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
         with:
           ruby-version: ${{ matrix.ruby }}
+          bundler: ${{ env.BUNDLER_VERSION }}
           bundler-cache: true
-      - name: Use Bundler 4 for Ruby 4 to avoid RubyGems constant warnings
-        if: matrix.ruby == '4.0'
-        run: |
-          gem install bundler -v 4.0.22 --no-document
-          sed -i 's/^  2\.6\.9$/  4.0.22/' Gemfile.lock resources/modules/Gemfile.lock
-          bundle _4.0.22_ install
       - name: Check Ruby syntax including entrypoints, helpers and tests
         run: |
           ruby -c empeira.gemspec
           ruby -c bin/empeira
           find lib spec script resources -type f -name '*.rb' -print0 | xargs -0 -n 1 ruby -c > /dev/null
       - run: bundle exec rspec --exclude-pattern 'spec/integration/**/*_spec.rb'
-      - if: matrix.ruby == '3.4'
+      - if: matrix.os == 'ubuntu-24.04' && matrix.ruby == '3.4'
         run: bundle exec rubocop
-      - if: matrix.ruby == '3.4'
+      - if: matrix.os == 'ubuntu-24.04' && matrix.ruby == '3.4'
         run: bundle exec bundler-audit check --update
-      - if: matrix.ruby == '3.4'
+      - if: matrix.os == 'ubuntu-24.04' && matrix.ruby == '3.4'
         run: bundle exec bundler-audit check --gemfile-lock resources/modules/Gemfile.lock
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: c8m6/empeira-addon-convert
+          ref: 760c6c3415d44fd50eaec036017a3b881fb3feb5
+          path: .compat-addons/empeira-addon-convert
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: c8m6/empeira-addon-pre-commit
+          ref: 2841581aef02f52bb918f34e32c51ba9274d850b
+          path: .compat-addons/empeira-addon-pre-commit
+          persist-credentials: false
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: c8m6/empeira-addon-sync
+          ref: 4c821bbced1ccd229294d438c557d1787085d4c4
+          path: .compat-addons/empeira-addon-sync
+          persist-credentials: false
+      - name: Exercise official addons through Core with isolated Git sources
+        env:
+          EMPEIRA_OFFICIAL_ADDON_ROOT: ${{ github.workspace }}/.compat-addons
+        run: bundle exec rspec spec/acceptance/official_addons.rb
+      - run: git diff --exit-code -- Gemfile.lock resources/modules/Gemfile.lock
