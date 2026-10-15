@@ -98,13 +98,13 @@ module Empeira
           raise Error, 'Podman Machine cannot verify the peer helper at its host path; configure its shared mount'
         end
 
-        def namespace(*)
-          executable, *arguments = namespace_command(@machine, *)
-          command(executable, *arguments)
+        def namespace(*arguments)
+          executable, *command_arguments = namespace_command(@machine, *arguments)
+          command(executable, *command_arguments)
         end
 
-        def namespace_command(machine, *)
-          ['podman', 'machine', 'ssh', machine, Shellwords.join(['podman', 'unshare', '--rootless-netns', *])]
+        def namespace_command(machine, *arguments)
+          ['podman', 'machine', 'ssh', machine, Shellwords.join(['podman', 'unshare', '--rootless-netns', *arguments])]
         end
       end
     end

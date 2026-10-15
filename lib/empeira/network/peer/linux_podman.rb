@@ -92,8 +92,8 @@ module Empeira
           raise Providers::OwnershipError, 'VM TAP already exists; inspect its owning process'
         end
 
-        def namespace(*, **)
-          command('podman', '--remote=false', 'unshare', '--rootless-netns', *, **)
+        def namespace(*arguments, **options)
+          command('podman', '--remote=false', 'unshare', '--rootless-netns', *arguments, **options)
         end
 
         def attached?(record, links)

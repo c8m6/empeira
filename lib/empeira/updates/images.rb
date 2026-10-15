@@ -73,9 +73,9 @@ module Empeira
          { label: 'VM network helper', image: adapter.image, recipe: adapter.recipe, files: adapter.files }]
       end
 
-      def utility_artifact(key, label, **)
+      def utility_artifact(key, label, **options)
         Empeira::Images::Configuration.artifact(
-          @config.dig('images', key), registry: @config.dig('images', 'registry'), **
+          @config.dig('images', key), registry: @config.dig('images', 'registry'), **options
         ).merge(label: label)
       end
 

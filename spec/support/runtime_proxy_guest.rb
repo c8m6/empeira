@@ -20,7 +20,7 @@ module RuntimeProxyFixture
 
   def guest_settings_root(hostname)
     @proxy_guest_roots ||= {}
-    root = @proxy_guest_roots[hostname] ||= Pathname(Dir.mktmpdir('proxy-guest-'))
+    root = @proxy_guest_roots[hostname] ||= Pathname(File.realpath(Dir.mktmpdir('proxy-guest-')))
     root.join('etc/apt/apt.conf.d').mkpath
     root
   end

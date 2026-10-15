@@ -13,6 +13,12 @@ source=source.replace("SHELL_RC = '/usr/local/libexec/empeira-management-shell-r
 stage_root=sys.argv[3]
 pwd.getpwuid=lambda uid:types.SimpleNamespace(pw_dir=os.path.dirname(stage_root))
 os.environ['RUNTIME_DIRECTORY']=stage_root
+real_unlink=os.unlink
+def unlink(path,*args,**kwargs):
+ # Deterministically expose a premature upload success before staging cleanup.
+ if os.path.dirname(path)==stage_root: __import__('time').sleep(.05)
+ return real_unlink(path,*args,**kwargs)
+os.unlink=unlink
 real_write=os.write
 def write(fd_number,data):
  if fd_number==fd and os.path.exists(stage_root+'/force-io-failure'):

@@ -31,11 +31,14 @@ RSpec.configure do |config|
   config.expect_with(:rspec) { |expectations| expectations.syntax = :expect }
   config.around do |example|
     credentials = %w[EMPEIRA_AGENT_REPO_USERNAME EMPEIRA_AGENT_REPO_PASSWORD].to_h { |key| [key, ENV.delete(key)] }
-    Dir.mktmpdir('empeira-spec-') do |directory|
-      @directory = directory
-      user_home = File.join(directory, 'user-home')
+    # Keep Unix socket fixture paths below macOS's 104-byte limit.
+    Dir.mktmpdir('e-') do |directory|
+      # macOS exposes temporary roots through /var -> /private/var. Git and Core
+      # resolve real paths, so fixtures must use the same canonical identity.
+      @directory = File.realpath(directory)
+      user_home = File.join(@directory, 'user-home')
       FileUtils.mkdir_p(user_home)
-      initialize_project(directory)
+      initialize_project(@directory)
       example.run
     end
   ensure

@@ -11,8 +11,8 @@ module SharedNetworkProof
       @machine = machine
     end
 
-    def run(*, **)
-      commands.run('podman', '--connection', machine, *, **)
+    def run(*arguments, **options)
+      commands.run('podman', '--connection', machine, *arguments, **options)
     end
 
     def check
@@ -25,12 +25,12 @@ module SharedNetworkProof
       puts "Podman Machine #{machine}: #{info.fetch('version').fetch('Version')} rootless Netavark"
     end
 
-    def namespace(*)
-      commands.run(*namespace_command(*))
+    def namespace(*arguments)
+      commands.run(*namespace_command(*arguments))
     end
 
-    def namespace_command(*)
-      ['podman', 'machine', 'ssh', machine, Shellwords.join(['podman', 'unshare', '--rootless-netns', *])]
+    def namespace_command(*arguments)
+      ['podman', 'machine', 'ssh', machine, Shellwords.join(['podman', 'unshare', '--rootless-netns', *arguments])]
     end
 
     def network_options(bridge)
@@ -68,7 +68,7 @@ module SharedNetworkProof
     end
 
     def run(*, **)
-      commands.run('docker', *, **)
+      commands.run('docker', *arguments, **options)
     end
 
     def check

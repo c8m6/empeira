@@ -5,7 +5,7 @@
 [![Build & Tests](https://img.shields.io/github/actions/workflow/status/c8m6/empeira/ci.yml?branch=main&label=Build%20%26%20Tests)](https://github.com/c8m6/empeira/actions/workflows/ci.yml)
 [![OpenVox E2E](https://img.shields.io/github/actions/workflow/status/c8m6/empeira/openvox.yml?branch=main&label=OpenVox%20E2E)](https://github.com/c8m6/empeira/actions/workflows/openvox.yml)
 [![Release](https://img.shields.io/github/v/release/c8m6/empeira?include_prereleases&sort=date&label=Release)](https://github.com/c8m6/empeira/releases)
-[![Ruby: 3.4 / 4.0](https://img.shields.io/badge/Ruby-3.4%20%7C%204.0-CC342D)](docs/installation.md)
+[![Ruby: 3.1–4.0](https://img.shields.io/badge/Ruby-3.1%20%7C%203.2%20%7C%203.3%20%7C%203.4%20%7C%204.0-CC342D)](docs/installation.md)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue)](LICENSE)
 
 **ἐμπειρία (empeiría)** — experience gained through practice. The name reflects
@@ -46,8 +46,9 @@ signed repositories or verified package artifacts are selected separately.
 - An internal Chromium desktop and small additional infrastructure services.
 - Explicit Puppetfile module and image updates.
 
-Hosts: Linux, macOS and Windows through WSL2/Linux. Ruby 3.4 is the minimum;
-Ruby 3.4 and 4.0 are supported; CI runs deterministic tests with both versions.
+Hosts: Linux, macOS and Windows through WSL2/Linux. Ruby 3.1 is the minimum; Ruby 3.1, 3.2, 3.3, 3.4 and 4.0 are supported;
+CI runs deterministic tests and official addon/Core acceptance on all five versions
+on Linux and macOS, plus the existing Linux Docker/OpenVox smoke on every Ruby.
 Podman with Netavark is the default; Docker requires a Linux engine 28+ with
 isolated bridge support. VMs require usable KVM or HVF. Platform setup and
 validation limits are in [installation](docs/installation.md).
@@ -55,7 +56,7 @@ validation limits are in [installation](docs/installation.md).
 ## Installation
 
 The [Empeira gem on RubyGems.org](https://rubygems.org/gems/empeira) is the
-recommended installation. With Ruby 3.4 or 4.0 already installed:
+recommended installation. With Ruby 3.1, 3.2, 3.3, 3.4 or 4.0 already installed:
 
 ```bash
 gem install --user-install empeira --pre

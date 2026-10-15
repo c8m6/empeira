@@ -2,6 +2,10 @@
 
 RSpec.describe 'Guest VirtIO execution adapter' do
   it 'preserves complete output and native exits, cancels processes and publishes verified binary uploads' do
+    unless RbConfig::CONFIG.fetch('host_os').include?('linux')
+      skip 'Linux guest probe requires epoll and waitid; required on every Ubuntu Ruby matrix job'
+    end
+
     runner = Empeira::Execution::Runner.new
     probe = File.expand_path('support/guest_agent_probe.py', __dir__)
     agent = Empeira::VM::Management.resource('guest_agent.py')

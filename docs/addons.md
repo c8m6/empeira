@@ -329,3 +329,15 @@ is incomplete, stop users of that source and remove only its affected source
 namespace before synchronizing again; never delete a live lock as recovery.
 For missing command completion, inspect `addons info NAME` and source the current
 Bash completion again after an Empeira upgrade.
+
+## Ruby support and addon development
+
+Core and the official Convert, Pre-Commit and Sync addons support Ruby 3.1, 3.2,
+3.3, 3.4 and 4.0 on Linux, macOS and WSL2. Ruby 3.1 is the minimum. Keep API 1
+entrypoints runnable directly, preserve argv, terminal streams, environment and
+exit status, and explicitly require libraries that newer Rubies no longer ship.
+Do not install gems implicitly. Convert's XML support needs user-installed REXML.
+Test complete standalone behavior and actual execution through Core on all five
+Rubies; syntax checks alone are insufficient. See the [development gate](development.md#ruby-compatibility)
+for the required Linux/macOS matrix, pinned source checkouts and local commands.
+Real container/VM and WSL2 capabilities require their own integration gates.

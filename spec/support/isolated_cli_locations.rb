@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-require 'empeira'
+require_relative '../../lib/empeira'
 
 # Preloaded only by CLI subprocess tests: never read the developer's user preferences.
 module IsolatedCLILocations
-  def initialize(**)
-    super(home: ENV.fetch('EMPEIRA_TEST_HOME'), **)
+  def initialize(**options)
+    super(home: ENV.fetch('EMPEIRA_TEST_HOME'), **options)
   end
 end
 

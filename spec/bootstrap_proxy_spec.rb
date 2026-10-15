@@ -44,7 +44,7 @@ RSpec.describe Empeira::Network::BootstrapProxy do
     endpoint = proxy.start(state, requirements, source: record.fetch('peer').fetch('ip'))
     expect(endpoint).to match(/\A(?:[0-9]+\.){3}[0-9]+\z/)
     policy = File.read(plan.files.path('bootstrap-squid.conf'))
-    expect(policy).to include('Proxy-Authorization', 'archive.ubuntu.com',
+    expect(policy).to include('Proxy-Authorization', *requirements.destinations,
                               'http_access deny forbidden')
     expect(policy).not_to include(URI(requirements.repository.fetch('url')).host)
     expect(policy).to include('http_access deny !clients', 'http_access deny all',

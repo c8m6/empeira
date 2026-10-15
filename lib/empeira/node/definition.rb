@@ -5,10 +5,10 @@ module Empeira
     class Definition < Services::Definition
       attr_reader :hostname
 
-      def initialize(hostname:, workspace:, **)
+      def initialize(hostname:, workspace:, **options)
         @hostname = hostname
         super(key: "node-#{Digest::SHA256.hexdigest(hostname)[0, 24]}", workspace: workspace,
-              hostname: hostname, **)
+              hostname: hostname, **options)
       end
 
       def ownership_labels

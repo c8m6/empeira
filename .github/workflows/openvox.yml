@@ -17,16 +17,24 @@ jobs:
   smoke:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        ruby: ['3.1', '3.2', '3.3', '3.4', '4.0']
     env:
       EMPEIRA_INTEGRATION: '1'
       EMPEIRA_REQUIRED_RUNTIMES: docker
+      BUNDLER_VERSION: ${{ matrix.ruby == '4.0' && '4.0.22' || '2.6.9' }}
+      BUNDLE_FROZEN: 'true'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
       - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
         with:
-          ruby-version: '3.4'
+          ruby-version: ${{ matrix.ruby }}
+          bundler: ${{ env.BUNDLER_VERSION }}
           bundler-cache: true
       - name: Configure the public Docker Hub cache on the hosted runner
         run: |

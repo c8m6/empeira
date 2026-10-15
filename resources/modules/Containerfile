@@ -5,7 +5,7 @@ RUN apk add --no-cache git ca-certificates
 WORKDIR /opt/empeira-modules
 COPY Gemfile Gemfile.lock ./
 RUN apk add --no-cache --virtual .build-deps build-base libffi-dev \
-    && gem install bundler -v 4.0.22 --no-document \
+    && gem install bundler -v 2.6.9 --no-document \
     && bundle config set deployment true && bundle install --jobs 2 \
     && apk del .build-deps
 COPY worker.rb ./

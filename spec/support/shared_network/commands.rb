@@ -27,12 +27,12 @@ module SharedNetworkProof
       text.bytesize > 2000 ? "#{excerpt} [truncated]" : excerpt
     end
 
-    def podman(*, **)
-      run('podman', '--remote=false', *, **)
+    def podman(*arguments, **options)
+      run('podman', '--remote=false', *arguments, **options)
     end
 
-    def namespace(*)
-      podman('unshare', '--rootless-netns', *)
+    def namespace(*arguments)
+      podman('unshare', '--rootless-netns', *arguments)
     end
 
     def available?(name)
