@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ruby: ['3.4', '4.0']
+        ruby: ['3.1', '3.2', '3.3', '3.4', '4.0']
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -31,6 +31,11 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
+      - name: Check Ruby syntax including entrypoints, helpers and tests
+        run: |
+          ruby -c empeira.gemspec
+          ruby -c bin/empeira
+          find lib spec script resources -type f -name '*.rb' -print0 | xargs -0 -n 1 ruby -c > /dev/null
       - run: bundle exec rspec --exclude-pattern 'spec/integration/**/*_spec.rb'
       - if: matrix.ruby == '3.4'
         run: bundle exec rubocop

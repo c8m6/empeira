@@ -3,3 +3,7 @@
 source 'https://rubygems.org'
 
 gem 'r10k', '5.0.3'
+
+# r10k's newer fast_gettext 4.x dependency requires Ruby >= 3.2.
+# Keep the module helper usable with the oldest supported Ruby (3.1).
+gem 'fast_gettext', '~> 3.1.0'

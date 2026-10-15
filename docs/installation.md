@@ -1,15 +1,15 @@
 # Installation
 
 Empeira runs natively on Linux and macOS. Windows uses **WSL2 → Linux → Empeira**;
-native Windows Ruby is unsupported. The gemspec requires **Ruby >= 3.4**; the
-supported Ruby versions are **3.4 and 4.0**. Normal CI tests both on Ubuntu;
+native Windows Ruby is unsupported. The gemspec requires **Ruby >= 3.1**; supported Ruby versions are **3.1, 3.2,
+3.3, 3.4 and 4.0**. Normal CI tests all five on Ubuntu;
 release gems are built with Ruby 3.4. The first public alpha is
 [`v0.1.0-alpha.1`](https://github.com/c8m6/empeira/releases/tag/v0.1.0-alpha.1)
 and is available on [RubyGems.org](https://rubygems.org/gems/empeira).
 
 ## Install from RubyGems.org (recommended)
 
-After installing Ruby 3.4+ and the appropriate host tools/container runtime
+After installing Ruby 3.1+ and the appropriate host tools/container runtime
 described below, install Empeira from RubyGems.org:
 
 ```bash
@@ -37,18 +37,17 @@ testing the installed executable. The source function otherwise takes precedence
 
 ## Linux and WSL2
 
-These commands target **Ubuntu 24.04 LTS** and **Debian 13 trixie**. Their default
-Ruby packages are below Empeira's minimum; Ruby 3.2 and 3.3 are unsupported.
-Install Ruby 3.4+ with your established Ruby version manager before using Empeira.
-Ubuntu 22.04 and Debian 12 also need a newer Ruby. Installing the distribution's
-default `ruby` package does not satisfy the gemspec on these hosts.
+These commands target **Ubuntu 24.04 LTS** and **Debian 13 trixie**. Use Ruby 3.1+ from the distribution or your established Ruby version manager.
+Check `ruby --version` before installing the gem. The distribution's default
+`ruby` package is suitable only when it meets the minimum; otherwise activate
+a compatible Ruby before proceeding.
 
 Host utilities and SSH access:
 
 ```bash
 sudo apt-get update
 sudo apt-get install -y git openssh-client iproute2
-# Activate Ruby 3.4+ using your Ruby version manager before continuing.
+# Activate Ruby 3.1+ when the distribution's Ruby is too old.
 ruby --version
 gem --version
 git --version

@@ -2,9 +2,9 @@
 
 ## Environment and quality checks
 
-Install Git, Ruby 3.4, Bundler and the platform prerequisites in
-[installation](installation.md). The gem requires Ruby 3.4+; Ruby 3.2 and 3.3 are
-unsupported. Normal Ubuntu CI runs deterministic RSpec on Ruby 3.4 and 4.0, with
+Install Git, Ruby 3.1+, Bundler and the platform prerequisites in
+[installation](installation.md). The gem requires Ruby 3.1+; normal Ubuntu CI
+runs deterministic RSpec on Ruby 3.1, 3.2, 3.3, 3.4 and 4.0, with
 RuboCop and both dependency audits only on Ruby 3.4. Release builds use Ruby 3.4.
 Use synthetic control repositories and disposable credentials.
 
@@ -93,18 +93,19 @@ For workflow changes, parse `.github/workflows/*.yml` and run `actionlint` when
 available. Review action pins, triggers and permissions as well as YAML syntax.
 See [contributing](../CONTRIBUTING.md) for review, commit and label conventions.
 
-### Ruby 4.0 compatibility
+### Ruby compatibility
 
-Ruby 3.4 and 4.0 are supported. The deterministic suite passed locally on Linux
-x86_64 with Ruby 3.4.7 and 4.0.7. Ruby 4.0 validation used an official Ruby container;
-it does not establish macOS, container-engine or accelerated VM integration results.
+Ruby 3.1, 3.2, 3.3, 3.4 and 4.0 are tested by the deterministic Ubuntu CI matrix.
+This does not establish native macOS, container-engine or accelerated VM
+integration results for every Ruby version. Integration and release builds remain
+on Ruby 3.4.
 
-Source development uses Bundler 4.0.22 from `Gemfile.lock`, matching the existing
-module-helper tooling. With Ruby 4.0.7, the previous Bundler 2.4.19 redefined
-`Gem::Platform` constants and emitted warnings in child processes. This failed 14
-strict stderr, streaming, Bash completion and Puppetfile installer tests. Updating
-Bundler preserves those output assertions; no application output filtering or
-warning suppression is used. The dependency gem versions are unchanged.
+Source development and the module-helper use Bundler 2.6.9, which supports the
+Ruby 3.1 minimum. The r10k transitive dependency `fast_gettext` is constrained
+to the Ruby-3.1-compatible 3.1 series instead of 4.x (which requires Ruby 3.2).
+The existing gem versions are otherwise retained. Run tests under each Ruby
+version after installing the locked bundle; do not infer compatibility from a
+successful syntax-only check.
 
 The test checkout must be writable: the QEMU monitor-directory cleanup fixture
 uses the checkout as a synthetic home. A read-only container bind mount caused one
