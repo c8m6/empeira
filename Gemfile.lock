@@ -26,7 +26,6 @@ GEM
       net-http (~> 0.5)
     fast_gettext (3.1.0)
       prime
-      racc
     fiddle (1.1.8)
     forwardable (1.4.0)
     gettext (3.5.2)
