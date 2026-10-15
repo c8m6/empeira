@@ -8,7 +8,19 @@ module Empeira
       module_function
 
       def define(*members, &definition)
-        base_class = members.empty? ? Struct.new : Struct.new(*members, keyword_init: true)
+        base_class = if members.empty?
+                       Class.new do
+                         def self.members
+                           []
+                         end
+
+                         def to_h
+                           {}
+                         end
+                       end
+                     else
+                       Struct.new(*members, keyword_init: true)
+                     end
         base_class.class_eval do
           def initialize(*positional, **keywords)
             fields = self.class.members
