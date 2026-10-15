@@ -2,16 +2,7 @@
 
 module Empeira
   class Progress
-    Event = if defined?(Data)
-              Data.define(:percent, :message, :state)
-            else
-              Struct.new(:percent, :message, :state, keyword_init: true) do
-                def initialize(**attributes)
-                  super
-                  freeze
-                end
-              end
-            end
+    Event = Data.define(:percent, :message, :state)
 
     def initialize(listener: nil)
       @listener = listener

@@ -22,4 +22,14 @@ RSpec.describe 'Ruby compatibility contract' do
       expect(lock).not_to include('fast_gettext (4.')
     end
   end
+
+  it 'preserves immutable Data-style records on Ruby 3.1' do
+    record_type = Empeira::Compatibility::DataFactory.define(:name, :status)
+    record = record_type.new(name: 'fixture', status: :running)
+    expect(record.to_h).to eq(name: 'fixture', status: :running)
+    expect(record).to be_frozen
+    expect(record.with(status: :stopped)).to eq(record_type.new(name: 'fixture', status: :stopped))
+    expect { record.status = :stopped }.to raise_error(FrozenError)
+    expect { record_type.new(name: 'fixture') }.to raise_error(ArgumentError)
+  end
 end

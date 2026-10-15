@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative 'empeira/compatibility/data'
 require_relative 'empeira/errors'
 require_relative 'empeira/progress'
 require_relative 'empeira/build_info'
