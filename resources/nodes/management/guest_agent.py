@@ -316,6 +316,7 @@ def handle(message):
         active['file'].close()
         active = None
         pending = None
+        status = 0
         try:
             with tempfile.NamedTemporaryFile(dir=os.path.dirname(destination), delete=False) as target:
                 pending = target.name
@@ -326,14 +327,16 @@ def handle(message):
                 os.fsync(target.fileno())
             os.replace(pending, destination)
             pending = None
-            send({'type': 'exit', 'status': 0, 'timed_out': False})
         except OSError as error:
             send({'type': 'stderr', 'data': base64.b64encode((os.strerror(error.errno) + '\n').encode()).decode()})
-            send({'type': 'exit', 'status': 1, 'timed_out': False})
+            status = 1
         finally:
             os.unlink(staged)
             if pending:
                 os.unlink(pending)
+        # Completion includes staging cleanup; an unlink failure must never
+        # acknowledge success to a controller that is already enrolling/Puppet.
+        send({'type': 'exit', 'status': status, 'timed_out': False})
     else:
         raise ValueError('Unexpected protocol operation')
 
