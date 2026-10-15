@@ -18,7 +18,11 @@ RSpec.describe Empeira::Node::VM do
 
   let(:runtime) { VMRuntimeFixture.new }
   let(:app) do
+    # This fixture models an AMD64 Linux engine and guest, independently of the
+    # native host running RSpec; platform adapters have their own contracts.
     Empeira::Application.new(project_path: @directory,
+                             platform: Empeira::Platform::Facts.new(host_os: 'linux', host_cpu: 'x86_64',
+                                                                    environment: {}, kernel_release: ''),
                              locations: Empeira::Platform::Locations.new(home: File.join(@directory, 'user-home'),
                                                                          environment: {}))
   end

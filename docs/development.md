@@ -147,7 +147,14 @@ or `empeira-addon-sync`. Set `EMPEIRA_OFFICIAL_ADDONS=sync` (or a comma-separate
 subset) to select checkouts; absent sources fail the gate. Addon CI uses the
 same gate against a pinned Core revision. Update the reviewed commit pins in
 CI when changing either side of API 1. Standalone addon unit tests remain in
-each addon's matrix. Pre-commit's real container integration remains required on
+each addon's matrix. macOS installs GNU coreutils and GNU tar for fixtures that
+execute Linux guest package-manager commands against synthetic roots; these are
+test dependencies, not macOS product prerequisites. Fixtures canonicalize temporary
+paths, keep Unix socket names short and declare synthetic CPU architectures.
+The single Python Linux-guest adapter probe requires Linux `epoll` and `waitid`;
+it is explicitly unavailable on Darwin and remains required on every Ubuntu
+Ruby job. All other deterministic examples and official addon acceptance run
+natively on macOS. Pre-commit's real container integration remains required on
 Linux; hosted macOS has no configured Docker/Podman engine. No native Windows
 jobs are used, and WSL2 runtime validation remains a separate real-host gate.
 
@@ -542,3 +549,8 @@ The DNS gate checks UDP/TCP, internal/external names, NXDOMAIN, large-answer fal
 unavailable/recreated CoreDNS, a second workspace with a different subnet and
 CoreDNS address, rule removal and idempotent reconciliation. Node identity also
 checks both virtual DNS transports before and after node stop/start.
+
+The VirtIO upload regression deliberately delays staged-file unlinking. Successful
+completion must follow both atomic installation and temporary-file cleanup; a
+cleanup failure cannot acknowledge success. The unchanged binary-upload/empty-stage
+assertions cover this ordering on Linux, independently from the real KVM gate.

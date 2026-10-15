@@ -36,6 +36,12 @@ jobs:
           ruby-version: ${{ matrix.ruby }}
           bundler: ${{ env.BUNDLER_VERSION }}
           bundler-cache: true
+      - name: Supply Linux guest filesystem tools for native macOS fixtures
+        if: runner.os == 'macOS'
+        run: |
+          brew install coreutils gnu-tar
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix gnu-tar)/libexec/gnubin" >> "$GITHUB_PATH"
       - name: Check Ruby syntax including entrypoints, helpers and tests
         run: |
           ruby -c empeira.gemspec

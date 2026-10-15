@@ -16,6 +16,9 @@ class RuntimeExecution
   def run(engine, arguments:, **options)
     return Empeira::Execution::Runner.new.run(engine, arguments: arguments, **options) if engine == 'git'
     return Empeira::Execution::Result.new(stdout: '[]', stderr: '', exit_status: 0, timed_out: false) if engine == 'ip'
+    if engine == 'netstat'
+      return Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
+    end
 
     calls << [engine, arguments]
     value = dispatch(engine, arguments)
