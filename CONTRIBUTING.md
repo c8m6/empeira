@@ -8,7 +8,7 @@ a feature, and use the repository's issue and pull request templates.
 ## Licensing
 
 By submitting a contribution, you confirm that you have the right to submit it
-and intend it to be distributed as part of Empeira under `AGPL-3.0-only`.
+and intend it to be distributed as part of Empeira under `AGPL-3.0-or-later`.
 Do not knowingly submit code, documentation, assets, or other material whose
 license is incompatible with the project.
 
