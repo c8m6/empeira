@@ -33,6 +33,14 @@ HTTP 403 does not trigger login, and HTTP 407 identifies proxy authentication. R
 authentication continues to use native `docker login` / `podman login` and the reported
 registry host; Empeira does not log into registries automatically.
 
+APT can report an HTTP status without a reason phrase, for example
+`401 [IP: 192.0.2.1 443]`. This still triggers the single repository login attempt
+when no ENV credentials are set and both standard input and standard error are
+connected to a TTY. The corresponding `403` and `407` forms retain their access-denied
+and proxy-authentication diagnoses without prompting. A node retained as `incomplete`
+after an acquisition failure must be destroyed with `empeira node destroy HOSTNAME`
+and recreated with the original `empeira node run` arguments after resolving the cause.
+
 APT helper credentials use literal `login` and `password` tokens in a temporary
 0600 file under `/etc/apt/auth.conf.d`. APT treats surrounding quotes and added
 backslashes as credential bytes, so Empeira does not add them. A successful login

@@ -253,6 +253,7 @@ The APT authentication regression uses a local HTTPS repository with synthetic B
 credentials and an ephemeral GPG signing key. It checks the helper's effective
 `auth.conf.d` configuration, private file mode and exact credential bytes, then
 verifies metadata returns 401 before one interactive login and 200 after the retry.
+The fixture omits the 401 reason phrase to exercise APT's bare status/IP diagnostic.
 The selected package download must reuse that login and pass its SHA-256 check.
 It requires host `gpg`/`gpgconf` and a locally reachable container engine; helper and
 host TLS verification remain enabled. Run it explicitly for either engine:
