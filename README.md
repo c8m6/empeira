@@ -6,7 +6,7 @@
 [![OpenVox E2E](https://img.shields.io/github/actions/workflow/status/c8m6/empeira/openvox.yml?branch=main&label=OpenVox%20E2E)](https://github.com/c8m6/empeira/actions/workflows/openvox.yml)
 [![Release](https://img.shields.io/github/v/release/c8m6/empeira?include_prereleases&sort=date&label=Release)](https://github.com/c8m6/empeira/releases)
 [![Ruby: 3.1–4.0](https://img.shields.io/badge/Ruby-3.1%20%7C%203.2%20%7C%203.3%20%7C%203.4%20%7C%204.0-CC342D)](docs/installation.md)
-[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue)](LICENSE)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-blue)](LICENSE)
 
 **ἐμπειρία (empeiría)** — experience gained through practice. The name reflects
 learning about infrastructure by experimenting, testing and seeing what happens.
@@ -149,6 +149,6 @@ and [pull requests](https://github.com/c8m6/empeira/pulls) are welcome. Follow t
 [security policy](SECURITY.md).
 
 Project-owned code and documentation are licensed under
-[AGPL-3.0-only](LICENSE). Third-party packages and images retain their own licenses
+[AGPL-3.0-or-later](LICENSE). Third-party packages and images retain their own licenses
 and notices and are obtained from upstream; empeira does not bundle them or
 redistribute proprietary Puppet Enterprise software.
