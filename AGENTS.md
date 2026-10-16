@@ -22,7 +22,7 @@ are exempt. Update affected documentation with every change.
 
 ## Licensing and dependencies
 
-Project-owned code and documentation use `AGPL-3.0-only`. Preserve licensing and
+Project-owned code and documentation use `AGPL-3.0-or-later`. Preserve licensing and
 third-party attribution. Before introducing dependencies or third-party material,
 check provenance, compatibility, maintenance and known vulnerabilities. Prefer
 Ruby's standard library and small dependencies; report uncertainty explicitly.
