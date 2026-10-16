@@ -125,7 +125,7 @@ module ReleaseSupport
     package = Gem::Package.new(path)
     package.verify
     unless package.spec.name == 'empeira' && package.spec.version == Gem::Version.new(info.gem_version) &&
-           package.spec.license == 'AGPL-3.0-only'
+           package.spec.license == 'AGPL-3.0-or-later'
       raise ArgumentError, 'Gem name, version or license does not match the release'
     end
 
