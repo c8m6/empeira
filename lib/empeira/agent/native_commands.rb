@@ -39,11 +39,11 @@ module Empeira
         diagnostic = Execution::Diagnostics.native(result.with(stderr: text, stdout: ''),
                                                    operation: "Agent #{operation}", tool: arguments.first)
         case text
-        when /407\s+Proxy Authentication Required|(?:HTTP|Status code|HTTP code)\s*:?\s*407\b/i
+        when /407\s+Proxy Authentication Required|(?:HTTP|Status code|HTTP code)\s*:?\s*407\b|\b407[ \t]+\[IP:/i
           raise Error, "Host helper proxy authentication failed\n#{diagnostic}", cause: nil
-        when /401\s+Unauthorized|(?:HTTP|Status code|HTTP code)\s*:?\s*401\b/i
+        when /401\s+Unauthorized|(?:HTTP|Status code|HTTP code)\s*:?\s*401\b|\b401[ \t]+\[IP:/i
           raise Agent::AuthenticationRequired, diagnostic, cause: nil
-        when /403\s+Forbidden|(?:HTTP|Status code|HTTP code)\s*:?\s*403\b/i
+        when /403\s+Forbidden|(?:HTTP|Status code|HTTP code)\s*:?\s*403\b|\b403[ \t]+\[IP:/i
           raise Error, "Agent repository access denied\n#{diagnostic}", cause: nil
         end
         raise Error, "Agent #{operation} failed\n#{diagnostic}", cause: nil

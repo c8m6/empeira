@@ -20,13 +20,14 @@ RSpec.describe 'Native repository login and subsequent host package download' do
       let(:success) { Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false) }
       let(:copy) { ->(path, destination, _) { files[destination] = File.read(path) } }
       let(:metadata_attempts) { [] }
+      let(:metadata_error) { 'Status code: 401 for https://packages.example.org/metadata' }
       let(:execute) do
         lambda do |arguments|
           calls << arguments
           network = arguments.first == 'dnf' || arguments.include?('update')
           metadata_attempts << arguments if network
           if network && files.values.none? { |text| text.include?('fixture-password') }
-            success.with(exit_status: 1, stderr: 'Status code: 401 for https://packages.example.org/metadata')
+            success.with(exit_status: 1, stderr: metadata_error)
           else
             success.with(stdout: native_output(arguments))
           end
@@ -85,6 +86,52 @@ RSpec.describe 'Native repository login and subsequent host package download' do
                                              'Response: Not provided separately')
           end
           expect(output.string).to be_empty
+        end
+      end
+
+      if manager == 'APT'
+        context 'when APT omits the HTTP reason phrase' do
+          let(:status) { '401' }
+          let(:metadata_error) do
+            <<~OUTPUT
+              E: Failed to fetch https://packages.example.org/apt/dists/noble/main/binary-amd64/Packages  #{status}   [IP: 192.0.2.1 443]
+              E: Some index files failed to download. They have been ignored, or old ones used instead.
+            OUTPUT
+          end
+
+          it 'prompts once and retries the same metadata command with the supplied credentials' do
+            expect(resolver.resolve).to include('version' => '1.2.3-1')
+            expect(output.string.scan('Username:').size).to eq(1)
+            expect(metadata_attempts.first).to eq(metadata_attempts.last)
+            expect(metadata_attempts.size).to eq(2)
+            expect(files.fetch(klass::AUTH_PATH)).to include("login fixture-user\npassword fixture-password\n")
+          end
+
+          { '403' => 'Agent repository access denied', '407' => 'Host helper proxy authentication failed' }
+            .each do |code, message|
+            context "with HTTP #{code}" do
+              let(:status) { code }
+
+              it 'reports the native failure without prompting for repository credentials' do
+                expect { resolver.resolve }.to raise_error(Empeira::Error) do |error|
+                  expect(error.message).to include(message, "#{code}   [IP: 192.0.2.1 443]", 'exit=1')
+                end
+                expect(metadata_attempts.size).to eq(1)
+                expect(output.string).to be_empty
+              end
+            end
+          end
+
+          context 'with an HTTP status in the URL path' do
+            let(:metadata_error) do
+              'E: Failed to fetch https://packages.example.org/401/Packages  404   [IP: 192.0.2.1 443]'
+            end
+
+            it 'does not interpret the path as an authentication failure' do
+              expect { resolver.resolve }.to raise_error(Empeira::Error, /Agent APT metadata acquisition failed/)
+              expect(output.string).to be_empty
+            end
+          end
         end
       end
     end

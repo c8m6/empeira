@@ -94,7 +94,7 @@ class APTRepositoryFixture
     code = body ? '200' : '404'
     code = '401' unless authenticated
     @events << { path: path, authenticated: authenticated, code: code }
-    reason = { '200' => 'OK', '401' => 'Unauthorized', '404' => 'Not Found' }.fetch(code)
+    reason = { '200' => 'OK', '401' => '', '404' => 'Not Found' }.fetch(code)
     [code, reason, code == '200' ? body : 'Synthetic repository request denied']
   end
 end
