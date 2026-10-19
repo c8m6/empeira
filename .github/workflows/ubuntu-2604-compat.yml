@@ -1,0 +1,39 @@
+name: Ubuntu 26.04 compatibility smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/ubuntu-2604-compat.yml'
+      - 'docs/ubuntu-2604-compatibility.md'
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-2604-container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Verify host cgroup hierarchy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs
+      - name: Check Ubuntu 26.04 packaging and noninteractive sudo behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --pull=always ubuntu:26.04 sh -euxc '
+            . /etc/os-release
+            test "$VERSION_ID" = 26.04
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo systemd
+            command -v sudo
+            sudo -n /usr/bin/id -u | grep -qx 0
+            useradd -m empeira-test
+            if su -s /bin/sh empeira-test -c "sudo -n /usr/bin/id -u"; then
+              echo "Unexpected passwordless escalation for non-root user" >&2
+              exit 1
+            fi
+          '
