@@ -137,10 +137,56 @@ RSpec.describe Empeira::ControlPlane::Environment do
     environment.prepare
     directory = app.context.locations.workspace(app.context.workspace).join('environments').children.first
     expect(directory.join('modules/hieradata')).to be_directory
-    expect(directory.join('environment.conf').readlink.to_s).to eq('/empeira-control/environment.conf')
+    expect(directory.join('environment.conf')).not_to be_symlink
+    expect(directory.join('environment.conf').read)
+      .to eq("modulepath = modules:$basemodulepath\nenvironment_timeout = 0\n")
     expect(Pathname(@directory).join('modules')).not_to exist
     environment.cleanup
     expect(directory).not_to exist
     expect(source).to be_directory
+  end
+
+  [nil, '', "# environment_timeout = unlimited\nmodulepath = site:modules:$basemodulepath",
+   "modulepath = site:modules:$basemodulepath\n  environment_timeout = unlimited\nconfig_version = version.sh\n",
+   "environment_timeout = 1h\r\nenvironment_timeout=unlimited\r\n"].each do |original|
+    it "disables caching in an independent copy of #{original.inspect} without Hiera mounts" do
+      source = Pathname(@directory).join('environment.conf')
+      source.write(original) if original
+      Pathname(@directory).join('manifests').mkdir
+      plan = Empeira::ControlPlane::Plan.new(context: app.context)
+      plan.environment.prepare
+      directory = app.context.locations.workspace(app.context.workspace).join('environments').children.first
+      copy = directory.join('environment.conf')
+      expect(copy).not_to be_symlink
+      expect(copy.read).to include('environment_timeout = 0')
+      expect(copy.read).not_to match(/^[ \t]*environment_timeout[ \t]*=[ \t]*(?:unlimited|1h)/)
+      expect(copy.read).to include('modulepath = site:modules:$basemodulepath') if original&.include?('modulepath')
+      expect(copy.read).to include('config_version = version.sh') if original&.include?('config_version')
+      expect(source.read).to eq(original) if original
+      expect(source).not_to exist unless original
+      expect(directory.join('manifests').readlink.to_s).to eq('/empeira-control/manifests')
+      expect(plan.repository_mounts).to all(end_with(',readonly'))
+      inode = copy.stat.ino
+      plan.environment.prepare
+      expect(copy.stat.ino).to eq(inode)
+    end
+  end
+
+  it 'replaces a legacy symlink atomically and refreshes only the managed copy on up' do
+    source = Pathname(@directory).join('environment.conf')
+    source.write("environment_timeout = unlimited\n")
+    plan = Empeira::ControlPlane::Plan.new(context: app.context)
+    plan.environment.prepare
+    directory = app.context.locations.workspace(app.context.workspace).join('environments').children.first
+    copy = directory.join('environment.conf')
+    copy.unlink
+    File.symlink(source, copy)
+    plan.environment.prepare
+    expect(copy).not_to be_symlink
+    expect(source.read).to eq("environment_timeout = unlimited\n")
+    source.write("# updated configuration\nenvironment_timeout = unlimited\n")
+    plan.environment.prepare
+    expect(copy.read).to eq("# updated configuration\nenvironment_timeout = 0\n")
+    expect(source.read).to end_with("environment_timeout = unlimited\n")
   end
 end

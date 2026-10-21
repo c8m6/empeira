@@ -9,7 +9,7 @@ module Empeira
       def initialize(context:, hiera:)
         @project = context.project.path
         @root = root(context)
-        @targets = mount_targets(hiera)
+        @targets = ['environment.conf', *mount_targets(hiera)]
         @modules = Modules::Storage.new(context: context).root if @project.join('Puppetfile').file?
         @targets |= ['modules'] if @modules
         @base = context.locations.workspace(context.workspace).join('environments')
@@ -17,14 +17,11 @@ module Empeira
       end
 
       def mounts
-        return [bind(@project, @root)] if @targets.empty?
-
         [bind(@project, CONTROL), bind(@directory, @root),
          *(@modules ? [bind(@modules, "#{@root}/modules")] : [])]
       end
 
       def prepare
-        return if @targets.empty?
         raise Error, 'Managed environment directory must not be a symlink' if @directory.symlink?
 
         FileUtils.mkdir_p(@directory, mode: 0o755)
@@ -81,11 +78,34 @@ module Empeira
       end
 
       def create_entry(relative, destination)
-        if @targets.any? { |target| target == relative || target.start_with?("#{relative}/") }
+        if relative == 'environment.conf'
+          prepare_configuration(destination)
+        elsif @targets.any? { |target| target == relative || target.start_with?("#{relative}/") }
           create_target(relative, destination)
         else
           create_link(relative, destination)
         end
+      end
+
+      def prepare_configuration(destination)
+        content = environment_configuration
+        return if !destination.symlink? && destination.file? && destination.binread == content
+
+        Tempfile.create('environment-', @directory) do |file|
+          file.chmod(0o644)
+          file.write(content)
+          file.flush
+          File.rename(file.path, destination)
+        end
+      end
+
+      def environment_configuration
+        source = @project.join('environment.conf')
+        content = source.exist? ? source.binread : ''
+        content = content.gsub(/^[ \t]*environment_timeout[ \t]*=[^\r\n]*/, 'environment_timeout = 0')
+        content += "\n" unless content.empty? || content.end_with?("\n")
+        content += "environment_timeout = 0\n" unless content.match?(/^environment_timeout = 0\r?$/)
+        content
       end
 
       def create_target(relative, destination)

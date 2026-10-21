@@ -105,7 +105,8 @@ An optional mount is not permission to ignore unsafe configuration.
 Puppet's [default modulepath](https://help.puppet.com/core/current/Content/PuppetCore/config_file_environment.htm)
 includes the environment's `modules` directory. Empeira checks explicit
 `environment.conf` modulepaths and reports a known exclusion before startup. It
-never rewrites that file. Expressions containing unresolved Puppet variables cannot
+never rewrites the original file. Its managed copy changes only
+`environment_timeout` to zero. Expressions containing unresolved Puppet variables cannot
 be verified completely from the CLI host; ensure the effective server modulepath
 includes the mount destination. Environment mounts can be referenced by ordinary
 relative paths in `hiera.yaml`, such as `data/external` or `external` when the datadir
@@ -117,7 +118,8 @@ an image rebuild, `up`, or a service restart.
 Empeira neither copies their data nor writes probe files into them. It uses a managed
 environment directory containing links to the read-only control repository so nested
 mount targets can exist without modifying control code. Existing control files and
-linked directories remain live. `up` refreshes links for new control entries under
+linked directories remain live; `environment.conf` is an independent copy refreshed
+by `up`. `up` also refreshes links for new top-level control entries and entries under
 projected ancestor directories. EYAML keys remain configured separately in `eyaml`,
 and decryption runs on the server.
 

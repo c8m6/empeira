@@ -49,9 +49,15 @@ RSpec.describe 'Effective server environment configuration', :integration do
           expect(JSON.parse(result.stdout)).to include(hash_including('certname' => 'environment-node'))
         end
 
-        it 'starts and remains idempotent with an explicit environment timeout override without rewriting it' do
-          override = "environment_timeout = unlimited\n"
+        it 'overrides unlimited caching in its own copy and reloads functions without up or a restart' do
+          override = "modulepath = modules:$basemodulepath\nenvironment_timeout = unlimited\n"
           project.join('environment.conf').write(override)
+          function = project.join('modules/cache_fixture/lib/puppet/functions/cache_fixture/value.rb')
+          function.dirname.mkpath
+          function.write("Puppet::Functions.create_function(:'cache_fixture::value') { def value; 'first'; end }\n")
+          project.join('manifests/site.pp').write(
+            "file { '/tmp/environment-value': content => cache_fixture::value() }\n"
+          )
           app.infrastructure.up
           server = service('server')
           reader = [Empeira::ControlPlane::Health::RUBY, Empeira::Server::EnvironmentConfiguration::READER,
@@ -59,8 +65,15 @@ RSpec.describe 'Effective server environment configuration', :integration do
           native = runtime.service_exec(server, reader)
           expect(native).to be_success, native.stderr
           expect(native.stdout).to eq('0')
-          expect(setting(server, 'environment_timeout')).to eq('unlimited')
+          expect(setting(server, 'environment_timeout')).to eq('0')
           expect(project.join('environment.conf').read).to eq(override)
+          app.run_node(hostname: 'override-node', provider: 'container')
+          node = runtime.inspect_service(Empeira::Node::Definition.new(hostname: 'override-node',
+                                                                       workspace: app.context.workspace))
+          expect(runtime.service_exec(node, %w[cat /tmp/environment-value]).stdout).to eq('first')
+          function.write("Puppet::Functions.create_function(:'cache_fixture::value') { def value; 'changed'; end }\n")
+          expect([0, 2]).to include(app.nodes.puppet(name: 'override-node').exit_status)
+          expect(runtime.service_exec(node, %w[cat /tmp/environment-value]).stdout).to eq('changed')
           expect(app.infrastructure.up.changed).to be(false)
           expect(service('server').fetch('id')).to eq(server.fetch('id'))
           expect(project.join('environment.conf').read).to eq(override)
@@ -72,7 +85,7 @@ RSpec.describe 'Effective server environment configuration', :integration do
 
         def setting(server, name)
           result = runtime.service_exec(server, ['/opt/puppetlabs/bin/puppet', 'config', 'print', name,
-                                                 '--section', 'server'])
+                                                 '--section', 'server', '--environment', 'production'])
           expect(result).to be_success
           result.stdout.strip
         end

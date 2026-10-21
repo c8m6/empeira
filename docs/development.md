@@ -512,9 +512,10 @@ Run `EMPEIRA_INTEGRATION=server-environment bundle exec rspec spec/integration/s
 to check native timeout 0, live edits, CA retention, PuppetDB and idempotent up
 under Docker/rootless Podman with the default server and a custom entrypoint
 that ignores timeout environment mapping.
-The same gate verifies startup and idempotent `up` with an explicit
-`environment.conf` timeout override, preserving the file and distinguishing its
-effective value from the native server setting.
+The same gate verifies that an explicit `environment.conf` timeout of `unlimited`
+is zero in the managed copy while the original stays unchanged. It edits a Ruby
+Puppet function between catalogs and checks the changed result without `up` or a
+restart, followed by an idempotent `up`.
 
 Run the isolated diagnostics/recovery gate with each native runtime:
 
