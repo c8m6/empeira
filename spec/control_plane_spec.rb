@@ -424,6 +424,14 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(runtime.calls.none? { |call| call.first == :exec && call.last.include?('DELETE') }).to be(true)
   end
 
+  it 'rejects an effective environment override even when the native setting was already zero' do
+    allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
+      result = method.call(resource, arguments, **options)
+      arguments[1, 3] == %w[config print environment_timeout] ? result.with(stdout: 'unlimited') : result
+    end
+    expect { mutate(controller, :up) }.to raise_error(Empeira::Error, /not 0 after startup/)
+  end
+
   it 'activates the additional resolver only after its service starts and keeps repeated up idle' do
     config = helper_services('resolver').merge(
       'dns' => { 'additional_resolver' => 'resolver.empeira.internal',
@@ -979,7 +987,7 @@ RSpec.describe Empeira::ControlPlane::Controller do
       mutate(sync, :up)
       File.unlink(File.join(@directory, 'Puppetfile'))
       mutate(controller, :up)
-      expect(Empeira::ControlPlane::Plan.new(context: context).repository_mounts.size).to eq(1)
+      expect(Empeira::ControlPlane::Plan.new(context: context).repository_mounts.size).to eq(2)
     end
 
     it 'rejects an explicit modulepath exclusion before synchronization' do

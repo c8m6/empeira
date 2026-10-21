@@ -87,18 +87,22 @@ Managed servers enforce native `[server] environment_timeout = 0` before startup
 and verify the effective setting during `up`, independently of image environment
 variable support. Existing workspaces adopt it on
 their next `up`; run that once after updating from a version that enabled caching.
+Adopting the managed environment copy changes the server mount and recreates its
+container once, retaining CA, SSL and database storage.
 Each catalog request reloads live control code, modules and mounted Hiera data.
 Empeira does not hash these trees,
 persist content checkpoints or call the environment-cache admin API. Code edits
 need neither `up` nor a server restart, including for agents invoked manually.
 Empeira does not enable `use_cached_catalog`.
 
-A repository's own `environment.conf` can override the server timeout; use zero
-for immediate edits. Avoid concurrent edits during a catalog run. Existing files
-and directories in projected environments stay live through read-only links.
-New siblings under ancestors projected for nested Hiera mounts require `up` to
-create their links. `node start` resumes the node without invoking Puppet; Puppet
-services enabled by a catalog may run independently on startup.
+Empeira copies `environment.conf` into its managed environment and sets its timeout
+to zero there, preserving all other settings and the original file. Run `up` to
+refresh this copy after editing other environment settings. Avoid concurrent edits
+during a catalog run. Existing files and directories stay live through read-only
+links. New top-level entries and new siblings under ancestors projected for nested
+Hiera mounts require `up` to create their links. `node start` resumes the node
+without invoking Puppet; Puppet services enabled by a catalog may run independently
+on startup.
 
 ## Distribution package sources
 

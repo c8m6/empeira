@@ -24,16 +24,22 @@ module Empeira
       end
 
       def verify!(resource)
-        return if current(resource) == '0'
+        return if current(resource) == '0' && effective(resource) == '0'
 
         raise Error, 'Puppetserver environment_timeout is not 0 after startup; the custom entrypoint or ' \
-                     'server confdir overrides the managed setting; inspect the server runtime contract'
+                     'server confdir/environment overrides the managed setting; inspect the server runtime contract'
       end
 
       private
 
       def current(resource)
         execute(resource, [ControlPlane::Health::RUBY, READER, '--confdir', confdir]).stdout.strip
+      end
+
+      def effective(resource)
+        arguments = [PUPPET, 'config', 'print', 'environment_timeout', '--section', 'server',
+                     '--confdir', confdir, '--environment', @plan.config.dig('server', 'environment')]
+        execute(resource, arguments).stdout.strip
       end
 
       def execute(resource, arguments)

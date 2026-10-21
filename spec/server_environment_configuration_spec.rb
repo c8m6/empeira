@@ -6,6 +6,7 @@ RSpec.describe Empeira::Server::EnvironmentConfiguration do
   let(:runtime) { instance_double(Empeira::Runtime::Podman) }
   let(:resource) { { 'id' => 'owned-server' } }
   let(:setting) { '0' }
+  let(:effective_setting) { '0' }
   let(:operations) { [] }
   subject(:configuration) { described_class.new(runtime: runtime, plan: plan) }
 
@@ -13,8 +14,26 @@ RSpec.describe Empeira::Server::EnvironmentConfiguration do
     allow(runtime).to receive(:service_exec) do |server, arguments|
       expect(server).to eq(resource)
       operations << arguments
-      Empeira::Execution::Result.new(stdout: arguments[1] == described_class::READER ? setting : '', stderr: '',
+      output = arguments[1] == described_class::READER ? setting : effective_setting
+      Empeira::Execution::Result.new(stdout: output, stderr: '',
                                      exit_status: 0, timed_out: false)
+    end
+  end
+
+  it 'verifies the configured environment as well as the native server setting' do
+    allow(plan).to receive(:config).and_return('server' => { 'environment' => 'development' })
+    configuration.verify!(resource)
+    expect(operations.last).to eq(%w[/opt/puppetlabs/bin/puppet config print environment_timeout
+                                     --section server --confdir /etc/puppetlabs/puppet --environment development])
+  end
+
+  context 'with an environment override despite a zero native timeout' do
+    let(:effective_setting) { 'unlimited' }
+
+    it 'rejects the effective override without restarting an unchanged native setting' do
+      expect(runtime).not_to receive(:stop_service)
+      expect(configuration.reconcile(resource)).to be(false)
+      expect { configuration.verify!(resource) }.to raise_error(Empeira::Error, /not 0 after startup/)
     end
   end
 

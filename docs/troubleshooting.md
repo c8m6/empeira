@@ -148,11 +148,14 @@ problem. A successful probe with different directory listings indicates a
 different engine view of the source. Empeira does not weaken mount checks or
 change host permissions automatically.
 
-An explicit `environment_timeout` in the project's `environment.conf` overrides
-the native server setting. Empeira preserves it. Bare `puppet config print`
-includes that override; server startup and reconciliation verify only the native
-server value. Set the environment override to zero or remove it when immediate
-code reloads are required. No explicit cache invalidation is performed.
+Empeira enforces `environment_timeout = 0` in both the native server setting and
+its independent copy of `environment.conf`. The project's original file remains
+unchanged, even when it specifies `unlimited`. Run `up` after updating Empeira or
+editing other settings in `environment.conf` to refresh the managed copy. Inside
+the server, `puppet config print environment_timeout --section server --environment
+ENVIRONMENT` must report `0` for the configured environment. A different value
+fails startup verification; check the custom server's confdir and environmentpath.
+No explicit cache invalidation is performed.
 
 `config show` includes `effective_hiera_mounts`. A skipped optional source is
 reported during `up`; mount it locally or correct the source path, then run `up`

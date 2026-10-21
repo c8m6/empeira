@@ -184,9 +184,12 @@ there are no implicit database-major migrations or automatic node replacements.
 
 Managed servers disable environment caching through native Puppet configuration
 (`environment_timeout = 0` in `[server]`), applied by the startup wrapper before
-the configured image entrypoint. `up` checks the actual native setting and restarts
-only a server whose setting changed; it preserves every other configuration key
-and retained storage. The configured Puppet confdir must agree with Puppetserver
+the configured image entrypoint. An independent `environment.conf` copy in the
+managed environment enforces zero even when the control repository specifies
+`unlimited`; the original remains unchanged and read-only. `up` refreshes the copy,
+checks both native and selected-environment settings, and restarts only a server
+whose native setting changed. It preserves every other configuration key and
+retained storage. The configured Puppet confdir must agree with Puppetserver
 HOCON `master-conf-dir`. Catalog
 requests reload live code without repository hashes or environment-cache checkpoints.
 See [nodes](nodes.md#environment-cache-and-live-code).

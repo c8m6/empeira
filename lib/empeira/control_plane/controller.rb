@@ -350,10 +350,11 @@ module Empeira
 
       def reconcile_server_environment
         environment = Server::EnvironmentConfiguration.new(runtime: @runtime, plan: @plan)
-        return unless environment.reconcile(@observed.fetch('server'))
+        if environment.reconcile(@observed.fetch('server'))
+          @changed = true
+          @health.wait('server', @observed)
+        end
 
-        @changed = true
-        @health.wait('server', @observed)
         environment.verify!(@observed.fetch('server'))
       end
 
