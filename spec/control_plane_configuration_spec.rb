@@ -81,7 +81,7 @@ RSpec.describe 'Control-plane configuration and service contracts' do
     'server.environment' => { 'server' => { 'environment' => '../bad' } },
     'hiera.mounts.0.source' => { 'hiera' => { 'mounts' => [{ 'source' => 'absent', 'type' => 'module',
                                                              'name' => 'data', 'required' => true }] } },
-    'proxy.dns_servers' => { 'proxy' => { 'dns_servers' => ['resolver;bad'] } }
+    'proxy.nodes.dns_servers' => { 'proxy' => { 'nodes' => { 'dns_servers' => ['resolver;bad'] } } }
   }.each do |path, config|
     it "rejects invalid #{path} with its complete configuration path" do
       expect { plan(config).definitions }.to raise_error(Empeira::ConfigurationError, /#{Regexp.escape(path)}/)
@@ -92,14 +92,15 @@ RSpec.describe 'Control-plane configuration and service contracts' do
    'UPPER.example', '.example.org', 'example..org', '*.empeira.internal'].each do |domain|
     it "rejects unsafe allowlist input #{domain.inspect}" do
       expect do
-        plan('proxy' => { 'global' => [domain] })
-      end.to raise_error(Empeira::ConfigurationError, /proxy.global/)
+        plan('proxy' => { 'nodes' => { 'global' => [domain] } })
+      end.to raise_error(Empeira::ConfigurationError, /proxy.nodes.global/)
     end
   end
 
   it 'renders exact domains and explicitly requested domain families with deny-by-default proxy rules' do
-    config = plan('proxy' => { 'enabled' => true,
-                               'global' => ['example.org', '*.example.net'] }).config['proxy']
+    config = plan('proxy' => { 'nodes' => { 'enabled' => true,
+                                            'global' => ['example.org',
+                                                         '*.example.net'] } }).config.dig('proxy', 'nodes')
     policy = Empeira::Network::ProxyPolicy.new(config).configuration +
              Empeira::Network::ProxyPolicy.domain_rules(config.fetch('global')).join("\n")
     expect(policy).to include('dstdomain -n example.org .example.net', 'http_access deny CONNECT !SSL_ports',
@@ -134,11 +135,11 @@ RSpec.describe 'Control-plane configuration and service contracts' do
     expect(ranges.any? { |range| range.include?(IPAddr.new('::ffff:198.18.121.2').native) }).to be(false)
   end
 
-  it 'adds proxy variables only to server traffic with complete internal bypass names' do
-    definitions = plan('proxy' => { 'enabled' => true }).definitions
+  it 'configures infrastructure proxy variables independently of node access' do
+    definitions = plan('proxy' => { 'infrastructure' => { 'enabled' => true } }).definitions
     env = definitions['server'].options['environment']
     expect(env['HTTPS_PROXY']).to eq('http://proxy.empeira.internal:3128')
     expect(env['NO_PROXY']).to include('server', 'puppetdb', 'postgres', '.empeira.internal', 'localhost')
-    expect(definitions['postgres'].options['environment']).not_to have_key('HTTP_PROXY')
+    expect(definitions['postgres'].options['environment']['HTTP_PROXY']).to eq(env['HTTP_PROXY'])
   end
 end

@@ -102,16 +102,25 @@ Every peer uses the owned gateway as its IPv4 default route. Only the gateway ha
 an external uplink; DNS, proxies, server, database and nodes stay isolated.
 The fixed browser UI relay has a separate loopback access path with forwarding off.
 
-`network.egress` grants destination IPv4/TCP-port pairs:
+`network.egress.nodes` and `network.egress.infrastructure` grant destination
+IPv4/TCP-port pairs independently:
 
 ```yaml
 network:
   egress:
-    - host: repository.example.net
-      ports: [443]
-    - ip: 203.0.113.10
-      ports: [443, 8443]
+    nodes:
+      - host: repository.example.net
+        ports: [443]
+      - ip: 203.0.113.10
+        ports: [443, 8443]
+    infrastructure: []
 ```
+
+The gateway restricts node grants to the reserved VM/container node address ranges
+and infrastructure grants to its separate runtime allocation pool. Both directions
+of direct connections are source-bound. The shared workspace subnet is never used
+as a blanket source for direct grants. Custom gateway images must advertise
+`scoped-egress-v1`; an older image fails closed before receiving external access.
 
 Entries have exactly one `host` or `ip`. Hostnames match exactly, without wildcards;
 `up` resolves every current A record and replaces the complete policy. IP selectors
@@ -128,9 +137,9 @@ CoreDNS alone receives TCP/UDP 53 to its selected resolvers. Proxies alone recei
 TCP 80/443 and enforce their destination allowlists. Normal proxy allow rules apply
 regardless of target IP range; the temporary authenticated bootstrap proxy retains
 its separate private/reserved-address restrictions.
-`proxy.global` does not grant direct egress. Applications choose DIRECT/proxy using
+`proxy.nodes.global` does not grant direct egress. Applications choose DIRECT/proxy using
 their own settings and `NO_PROXY`; direct/proxy selection has no automatic fallback.
-Both explicit hostnames and IPv4 selectors from `network.egress` are included in
+Both explicit hostnames and IPv4 selectors are included only in their own scope's
 normal proxy bypass settings. The gateway still permits only their configured TCP ports.
 See [proxy policy](proxy.md) for hostname rules and bootstrap destinations.
 

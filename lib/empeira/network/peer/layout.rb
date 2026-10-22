@@ -28,6 +28,14 @@ module Empeira
           "#{address(128)}/25"
         end
 
+        def egress_sources(scope)
+          case scope
+          when 'nodes' then ["#{address(32)}/27", "#{address(64)}/26"]
+          when 'infrastructure' then [container_pool]
+          else raise Error, 'Unknown direct-egress scope'
+          end
+        end
+
         def lease(nodes)
           used = nodes.values.filter_map { |record| record.dig('peer', 'ip') }
           ip = (32..95).map { |offset| address(offset) }.find { |candidate| !used.include?(candidate) }

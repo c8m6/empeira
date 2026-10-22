@@ -37,7 +37,7 @@ RSpec.describe 'Real node runtime management', :integration do
     @config = { 'puppetdb' => { 'enabled' => false },
                 'vm' => { 'disk' => 30,
                           'interfaces' => [{ 'hosts' => ['RUNTIME-*.EXAMPLE.TEST'], 'devices' => devices }] },
-                'proxy' => { 'enabled' => true, 'global' => destinations } }
+                'proxy' => { 'nodes' => { 'enabled' => true, 'global' => destinations } } }
     write_configuration
     @runtime = Empeira::Runtime.registry.build(engine_name, context: app.context, runner: app.runner)
     @runtime.check_available!
@@ -89,11 +89,11 @@ RSpec.describe 'Real node runtime management', :integration do
       expect(guest(%w[tree --version])).to be_success
       verify_interactive_tools
       expect(app.nodes.puppet(name: hostname).exit_status).to eq(0)
-      @config['proxy']['enabled'] = false
+      @config['proxy']['nodes']['enabled'] = false
       write_configuration
       app.infrastructure.up
       expect(guest(['test', '!', '-e', Empeira::RuntimeProxyGuest::APT_PATH])).to be_success
-      @config['proxy']['enabled'] = true
+      @config['proxy']['nodes']['enabled'] = true
       write_configuration
       app.infrastructure.up
       expect(guest(%w[apt-get update])).to be_success

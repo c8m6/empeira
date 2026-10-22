@@ -116,10 +116,7 @@ module Empeira
         bindings = Network::ProxyBindings.new(context: @context, resources: resources, network: network, nodes: nodes)
         # The workspace parent is private; Squid's mapped service user must read the bind mount.
         rules_changed = write('proxy-rules.conf', bindings.configuration)
-        allowed = proxy_allowed(nodes)
-        addresses = resources.slice(*allowed).values.filter_map do |resource|
-          resource&.dig('networks', network, 'IPAddress')
-        end
+        addresses = bindings.addresses
         clients_changed = write('proxy-clients', "#{(['127.0.0.1/32'] + addresses.reject(&:empty?).sort).join("\n")}\n")
         rules_changed || clients_changed
       end
@@ -129,10 +126,6 @@ module Empeira
           [name, File.binread(path(name))]
         end
         Infrastructure::Definition.fingerprint(content)
-      end
-
-      def proxy_allowed(nodes)
-        ['server', *nodes.keys]
       end
 
       private

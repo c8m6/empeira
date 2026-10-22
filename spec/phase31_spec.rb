@@ -24,8 +24,8 @@ RSpec.describe 'Phase 3.1 operational contracts' do
       .to raise_error(Empeira::ConfigurationError, /images.dns.tag/)
     expect { configuration('dns' => { 'upstream' => { 'mode' => 'explicit' } }) }
       .to raise_error(Empeira::ConfigurationError, /dns.upstream.servers/)
-    expect { configuration('proxy' => { 'dns_servers' => ['1.1.1.1'] }) }
-      .to raise_error(Empeira::ConfigurationError, /proxy.dns_servers/)
+    expect { configuration('proxy' => { 'nodes' => { 'dns_servers' => ['1.1.1.1'] } }) }
+      .to raise_error(Empeira::ConfigurationError, /proxy.nodes.dns_servers/)
   end
 
   it 'discovers corporate resolvers and resolves Linux stub configuration without a public fallback' do

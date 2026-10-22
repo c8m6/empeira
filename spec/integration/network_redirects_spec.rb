@@ -36,7 +36,8 @@ RSpec.describe 'Transparent TCP redirects', :integration do
         @app.run_node(hostname: 'vm-redirect', provider: 'vm') if ENV['EMPEIRA_REDIRECT_VM'] == '1'
         before = redirect_state
         @config['network'] = { 'redirects' => [rule(@original_ip), rule('192.0.2.8', target_port: 8082)],
-                               'egress' => [{ 'ip' => @original_ip, 'ports' => [8080] }] }
+                               'egress' => { 'nodes' => [{ 'ip' => @original_ip, 'ports' => [8080] }],
+                                             'infrastructure' => [{ 'ip' => @original_ip, 'ports' => [8080] }] } }
         reconcile_redirects
         granted_server = redirect_state.dig('control_plane', 'services', 'server')
         expect(granted_server).not_to eq(before.dig('control_plane', 'services', 'server'))
@@ -47,7 +48,7 @@ RSpec.describe 'Transparent TCP redirects', :integration do
         recreate_redirect_target
         expect(redirect_state.dig('control_plane', 'services', 'server')).to eq(granted_server)
         check_redirect(@original_ip)
-        @config['network']['egress'] = []
+        @config['network']['egress'] = { 'nodes' => [], 'infrastructure' => [] }
         @config['network']['redirects'] = [rule(@original_ip, target_port: 8082), rule('192.0.2.9', source_port: 8083)]
         reconcile_redirects
         revoked_server = redirect_state.dig('control_plane', 'services', 'server')

@@ -88,10 +88,11 @@ RSpec.describe 'Real control-plane integration', :integration do
       it 'allows selected HTTP and HTTPS domains at private IPs while denying other domains and direct egress' do
         @fixture = ProxyFixture.new(app: app, runtime: runtime, directory: @directory)
         @fixture.start
-        config = { 'proxy' => { 'enabled' => true,
-                                'global' => %w[allowed.test private.test],
-                                'rules' => [{ 'hosts' => ['*-web-*'], 'allow' => ['denied.test'] }] },
+        config = { 'proxy' => { 'nodes' => { 'enabled' => true,
+                                             'global' => %w[allowed.test private.test],
+                                             'rules' => [{ 'hosts' => ['*-web-*'], 'allow' => ['denied.test'] }] } },
                    'dns' => { 'upstream' => { 'mode' => 'explicit', 'servers' => [@fixture.dns_address] } } }
+        config['proxy']['infrastructure'] = { 'enabled' => true, 'allow' => %w[allowed.test private.test] }
         File.write(File.join(project, '.empeira.yaml'), YAML.dump(config))
         configured = Empeira::Application.new(project_path: project, locations: locations,
                                               overrides: { 'runtime' => { 'container_engine' => engine } })
@@ -139,7 +140,7 @@ RSpec.describe 'Real control-plane integration', :integration do
                                             'exit(Resolv.getaddresses("allowed.test").empty? ? 1 : 0)'])
         expect(dns).to be_success
         ids = %w[server puppetdb postgres dns proxy].to_h { |key| [key, service(key).fetch('id')] }
-        config['proxy']['global'] << 'also.test'
+        config['proxy']['nodes']['global'] << 'also.test'
         File.write(File.join(project, '.empeira.yaml'), YAML.dump(config))
         current = Empeira::Application.new(project_path: project, locations: locations,
                                            overrides: { 'runtime' => { 'container_engine' => engine } })
@@ -170,8 +171,38 @@ RSpec.describe 'Real control-plane integration', :integration do
                                        https://allowed.test]).stdout).to eq('fixture')
         expect(runtime.service_exec(plain,
                                     %w[curl --silent --fail --max-time 3 --noproxy * http://1.1.1.1])).not_to be_success
+        verify_scope_switches(config, online, curl, engine)
         configured.nodes.destroy(name: 'lab-web-1-01.test')
-        configured.nodes.destroy(name: 'offline-node')
+        configured.nodes.destroy(name: 'plain-node')
+      end
+
+      def configure_proxy_scopes(config, engine, nodes:, infrastructure:)
+        config['proxy']['nodes']['enabled'] = nodes
+        config['proxy']['infrastructure']['enabled'] = infrastructure
+        File.write(File.join(project, '.empeira.yaml'), YAML.dump(config))
+        current = Empeira::Application.new(project_path: project, locations: locations,
+                                           overrides: { 'runtime' => { 'container_engine' => engine } })
+        current.infrastructure.up
+        current
+      end
+
+      def proxy_status(resource, curl, url)
+        runtime.service_exec(resource, [*curl, '--output', '/dev/null', '--write-out', '%{http_code}', url]).stdout
+      end
+
+      # rubocop:disable-next Metrics/AbcSize -- Check both scopes against the running server, node and Squid.
+      def verify_scope_switches(config, node, curl, engine)
+        configure_proxy_scopes(config, engine, nodes: true, infrastructure: false)
+        expect(runtime.service_exec(service('server'), %w[env]).stdout).not_to include('http://proxy.empeira.internal')
+        expect(proxy_status(service('server'), curl, 'http://allowed.test')).to eq('403')
+        expect(proxy_status(node, curl, 'http://allowed.test')).to eq('200')
+        current = configure_proxy_scopes(config, engine, nodes: false, infrastructure: true)
+        expect(proxy_status(node, curl, 'http://allowed.test')).to eq('403')
+        expect(proxy_status(service('server'), curl, 'http://private.test')).to eq('200')
+        expect(Empeira::Node::RuntimeProxy.command(current.context, ['puppet'])).to include('HTTP_PROXY=')
+        current = configure_proxy_scopes(config, engine, nodes: false, infrastructure: false)
+        expect(service('proxy')).to be_nil
+        expect(Empeira::ControlPlane::Plan.new(context: current.context).node_proxy_environment).to be_empty
       end
 
       # rubocop:disable-next Metrics/AbcSize -- Check real helper API access, UI and isolated attachments together.

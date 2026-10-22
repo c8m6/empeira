@@ -62,7 +62,7 @@ RSpec.describe 'Update plane' do
   end
 
   it 'ignores workspace proxy policy and avoids a helper on up with unchanged available modules' do
-    config = { 'proxy' => { 'enabled' => true, 'global' => ['denied.example'] } }
+    config = { 'proxy' => { 'nodes' => { 'enabled' => true, 'global' => ['denied.example'] } } }
     File.write(File.join(@directory, '.empeira.yaml'), YAML.dump(config))
     app.updates.update('modules')
     expect(@installer).not_to receive(:synchronize)

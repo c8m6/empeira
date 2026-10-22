@@ -26,7 +26,7 @@ RSpec.describe 'Real DNF runtime proxy', :integration do
     version = ENV.fetch('EMPEIRA_DNF_GUEST_VERSION', '9')
     guest = app.context.configuration.dig('bootstrap', 'guests', os, version)
     @config = { 'puppetdb' => { 'enabled' => false }, 'node_defaults' => { 'os' => os, 'version' => version },
-                'proxy' => { 'enabled' => true, 'global' => guest.fetch('destinations') } }
+                'proxy' => { 'nodes' => { 'enabled' => true, 'global' => guest.fetch('destinations') } } }
     write_configuration
     architecture = Empeira::VM::ImageSource::ARCHITECTURES.fetch(app.context.platform.architecture.to_s)
     @baseurl = "#{guest.fetch('baseurl')}/BaseOS/#{architecture}/os/"
@@ -68,11 +68,11 @@ RSpec.describe 'Real DNF runtime proxy', :integration do
       app.nodes.stop(name: hostname)
       app.nodes.start(name: hostname)
       expect(guest(['dnf', '--disablerepo=*', '--enablerepo=runtime-dnf-test', 'makecache'])).to be_success
-      @config['proxy']['enabled'] = false
+      @config['proxy']['nodes']['enabled'] = false
       write_configuration
       app.infrastructure.up
       expect(guest(%w[cat /etc/dnf/dnf.conf]).stdout).not_to include('proxy=http://proxy.empeira.internal:3128')
-      @config['proxy']['enabled'] = true
+      @config['proxy']['nodes']['enabled'] = true
       write_configuration
       app.infrastructure.up
       expect(guest(['sh', '-c', 'sha256sum /etc/yum.repos.d/*.repo']).stdout).to eq(sources)

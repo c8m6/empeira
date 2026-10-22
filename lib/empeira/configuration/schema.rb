@@ -20,8 +20,10 @@ module Empeira
                       'environment' => :environment,
                       'memory' => :positive_integer, 'cpus' => :positive_integer, 'timeout' => :positive_integer },
         'puppetdb' => { 'enabled' => :boolean, 'memory' => :positive_integer, 'runtime' => :puppetdb_runtime },
-        'network' => { 'egress' => :network_egress, 'redirects' => :network_redirects },
-        'proxy' => { 'enabled' => :boolean, 'global' => :allowlist, 'rules' => :proxy_rules },
+        'network' => { 'egress' => { 'nodes' => :network_egress, 'infrastructure' => :network_egress },
+                       'redirects' => :network_redirects },
+        'proxy' => { 'nodes' => { 'enabled' => :boolean, 'global' => :allowlist, 'rules' => :proxy_rules },
+                     'infrastructure' => { 'enabled' => :boolean, 'allow' => :allowlist } },
         'vm' => { 'disk' => :vm_disk, 'interfaces' => :vm_interfaces,
                   'console' => { 'root_password' => :optional_string } },
         'dns' => { 'upstream' => { 'mode' => :dns_mode, 'servers' => :dns_servers },
@@ -116,11 +118,34 @@ module Empeira
       end
 
       def validate_fragment!(data)
+        validate_scope_migration!(data)
         validate_mapping!(data, RULES, [])
         data
       end
 
       private
+
+      def validate_scope_migration!(data)
+        return unless data.is_a?(Hash)
+
+        validate_proxy_scope_migration!(data['proxy'])
+        network = data['network']
+        validate_egress_scope_migration!(network['egress']) if network.is_a?(Hash)
+      end
+
+      def validate_proxy_scope_migration!(proxy)
+        return unless proxy.is_a?(Hash) && proxy.keys.intersect?(%w[enabled global rules])
+
+        raise ConfigurationError, 'Shared proxy settings have moved to proxy.nodes; configure ' \
+                                  'proxy.infrastructure separately'
+      end
+
+      def validate_egress_scope_migration!(egress)
+        return unless egress.is_a?(Array) || (egress.is_a?(Hash) && egress.key?('mode'))
+
+        raise ConfigurationError, 'Shared network.egress grants must be moved explicitly to ' \
+                                  'network.egress.nodes or network.egress.infrastructure'
+      end
 
       def validate_operational!(data)
         validate_images!(data.fetch('images'))

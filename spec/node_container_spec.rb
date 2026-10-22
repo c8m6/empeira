@@ -86,7 +86,7 @@ RSpec.describe Empeira::Node::Container do
   context 'with the normal workspace proxy enabled' do
     let(:app) do
       File.write(File.join(@directory, '.empeira.yaml'),
-                 YAML.dump('proxy' => { 'enabled' => true, 'global' => ['packages.example'] }))
+                 YAML.dump('proxy' => { 'nodes' => { 'enabled' => true, 'global' => ['packages.example'] } }))
       Empeira::Application.new(project_path: @directory,
                                locations: Empeira::Platform::Locations.new(
                                  home: File.join(@directory, 'user-home'), environment: {}
@@ -108,7 +108,7 @@ RSpec.describe Empeira::Node::Container do
       id = store.load.dig('nodes', request.hostname, 'id')
       expect(provider.start(name: request.hostname).changed).to be(false)
       store.with_lock { expect(provider.reconcile_all(state: store.load)).to be(false) }
-      File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'enabled' => false }))
+      File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'nodes' => { 'enabled' => false } }))
       context = app.context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
       disabled = described_class.new(context: context, runner: app.runner, backend: runtime)
       store.with_lock { expect(disabled.reconcile_all(state: store.load)).to be(true) }

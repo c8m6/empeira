@@ -27,8 +27,7 @@ module Empeira
       end
 
       def proxy?
-        egress = config.dig('network', 'egress')
-        config.dig('proxy', 'enabled') || (egress.is_a?(Hash) && egress['mode'] == 'proxy')
+        %w[nodes infrastructure].any? { |scope| config.dig('proxy', scope, 'enabled') }
       end
 
       def database?
@@ -63,7 +62,7 @@ module Empeira
       def additional_services(common = {})
         config.dig('containers', 'additional').each_with_index.to_h do |entry, index|
           options = { image: image_reference(entry.fetch('image')), memory: 256,
-                      environment: proxy_environment_for('').merge(entry.fetch('environment', {})),
+                      environment: infrastructure_proxy_environment.merge(entry.fetch('environment', {})),
                       command: entry.fetch('command', []) }
           location = "containers.additional[#{index}].configuration"
           generated = additional_configurations.options(entry, mounts: common.fetch(:mounts, []), location: location)
@@ -175,9 +174,9 @@ module Empeira
       end
 
       def node_proxy_environment
-        return {} unless proxy?
+        return {} unless config.dig('proxy', 'nodes', 'enabled')
 
-        proxy_environment_for("http://#{naming.hostname('proxy')}:3128")
+        proxy_environment_for("http://#{naming.hostname('proxy')}:3128", scope: 'nodes')
       end
 
       private
@@ -209,9 +208,10 @@ module Empeira
       def database_services(common)
         return {} unless database?
 
-        { 'postgres' => service('postgres', **common, **postgres),
-          'puppetdb-backend' => service('puppetdb-backend', **common, **puppetdb),
-          'puppetdb' => service('puppetdb', **common, **puppetdb_relay(dns: common[:dns])) }
+        options = common.merge(environment: infrastructure_proxy_environment)
+        { 'postgres' => service('postgres', **options, **postgres),
+          'puppetdb-backend' => service('puppetdb-backend', **options, **puppetdb),
+          'puppetdb' => service('puppetdb', **options, **puppetdb_relay(dns: common[:dns])) }
       end
 
       def server
@@ -271,15 +271,16 @@ module Empeira
           reports: database? ? 'puppetdb' : 'log',
           # Upstream entrypoints otherwise rewrite puppetdb.conf from their default URL.
           puppetdb_server_urls: ''
-        ).merge(proxy_environment)
+        ).merge(infrastructure_proxy_environment)
       end
 
-      def proxy_environment
-        proxy_environment_for(proxy? ? "http://#{naming.hostname('proxy')}:3128" : '')
+      def infrastructure_proxy_environment
+        enabled = config.dig('proxy', 'infrastructure', 'enabled')
+        proxy_environment_for(enabled ? "http://#{naming.hostname('proxy')}:3128" : '', scope: 'infrastructure')
       end
 
-      def proxy_environment_for(url)
-        bypass = Network::DirectEgress.destinations(config.dig('network', 'egress'))
+      def proxy_environment_for(url, scope:)
+        bypass = Network::DirectEgress.destinations(config.dig('network', 'egress', scope))
         no_proxy = naming.no_proxy(bypass)
         { 'http_proxy' => url, 'https_proxy' => url, 'HTTP_PROXY' => url, 'HTTPS_PROXY' => url,
           'all_proxy' => '', 'ALL_PROXY' => '', 'no_proxy' => no_proxy, 'NO_PROXY' => no_proxy }
@@ -289,7 +290,8 @@ module Empeira
         { image: image_reference(config.dig('images', 'postgres')), memory: 256,
           env_file: files.secret_path,
           configuration: files.configuration.fetch('database-setup.sql'),
-          environment: { 'POSTGRES_USER' => 'postgres', 'POSTGRES_DB' => 'puppetdb' },
+          environment: infrastructure_proxy_environment.merge('POSTGRES_USER' => 'postgres',
+                                                              'POSTGRES_DB' => 'puppetdb'),
           mounts: [storage('postgres-data', '/var/lib/postgresql/data'),
                    bind(files.path('database-setup.sql'), '/empeira/setup.sql')],
           command: ['postgres', '-c', 'shared_buffers=64MB', '-c', 'max_connections=50'] }

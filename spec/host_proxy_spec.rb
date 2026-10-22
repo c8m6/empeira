@@ -24,19 +24,21 @@ RSpec.describe Empeira::Network::HostPolicy do
 
   it 'rejects malformed host globs and unsafe destination syntax with complete paths' do
     expect { described_class.validate!([{ 'hosts' => ['*'], 1 => [] }]) }
-      .to raise_error(Empeira::ConfigurationError, /proxy.rules.0 requires hosts and allow arrays/)
+      .to raise_error(Empeira::ConfigurationError, /proxy.nodes.rules.0 requires hosts and allow arrays/)
     ['UPPER-*', '[ab]*', 'host/other', 'a|b', '', "a\nb"].each do |pattern|
       expect { described_class.validate!([{ 'hosts' => [pattern], 'allow' => [] }]) }
-        .to raise_error(Empeira::ConfigurationError, /proxy.rules.0.hosts/)
+        .to raise_error(Empeira::ConfigurationError, /proxy.nodes.rules.0.hosts/)
     end
     %w[https://github.com github.com/path 10.0.0.1 github.com:443].each do |domain|
       expect { described_class.validate!([{ 'hosts' => ['*'], 'allow' => [domain] }]) }
-        .to raise_error(Empeira::ConfigurationError, /proxy.rules.0.allow/)
+        .to raise_error(Empeira::ConfigurationError, /proxy.nodes.rules.0.allow/)
     end
   end
 
   it 'binds container policies to source addresses and VM policies to their leased source addresses' do
-    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => config))
+    scopes = { 'nodes' => config.merge('enabled' => true),
+               'infrastructure' => { 'enabled' => true, 'allow' => config.fetch('global').dup } }
+    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => scopes))
     app = Empeira::Application.new(project_path: @directory,
                                    locations: Empeira::Platform::Locations.new(
                                      home: File.join(@directory, 'user-home'), environment: {}

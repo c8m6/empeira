@@ -11,7 +11,7 @@ RSpec.describe Empeira::Node::RuntimeProxy do
   after { cleanup_runtime_proxy_guests }
 
   it 'persists intent and reconciles enabled and disabled policy idempotently' do
-    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'enabled' => true }))
+    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'nodes' => { 'enabled' => true } }))
     record = {}
     snapshots = []
     execute = ->(arguments) { runtime_proxy_result(arguments, 'synthetic-node') }
@@ -21,7 +21,7 @@ RSpec.describe Empeira::Node::RuntimeProxy do
     expect(snapshots.first.fetch('runtime_proxy')).to have_key('previous')
     expect(described_class.valid_inventory?(record.fetch('runtime_proxy'))).to be(true)
     expect(proxy.reconcile).to be(false)
-    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'enabled' => false }))
+    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'nodes' => { 'enabled' => false } }))
     disabled = context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
     proxy = described_class.new(context: disabled, record: record, execute: execute, persist: persist)
     expect(proxy.reconcile).to be(true)
@@ -38,9 +38,9 @@ RSpec.describe Empeira::Node::RuntimeProxy do
 
   it 'preserves internal and explicit direct-egress bypasses in all managed process environments' do
     File.write(File.join(@directory, '.empeira.yaml'),
-               YAML.dump('proxy' => { 'enabled' => true },
-                         'network' => { 'egress' => [{ 'host' => 'direct.example', 'ports' => [80] },
-                                                     { 'ip' => '192.0.2.20', 'ports' => [443] }] }))
+               YAML.dump('proxy' => { 'nodes' => { 'enabled' => true } },
+                         'network' => { 'egress' => { 'nodes' => [{ 'host' => 'direct.example', 'ports' => [80] },
+                                                                  { 'ip' => '192.0.2.20', 'ports' => [443] }] } }))
     command = described_class.command(context, ['puppet'])
     expect(command).to include('HTTP_PROXY=http://proxy.empeira.internal:3128',
                                'https_proxy=http://proxy.empeira.internal:3128')

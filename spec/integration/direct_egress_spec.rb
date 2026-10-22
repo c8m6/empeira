@@ -11,6 +11,7 @@ RSpec.describe 'Direct egress gateway', :integration do
           ENV['EMPEIRA_INTEGRATION'] == 'direct-egress'
 
         initialize_project(project)
+        @probes = []
         write_config([])
         @app = application(engine)
         @runtime = Empeira::Runtime.registry.build(engine, context: @app.context, runner: @app.runner)
@@ -22,10 +23,34 @@ RSpec.describe 'Direct egress gateway', :integration do
       end
 
       after do
-        @runtime.remove_service(@probe_definition, expected_id: @probe_id) if @probe_definition
+        @probes&.reverse_each { |definition, id| @runtime.remove_service(definition, expected_id: id) }
         @runtime.remove_service(@target_definition, expected_id: @target_id) if @target_definition
       ensure
         (@active_app || @app)&.infrastructure&.destroy
+      end
+
+      it 'separates node source ranges from infrastructure and revokes the former grants on scope changes' do
+        @app.infrastructure.up
+        target_ip = start_target
+        write_config([], nodes: [{ 'ip' => target_ip, 'ports' => [8443] }])
+        @active_app = application(engine)
+        @active_app.infrastructure.up
+        plan = Empeira::ControlPlane::Plan.new(context: @active_app.context)
+        state = Empeira::Infrastructure::Store.new(context: @active_app.context).load
+        infrastructure = start_probe(plan, state)
+        node_sources = [32, 96].map { |offset| start_probe(plan, state, offset: offset) }
+        node_sources.each do |node|
+          expect(tcp_probe(@runtime, node, target_ip, 8443, success: true)).to be_success
+        end
+        expect(tcp_probe(@runtime, infrastructure, target_ip, 8443, success: false)).to be_success
+        write_config([{ 'ip' => target_ip, 'ports' => [8444] }])
+        @active_app = application(engine)
+        @active_app.infrastructure.up
+        node_sources.each do |node|
+          expect(tcp_probe(@runtime, node, target_ip, 8443, success: false)).to be_success
+          expect(tcp_probe(@runtime, node, target_ip, 8444, success: false)).to be_success
+        end
+        expect(tcp_probe(@runtime, infrastructure, target_ip, 8444, success: true)).to be_success
       end
 
       it 'permits only the configured TCP port through the common Docker/Podman plan' do
@@ -66,9 +91,10 @@ RSpec.describe 'Direct egress gateway', :integration do
                                  overrides: { 'runtime' => { 'container_engine' => engine } })
       end
 
-      def write_config(egress)
+      def write_config(egress, nodes: [])
         File.write(File.join(project, '.empeira.yaml'),
-                   YAML.dump('puppetdb' => { 'enabled' => false }, 'network' => { 'egress' => egress }))
+                   YAML.dump('puppetdb' => { 'enabled' => false },
+                             'network' => { 'egress' => { 'infrastructure' => egress, 'nodes' => nodes } }))
       end
 
       def start_target
@@ -89,15 +115,16 @@ RSpec.describe 'Direct egress gateway', :integration do
                 .dig('networks', egress.backend_name, 'IPAddress')
       end
 
-      def start_probe(plan, state)
+      def start_probe(plan, state, offset: nil)
         image = plan.gateway_artifact.fetch(:image)
         subnet = state.fetch('peer_network').fetch('subnet')
         @probe_definition = Empeira::Services::Definition.new(
-          key: 'gateway-probe', workspace: @app.context.workspace, image: image,
-          network: plan.network, memory: 32, entrypoint: 'sleep', command: ['infinity'], cap_drop: ['ALL']
+          key: "gateway-probe-#{offset || 'infra'}", workspace: @app.context.workspace, image: image,
+          network: plan.network, runtime_ip: offset && Empeira::Network::Peer::Layout.new(subnet).address(offset),
+          memory: 32, entrypoint: 'sleep', command: ['infinity'], cap_drop: ['ALL']
         )
         probe = @runtime.create_service(@probe_definition)
-        @probe_id = probe.fetch('id')
+        @probes << [@probe_definition, probe.fetch('id')]
         @runtime.start_service(probe)
         @runtime.configure_workspace_route(probe, gateway: Empeira::Network::Gateway.address(subnet), image: image)
         probe

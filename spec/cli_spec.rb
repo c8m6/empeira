@@ -55,11 +55,11 @@ RSpec.describe Empeira::CLI::Main do
   it 'documents SSH as an explicit command and retains full validation for existing-resource access' do
     expect(cli('node', 'help').stdout).to include('ssh HOSTNAME', 'shell HOSTNAME')
     File.write(File.join(@directory, '.empeira.yaml'),
-               YAML.dump('proxy' => { 'global' => ['https://invalid.example'] }))
+               YAML.dump('proxy' => { 'nodes' => { 'global' => ['https://invalid.example'] } }))
     %w[shell console ssh logs list stop].each do |operation|
       args = ['node', operation]
       args << 'test-node' unless operation == 'list'
-      expect(cli(*args).stderr).to include('proxy.global')
+      expect(cli(*args).stderr).to include('proxy.nodes.global')
     end
     expect(cli('node', 'destroy', 'test-node')).to be_success
   end
@@ -242,7 +242,7 @@ RSpec.describe Empeira::CLI::Main do
   it 'explains additive proxy policy without requiring a running node' do
     proxy = { 'enabled' => true, 'global' => ['forgeapi.puppet.com'],
               'rules' => [{ 'hosts' => ['*-web-*'], 'allow' => ['github.com'] }] }
-    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => proxy))
+    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'nodes' => proxy }))
     result = cli('proxy', 'show', 'LAB-web-1-01.example')
     expect(result).to be_success
     expect(result.stdout).to include('lab-web-1-01.example', 'Global:', 'Matched rules:',

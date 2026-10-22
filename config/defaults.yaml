@@ -50,12 +50,18 @@ puppetdb:
       bootstrap_config: /etc/puppetlabs/puppetdb/bootstrap.cfg
       data: /opt/puppetlabs/server/data/puppetdb
 network:
-  egress: []
+  egress:
+    nodes: []
+    infrastructure: []
   redirects: []
 proxy:
-  enabled: false
-  global: []
-  rules: []
+  nodes:
+    enabled: false
+    global: []
+    rules: []
+  infrastructure:
+    enabled: false
+    allow: []
 vm:
   disk: 30
   interfaces: []

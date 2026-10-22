@@ -98,6 +98,7 @@ class ServiceRuntime
     calls << [:reload, resource.fetch('id'), signal]
   end
 
+  # rubocop:disable-next Metrics/CyclomaticComplexity -- Model independent native helper replies.
   def service_exec(resource, arguments, **)
     calls << [:exec, arguments]
     proxy_result = runtime_proxy_result(arguments, resource['name'] || resource['id'])
@@ -107,6 +108,7 @@ class ServiceRuntime
     output = '0' if arguments[1] == Empeira::Server::EnvironmentConfiguration::READER
     output = '0' if arguments[1, 3] == %w[config print environment_timeout]
     output = "[main]\ngpgcheck=1\n" if arguments == ['cat', '/etc/dnf/dnf.conf']
+    output = "scoped-egress-v1\n" if arguments == [Empeira::Network::Gateway::EXECUTABLE, 'scoped-egress-capability']
     output = "tcp-redirects-v1\n" if arguments == [Empeira::Network::Gateway::EXECUTABLE, 'redirects-capability']
     Empeira::Execution::Result.new(stdout: output, stderr: '', exit_status: 0, timed_out: false)
   end

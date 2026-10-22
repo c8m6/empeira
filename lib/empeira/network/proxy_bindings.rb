@@ -12,22 +12,39 @@ module Empeira
       end
 
       def configuration
-        entries = %w[server].map do |name|
-          rules(name.tr('-', '_'), address(name), @config.fetch('global'))
+        entries = bindings.filter_map do |label, hostname, domains|
+          rules(label, address(hostname), domains)
         end
-        @nodes.sort.each_with_index do |(hostname, record), index|
-          entries << node_rules(hostname, record, index)
-        end
-        "#{entries.compact.join("\n")}\n"
+        "#{entries.join("\n")}\n"
+      end
+
+      def addresses
+        bindings.filter_map { |_, hostname, _| address(hostname) }.uniq
       end
 
       private
 
-      def node_rules(hostname, record, index)
-        return if record['network_phase'] == 'bootstrap'
+      def bindings
+        infrastructure_bindings + node_bindings
+      end
 
-        domains = HostPolicy.new(@config).resolve(hostname)
-        rules("node_#{index}", address(hostname), domains)
+      def infrastructure_bindings
+        scope = @config.fetch('infrastructure')
+        return [] unless scope.fetch('enabled')
+
+        names = %w[server postgres puppetdb-backend puppetdb] +
+                @context.configuration.dig('containers', 'additional').map { |service| service.fetch('name') }
+        names.map { |name| [name.tr('-', '_'), name, scope.fetch('allow')] }
+      end
+
+      def node_bindings
+        scope = @config.fetch('nodes')
+        return [] unless scope.fetch('enabled')
+
+        policy = HostPolicy.new(scope)
+        @nodes.sort.each_with_index.filter_map do |(hostname, record), index|
+          ["node_#{index}", hostname, policy.resolve(hostname)] unless record['network_phase'] == 'bootstrap'
+        end
       end
 
       def address(name)

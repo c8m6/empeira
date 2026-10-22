@@ -22,7 +22,15 @@ module Empeira
         { 'version' => 1, 'subnet' => subnet, 'gateway' => address(subnet),
           'dns' => address(subnet, 'dns'), 'resolvers' => resolvers,
           'proxies' => %w[proxy bootstrap-proxy].map { |key| address(subnet, key) },
-          'blocked' => blocked_addresses(state), 'entries' => resolved.entries, 'redirects' => redirects }
+          'blocked' => blocked_addresses(state), 'entries' => scoped_entries(resolved, subnet),
+          'redirects' => redirects }
+      end
+
+      def self.scoped_entries(resolved, subnet)
+        layout = Peer::Layout.new(subnet)
+        resolved.entries.map do |entry|
+          entry.except('scope').merge('sources' => layout.egress_sources(entry.fetch('scope')))
+        end
       end
 
       def self.blocked_addresses(state)

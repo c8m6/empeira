@@ -38,16 +38,16 @@ RSpec.describe 'Standalone addon execution' do
       require 'yaml'
       puts YAML.dump(ENV.to_h.select { |key, _| key.start_with?('EMPEIRA_') || key == 'USER_VALUE' })
     RUBY
-    configure_addon(extra: { 'proxy' => { 'enabled' => false },
+    configure_addon(extra: { 'proxy' => { 'nodes' => { 'enabled' => false } },
                              'vm' => { 'console' => { 'root_password' => 'hidden' } } })
     env = { 'USER_VALUE' => 'native', 'EMPEIRA_ADDON_NAME' => 'spoof', 'EMPEIRA_CONFIG_UNSET' => 'stale' }
     data = YAML.safe_load(addon_cli('addon', 'example', environment: env).stdout)
     expect(data).to include('USER_VALUE' => 'native', 'EMPEIRA_ADDON_NAME' => 'example',
-                            'EMPEIRA_CONFIG_PROXY_ENABLED' => 'false')
+                            'EMPEIRA_CONFIG_PROXY_NODES_ENABLED' => 'false')
     expect(data).not_to have_key('EMPEIRA_CONFIG_UNSET')
     expect(data.values).not_to include('hidden', 'spoof', 'stale')
-    configure_addon(extra: { 'proxy' => { 'enabled' => true } })
-    expect(YAML.safe_load(addon_cli('addon', 'example').stdout)['EMPEIRA_CONFIG_PROXY_ENABLED']).to eq('true')
+    configure_addon(extra: { 'proxy' => { 'nodes' => { 'enabled' => true } } })
+    expect(YAML.safe_load(addon_cli('addon', 'example').stdout)['EMPEIRA_CONFIG_PROXY_NODES_ENABLED']).to eq('true')
   end
 
   it 'passes stdin directly to the addon' do

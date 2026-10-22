@@ -118,7 +118,8 @@ RSpec.describe EmpeiraGateway do
   let(:plan) do
     { 'version' => 1, 'subnet' => '10.200.30.0/24', 'gateway' => '10.200.30.2', 'dns' => '10.200.30.3',
       'resolvers' => [], 'proxies' => [], 'blocked' => ['10.200.30.32'],
-      'entries' => [{ 'addresses' => ['192.0.2.8'], 'ports' => [8080] }], 'redirects' => [redirect] }
+      'entries' => [{ 'sources' => %w[10.200.30.32/27 10.200.30.64/26],
+                      'addresses' => ['192.0.2.8'], 'ports' => [8080] }], 'redirects' => [redirect] }
   end
 
   def rules(value = plan)

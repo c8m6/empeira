@@ -18,7 +18,8 @@ RSpec.describe 'Standalone update helpers', :integration do
         skip 'Set EMPEIRA_INTEGRATION=update-plane for real helpers and public Forge access' unless
           ENV['EMPEIRA_INTEGRATION'] == 'update-plane'
 
-        config = { 'runtime' => { 'container_engine' => engine }, 'proxy' => { 'global' => ['unused.invalid'] },
+        config = { 'runtime' => { 'container_engine' => engine },
+                   'proxy' => { 'nodes' => { 'global' => ['unused.invalid'] } },
                    'modules' => { 'path' => engine == 'docker' ? '.cache/modules' : 'modules' } }
         File.write(File.join(@directory, '.empeira.yaml'), YAML.dump(config))
         allow(registry).to receive(:build).and_return(runtime)

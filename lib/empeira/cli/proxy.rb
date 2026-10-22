@@ -5,7 +5,7 @@ module Empeira
     class Proxy < Base
       desc 'show HOSTNAME', 'Explain the normal proxy destination policy for a hostname'
       def show(hostname)
-        config = application.context.configuration.fetch('proxy')
+        config = application.context.configuration.dig('proxy', 'nodes')
         resolver = Network::HostPolicy.new(config)
         say "Effective proxy policy for #{hostname.downcase}"
         say access_message(config)
@@ -19,7 +19,7 @@ module Empeira
           return "All workspace nodes may use this policy after 'empeira up' reconciles the proxy." if
             config.fetch('enabled')
 
-          'The normal workspace proxy is disabled.'
+          'The normal node proxy is disabled.'
         end
 
         def display_matches(rules)
