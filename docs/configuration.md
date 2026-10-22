@@ -107,9 +107,15 @@ runtime:
 server:
   environment: production
 network:
-  egress: []
+  egress:
+    nodes: []
+    infrastructure: []
 proxy:
-  enabled: false
+  nodes:
+    enabled: false
+  infrastructure:
+    enabled: false
+    allow: []
 node_defaults:
   os: ubuntu
   version: "24.04"
@@ -150,11 +156,14 @@ release version. A partial project mapping may omit it and inherit the default.
 | `server.timeout` | Positive readiness timeout in seconds per component, `240` |
 | `server.mounts` | Additional server-only host bind mounts, `[]`; `source`, `target`, optional boolean `readonly` (default `true`) |
 | `puppetdb.memory` | Positive integer MiB, `768` |
-| `network.egress` | Direct TCP proxy-bypass host/port entries, `[]`; a project array replaces the default array |
+| `network.egress.nodes` | Node-only direct TCP host/port grants, `[]`; arrays replace |
+| `network.egress.infrastructure` | Infrastructure-only direct TCP host/port grants, `[]`; arrays replace |
 | `network.redirects` | Exact IPv4/protocol/port endpoints redirected to enabled internal services, `[]` |
-| `proxy.enabled` | Boolean, `false`; creates the normal HTTP/HTTPS policy proxy |
-| `proxy.global` | DNS destination array, `[]` |
-| `proxy.rules` | Additive hostname-glob rules with `hosts` and `allow` arrays, `[]` |
+| `proxy.nodes.enabled` | Boolean, `false`; enables normal node HTTP/HTTPS proxy access |
+| `proxy.nodes.global` | DNS destination array, `[]` |
+| `proxy.nodes.rules` | Additive node hostname-glob rules with `hosts` and `allow` arrays, `[]` |
+| `proxy.infrastructure.enabled` | Boolean, `false`; enables infrastructure HTTP/HTTPS proxy access |
+| `proxy.infrastructure.allow` | Independent infrastructure DNS destination array, `[]` |
 | `vm.disk` | New VM virtual disk capacity in GiB, integer `1`–`2048`, default `30`; must accommodate the base image |
 | `vm.interfaces` | VM-only hostname rules defining dummy/VLAN devices with explicit IPv4 CIDR host addresses, `[]` |
 | `vm.console.root_password` | Initial console password, `empeira`; a string overrides it and `null` disables it |
@@ -488,14 +497,20 @@ The numeric gem packaging fallback is never used to bypass this check.
 ```yaml
 network:
   egress:
-    - host: api.example.com
-      ports: [443]
+    nodes:
+      - host: api.example.com
+        ports: [443]
+    infrastructure: []
 proxy:
-  enabled: true
-  global: [forgeapi.puppet.com]
-  rules:
-    - hosts: ["*-web-*"]
-      allow: [github.com, "*.github.com"]
+  nodes:
+    enabled: true
+    global: [forgeapi.puppet.com]
+    rules:
+      - hosts: ["*-web-*"]
+        allow: [github.com, "*.github.com"]
+  infrastructure:
+    enabled: false
+    allow: []
 hiera:
   mounts:
     - source: ../hieradata
@@ -507,7 +522,12 @@ vm:
     root_password: null
 ```
 
-When `proxy.enabled` is true, every node may use its matching destination policy.
+When `proxy.nodes.enabled` is true, every node may use its matching destination policy.
+Infrastructure access is separately controlled by `proxy.infrastructure.enabled`
+and `proxy.infrastructure.allow`; both scopes default to disabled. Disabled
+infrastructure has no configured proxy endpoint even when nodes use the proxy.
+Keep its direct-egress list empty for internal-only infrastructure. See the
+[migration instructions](proxy.md#migrating-shared-settings) for former shared keys.
 After bootstrap cleanup, Empeira reconciles normal proxy settings on running,
 provisioned nodes during `up` and `node start`. Repeated Puppet runs use the
 existing guest configuration. No
@@ -719,21 +739,24 @@ desired state; Puppet owns package state after the first catalog.
 
 ## Direct egress
 
-`network.egress` contains destination TCP grants, independent of HTTP/HTTPS proxy
-policy. Entries have exactly one `host` or IPv4 `ip` and a nonempty unique `ports`
+`network.egress.nodes` and `network.egress.infrastructure` contain separate
+destination TCP grants, independent of HTTP/HTTPS proxy policy. A node grant never
+applies to infrastructure or conversely. Entries have exactly one `host` or IPv4 `ip` and a nonempty unique `ports`
 array (1–65535). `up` resolves all A records and replaces the complete policy;
 resolution/apply failure blocks egress. IPv6 and external UDP grants are unsupported.
 
 ```yaml
 network:
   egress:
-    - host: repository.example.net
-      ports: [443]
-    - ip: 203.0.113.10
-      ports: [443, 8443]
+    nodes:
+      - host: repository.example.net
+        ports: [443]
+      - ip: 203.0.113.10
+        ports: [443, 8443]
+    infrastructure: []
 ```
 
-Named direct destinations enter generated `NO_PROXY`; applications choose DIRECT
+Direct destinations enter only their own scope's generated `NO_PROXY`; applications choose DIRECT
 or proxy themselves. See [networking](networking.md#one-gateway-one-direct-egress-policy)
 for routing, revocation and privilege boundaries.
 
@@ -765,7 +788,7 @@ vm:
           network: 192.0.2.20/32
 ```
 
-Patterns use the same `*`/`?` glob matcher as `proxy.rules`, against the full stored
+Patterns use the same `*`/`?` glob matcher as `proxy.nodes.rules`, against the full stored
 node hostname, case-insensitively. Patterns within a rule are alternatives. All
 matching rules contribute devices; identical definitions merge once. A conflicting
 definition names the hostname, device and both configuration paths. No match creates

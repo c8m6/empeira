@@ -24,8 +24,8 @@ RSpec.describe 'Real accelerated VM proxy policy', :integration do
     @fixture = ProxyFixture.new(app: app, runtime: @runtime, directory: @directory)
     @fixture.start
     @config = { 'puppetdb' => { 'enabled' => false },
-                'proxy' => { 'enabled' => true, 'global' => ['allowed.test'],
-                             'rules' => [{ 'hosts' => ['*-web-*'], 'allow' => ['denied.test'] }] } }
+                'proxy' => { 'nodes' => { 'enabled' => true, 'global' => ['allowed.test'],
+                                          'rules' => [{ 'hosts' => ['*-web-*'], 'allow' => ['denied.test'] }] } } }
     configured.infrastructure.up
     # Keep real upstream DNS during package installation, then use only synthetic destinations.
     request = Empeira::Node::RunRequest.from_config(hostname: 'lab-web-vm.test', provider: 'vm',
@@ -68,7 +68,7 @@ RSpec.describe 'Real accelerated VM proxy policy', :integration do
                    [*curl, '--cacert', ca_path, 'https://allowed.test']).stdout).to eq('fixture')
     expect(ssh.run(record, [*curl, 'http://private.test'])).not_to be_success
     lease = record.fetch('peer')
-    @config['proxy']['rules'] = []
+    @config['proxy']['nodes']['rules'] = []
     configured.infrastructure.up
     hosts.write(hosts.read + fixture_hosts)
     sleep 3

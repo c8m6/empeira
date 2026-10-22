@@ -208,8 +208,12 @@ Array elements can be mappings, arrays or scalars. For example:
 
 ```yaml
 proxy:
-  enabled: true
-  global: [forge.puppet.com, github.com]
+  nodes:
+    enabled: true
+    global: [forge.puppet.com, github.com]
+  infrastructure:
+    enabled: false
+    allow: []
 server:
   mounts:
     - source: /home/user/data
@@ -217,10 +221,10 @@ server:
       readonly: true
 ```
 
-produces `EMPEIRA_CONFIG_PROXY_ENABLED=true`,
-`EMPEIRA_CONFIG_PROXY_GLOBAL_COUNT=2`,
-`EMPEIRA_CONFIG_PROXY_GLOBAL_0=forge.puppet.com`,
-`EMPEIRA_CONFIG_PROXY_GLOBAL_1=github.com`,
+produces `EMPEIRA_CONFIG_PROXY_NODES_ENABLED=true`,
+`EMPEIRA_CONFIG_PROXY_NODES_GLOBAL_COUNT=2`,
+`EMPEIRA_CONFIG_PROXY_NODES_GLOBAL_0=forge.puppet.com`,
+`EMPEIRA_CONFIG_PROXY_NODES_GLOBAL_1=github.com`,
 `EMPEIRA_CONFIG_SERVER_MOUNTS_COUNT=1`, and the variables
 `EMPEIRA_CONFIG_SERVER_MOUNTS_0_SOURCE`, `_TARGET`, `_READONLY`.
 

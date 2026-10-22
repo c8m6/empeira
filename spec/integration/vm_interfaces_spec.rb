@@ -76,7 +76,7 @@ RSpec.describe 'Real VM dummy and VLAN interfaces', :integration do
 
   def write_interfaces(definitions, size_gib: 32)
     rules = definitions.empty? ? [] : [{ 'hosts' => ['INTERFACES-*.EXAMPLE.TEST'], 'devices' => definitions }]
-    config = { 'puppetdb' => { 'enabled' => false }, 'proxy' => { 'enabled' => true },
+    config = { 'puppetdb' => { 'enabled' => false }, 'proxy' => { 'nodes' => { 'enabled' => true } },
                'vm' => { 'disk' => size_gib, 'interfaces' => rules },
                'bootstrap' => { 'packages' => { 'install' => { 'default' => ['git'] } } },
                'network' => { 'redirects' => [

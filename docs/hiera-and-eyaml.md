@@ -207,8 +207,8 @@ The obsolete `images.modules` key is rejected.
 The disposable installer belongs to the update plane. It uses the selected
 runtime's normal bridge network (`bridge` on Docker, `podman` on Podman), with
 normal runtime DNS and external connectivity. It never joins an Empeira workspace
-network and needs neither CoreDNS nor Squid. Workspace `network.egress`, `proxy.enabled`,
-`proxy.global` and `proxy.rules` do not affect
+network and needs neither CoreDNS nor Squid. Workspace `network.egress`, `proxy.nodes.enabled`,
+`proxy.nodes.global` and `proxy.nodes.rules` do not affect
 Forge or Git acquisition. Supplied `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and their
 lowercase equivalents are inherited unchanged; Empeira generates no proxy URL.
 The host/runtime's normal network and corporate-proxy configuration must permit

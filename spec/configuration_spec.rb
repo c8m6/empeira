@@ -20,7 +20,7 @@ RSpec.describe Empeira::Configuration do
     expect(config['version']).to eq(1)
     expect(config['runtime']).to eq('container_engine' => 'podman')
     expect(config['modules']).to eq('path' => 'modules')
-    expect(config['network']).to eq('egress' => [], 'redirects' => [])
+    expect(config['network']).to eq('egress' => { 'nodes' => [], 'infrastructure' => [] }, 'redirects' => [])
     expect(config['node_defaults']).to include('memory' => 1024, 'cpus' => 2)
     expect(config['node_defaults']).not_to have_key('provider')
     expect(config.dig('vm', 'disk')).to eq(30)
@@ -31,11 +31,11 @@ RSpec.describe Empeira::Configuration do
       .to contain_exactly('agent_preinstalled', 'destinations')
   end
 
-  it 'accepts the legacy proxy-mode shape for existing projects' do
+  it 'rejects legacy shared proxy mode with an explicit migration diagnostic' do
     write_config('network: {egress: {mode: proxy}}')
-    expect(load_config.dig('network', 'egress')).to eq('mode' => 'proxy')
-    context = Empeira::Application.new(project_path: @directory).context
-    expect(Empeira::ControlPlane::Plan.new(context: context)).to be_proxy
+    expect do
+      load_config
+    end.to raise_error(Empeira::ConfigurationError, /network.egress.nodes.*network.egress.infrastructure/)
   end
 
   it 'merges VM disk capacity independently of interfaces and console configuration' do
@@ -84,7 +84,7 @@ RSpec.describe Empeira::Configuration do
 
   it 'accepts and ignores the removed network.internet project key for compatibility' do
     write_config('network: {internet: false}')
-    expect(load_config.fetch('network')).to eq('egress' => [], 'redirects' => [])
+    expect(load_config.fetch('network')).to eq('egress' => { 'nodes' => [], 'infrastructure' => [] }, 'redirects' => [])
   end
 
   it 'does not permit arbitrary CLI configuration overrides' do

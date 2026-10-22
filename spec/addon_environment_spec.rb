@@ -28,10 +28,10 @@ RSpec.describe Empeira::Addons::Environment do
   end
 
   it 'exports the effective deep merge and absolute runtime context' do
-    File.write(File.join(@directory, '.empeira.yaml'), 'proxy: {enabled: false, global: [example.org]}')
+    File.write(File.join(@directory, '.empeira.yaml'), 'proxy: {nodes: {enabled: false, global: [example.org]}}')
     result = export(context.configuration)
-    expect(result).to include('EMPEIRA_CONFIG_PROXY_ENABLED' => 'false',
-                              'EMPEIRA_CONFIG_PROXY_GLOBAL_0' => 'example.org',
+    expect(result).to include('EMPEIRA_CONFIG_PROXY_NODES_ENABLED' => 'false',
+                              'EMPEIRA_CONFIG_PROXY_NODES_GLOBAL_0' => 'example.org',
                               'EMPEIRA_CONFIG_NODE_DEFAULTS_CPUS' => '2', 'EMPEIRA_ADDON_API_VERSION' => '1',
                               'EMPEIRA_ADDON_NAME' => 'example', 'EMPEIRA_ADDON_VERSION' => 'v1',
                               'EMPEIRA_ADDON_PATH' => @directory, 'EMPEIRA_WORKSPACE' => @directory,

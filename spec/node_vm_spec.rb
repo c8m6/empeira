@@ -107,7 +107,7 @@ RSpec.describe Empeira::Node::VM do
 
   it 'starts Puppet with the normal proxy inside the privileged guest command' do
     File.write(File.join(@directory, '.empeira.yaml'),
-               YAML.dump('proxy' => { 'enabled' => true, 'global' => ['packages.example'] }))
+               YAML.dump('proxy' => { 'nodes' => { 'enabled' => true, 'global' => ['packages.example'] } }))
     context = app.context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
     store.with_lock { Empeira::ControlPlane::Controller.new(context: context, runtime: runtime, store: store).up }
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
@@ -121,8 +121,8 @@ RSpec.describe Empeira::Node::VM do
 
   it 'creates a VM with normal proxy enabled and an explicit IPv4 direct-egress destination' do
     File.write(File.join(@directory, '.empeira.yaml'),
-               YAML.dump('proxy' => { 'enabled' => true },
-                         'network' => { 'egress' => [{ 'ip' => '192.0.2.20', 'ports' => [443] }] }))
+               YAML.dump('proxy' => { 'nodes' => { 'enabled' => true } },
+                         'network' => { 'egress' => { 'nodes' => [{ 'ip' => '192.0.2.20', 'ports' => [443] }] } }))
     context = app.context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
     store.with_lock { Empeira::ControlPlane::Controller.new(context: context, runtime: runtime, store: store).up }
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')

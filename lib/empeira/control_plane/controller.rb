@@ -254,8 +254,10 @@ module Empeira
       end
 
       def resolve_direct_egress
-        config = @plan.config.dig('network', 'egress')
-        @direct_resolver.resolve(config)
+        entries = @plan.config.dig('network', 'egress').flat_map do |scope, grants|
+          @direct_resolver.resolve(grants).entries.map { |entry| entry.merge('scope' => scope) }
+        end
+        Network::DirectEgress::Resolved.new(entries)
       end
 
       def bootstrap_dns?(upstreams:, routes:)
@@ -636,6 +638,7 @@ module Empeira
         end
         reconcile('gateway')
         lockdown_gateway(@observed.fetch('gateway'))
+        require_scoped_egress_capability
         require_redirect_capability
         attach_gateway('gateway')
         apply_gateway_policy
@@ -666,6 +669,16 @@ module Empeira
 
         raise Error, 'Gateway does not support transparent IPv4 TCP/UDP redirects; configure a compatible ' \
                      'images.direct_egress image'
+      end
+
+      def require_scoped_egress_capability
+        return if @gateway_plan.fetch('entries').empty?
+
+        result = @runtime.service_exec(@observed.fetch('gateway'),
+                                       [Network::Gateway::EXECUTABLE, 'scoped-egress-capability'])
+        return if result.success? && result.stdout.strip == 'scoped-egress-v1'
+
+        raise Error, 'Gateway does not support scoped direct egress; configure a compatible images.direct_egress image'
       end
 
       def apply_gateway_policy

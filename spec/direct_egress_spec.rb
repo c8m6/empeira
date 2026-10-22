@@ -31,9 +31,9 @@ RSpec.describe Empeira::Network::DirectEgress do
 
   it 'accepts empty, exact hostname and IP rules through the public schema' do
     [[], entries, [{ 'ip' => '192.0.2.10', 'ports' => [8443] }]].each do |value|
-      File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('network' => { 'egress' => value }))
-      expect(Empeira::Application.new(project_path: @directory).context.configuration.dig('network',
-                                                                                          'egress')).to eq(value)
+      File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('network' => { 'egress' => { 'nodes' => value } }))
+      config = Empeira::Application.new(project_path: @directory).context.configuration
+      expect(config.dig('network', 'egress', 'nodes')).to eq(value)
     end
   end
 
@@ -65,7 +65,8 @@ RSpec.describe EmpeiraGateway do
   let(:plan) do
     { 'version' => 1, 'subnet' => '10.200.30.0/24', 'gateway' => '10.200.30.2', 'dns' => '10.200.30.3',
       'resolvers' => ['10.20.30.1'], 'proxies' => %w[10.200.30.4 10.200.30.5], 'blocked' => ['10.200.30.32'],
-      'entries' => [{ 'addresses' => %w[192.0.2.10 192.0.2.11], 'ports' => [443] }] }
+      'entries' => [{ 'sources' => %w[10.200.30.32/27 10.200.30.64/26],
+                      'addresses' => %w[192.0.2.10 192.0.2.11], 'ports' => [443] }] }
   end
 
   it 'uses one default-drop routed policy without DNAT or alias allocation' do

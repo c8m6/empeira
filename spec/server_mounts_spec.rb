@@ -121,7 +121,7 @@ RSpec.describe Empeira::Configuration::ServerMounts do
   it 'adds mounts only to the server and changes only its fingerprint for source, target or readonly changes' do
     extra = { 'containers' => { 'additional' => [{ 'name' => 'viewer', 'image' => { 'repository' => 'example/viewer',
                                                                                     'tag' => '1' } }] },
-              'proxy' => { 'enabled' => true } }
+              'proxy' => { 'nodes' => { 'enabled' => true } } }
     baseline = plan([], extra)
     baseline.browser_enabled = true
     original = baseline.fingerprints

@@ -132,7 +132,7 @@ or restart of that same VM conflicts with the shared instance guard: detach with
 ## Proxy destination denied
 
 Run `empeira proxy show HOSTNAME` and check every matching rule. Verify the node
-exists in the workspace, `proxy.enabled` is true, and `up` has reconciled the
+exists in the workspace, `proxy.nodes.enabled` is true, and `up` has reconciled the
 configuration and current node addresses. Allowed DNS destinations may resolve to
 private or reserved IP addresses; only HTTP port 80 and HTTPS CONNECT port 443 are
 permitted. After updating Empeira, run `empeira up` to replace a proxy still using
@@ -367,6 +367,6 @@ external runtime network as a workaround. Docker workspace bridge attachment
 errors require an accessible Linux-engine host namespace and an identifiable
 iptables backend. The helper changes only owned bridge rules. Do not disable the
 host firewall globally. Check Docker Desktop host-network restrictions separately.
-Proxy errors require checking Squid source bindings and `proxy.global`/`proxy.rules`,
+Proxy errors require checking Squid source bindings and `proxy.nodes.global`/`proxy.nodes.rules`,
 not adding unrelated direct grants. Corporate DNS still follows host discovery;
 IPv6-only upstreams must be replaced with reachable IPv4 resolvers for this backend.

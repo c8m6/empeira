@@ -171,9 +171,15 @@ Gateway policy is default-drop, uses complete destination IPv4/TCP-port grants a
 must fail closed during reconciliation. Peer adapters attach nodes but do not own
 destination policy. Never flush host/engine firewall tables or modify foreign rules.
 
-Normal proxy access uses `proxy.enabled`, with the union of `proxy.global` and every
-matching `proxy.rules[].allow`. Match normalized full hostnames using `*`/`?` globs.
+Normal node proxy access uses `proxy.nodes.enabled`, with the union of `proxy.nodes.global` and every
+matching `proxy.nodes.rules[].allow`. Match normalized full hostnames using `*`/`?` globs.
 All workspace nodes are clients when enabled; destinations remain allowlisted.
+Infrastructure uses only `proxy.infrastructure.enabled` and its independent `allow`
+list. Disabled infrastructure has no configured proxy endpoint or Squid grants.
+Direct TCP grants are also separate under `network.egress.nodes` and
+`network.egress.infrastructure`, enforced by source address pools and source-bound
+reply rules. Never copy a node grant to infrastructure implicitly. Reject former
+shared keys with explicit migration guidance; bootstrap policy remains independent.
 Allowlisted normal proxy destinations are reachable regardless of target IP range;
 preserve HTTP/HTTPS-only behavior. Authenticated, source-bound bootstrap access is
 separate and temporary and retains its private/reserved-address restrictions. DNS

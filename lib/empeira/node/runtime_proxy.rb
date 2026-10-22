@@ -63,9 +63,9 @@ module Empeira
 
         naming = Network::Naming.new
         internal = naming.reserved(@context.configuration).flat_map { |name| naming.aliases(name) }
+        bypass = Network::DirectEgress.destinations(@context.configuration.dig('network', 'egress', 'nodes'))
         { 'url' => environment.fetch('http_proxy'), 'no_proxy' => environment.fetch('no_proxy'),
-          'direct' => ['localhost', '127.0.0.1', *internal,
-                       *Network::DirectEgress.destinations(@context.configuration.dig('network', 'egress'))].uniq }
+          'direct' => ['localhost', '127.0.0.1', *internal, *bypass].uniq }
       end
 
       def execute(desired, previous)

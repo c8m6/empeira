@@ -111,17 +111,13 @@ module EmpeiraGateway
   end
 
   def direct_rules(plan, internal, external)
-    filter = []
-    plan.fetch('entries').each do |entry|
-      entry.fetch('addresses').each do |ip|
-        entry.fetch('ports').each do |port|
-          filter << "-A FORWARD -i #{internal} -o #{external} -s #{plan.fetch('subnet')} " \
-                    "-d #{ip}/32 -p tcp --dport #{port} -j ACCEPT"
-          filter << reply(internal, external, destination: ip, port: port)
-        end
+    plan.fetch('entries').flat_map do |entry|
+      entry.fetch('sources').product(entry.fetch('addresses'), entry.fetch('ports')).flat_map do |source, ip, port|
+        ["-A FORWARD -i #{internal} -o #{external} -s #{source} " \
+         "-d #{ip}/32 -p tcp --dport #{port} -j ACCEPT",
+         reply(internal, external, source: source, destination: ip, port: port)]
       end
     end
-    filter
   end
 
   def reply(internal, external, port:, source: nil, destination: nil, protocol: 'tcp')
@@ -145,7 +141,7 @@ module EmpeiraGateway
     raise 'Invalid workspace subnet' unless subnet.ipv4? && subnet.private? && subnet.prefix == 24
 
     validate_addresses(plan, subnet)
-    validate_entries(plan.fetch('entries'))
+    validate_entries(plan.fetch('entries'), subnet)
     validate_redirects(plan.fetch('redirects', []), subnet)
   end
 
@@ -197,12 +193,25 @@ module EmpeiraGateway
     %w[resolvers proxies blocked].each { |key| plan.fetch(key, []).each { |ip| ipv4(ip) } }
   end
 
-  def validate_entries(entries)
+  def validate_entries(entries, subnet)
     entries.each do |entry|
+      validate_sources(entry.fetch('sources'), subnet)
       entry.fetch('addresses').each { |ip| ipv4(ip) }
       valid = entry.fetch('ports').all? { |port| port.is_a?(Integer) && port.between?(1, 65_535) }
       raise 'Invalid gateway ports' unless valid
     end
+  end
+
+  def validate_sources(sources, subnet)
+    valid = sources.is_a?(Array) && !sources.empty? && sources.all? { |source| valid_source?(source, subnet) }
+    raise 'Invalid direct-egress source ranges' unless valid
+  end
+
+  def valid_source?(source, subnet)
+    range = IPAddr.new(source)
+    range.ipv4? && range.prefix > subnet.prefix && subnet.include?(range) && "#{range}/#{range.prefix}" == source
+  rescue IPAddr::InvalidAddressError, TypeError
+    false
   end
 
   def ipv4_interfaces
@@ -301,6 +310,7 @@ module EmpeiraGateway
     when 'redirects-capability'
       command('conntrack', '--version')
       puts 'tcp-udp-redirects-v2'
+    when 'scoped-egress-capability' then puts 'scoped-egress-v1'
     when 'lockdown'
       restore(lockdown)
     when 'apply' then apply(arguments.fetch(1))

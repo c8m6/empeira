@@ -3,7 +3,7 @@
 module Empeira
   module Network
     class HostPolicy
-      def self.validate!(rules, path = 'proxy.rules')
+      def self.validate!(rules, path = 'proxy.nodes.rules')
         raise ConfigurationError, "#{path} must be an array" unless rules.is_a?(Array)
 
         rules.each_with_index { |rule, index| validate_rule!(rule, "#{path}.#{index}") }

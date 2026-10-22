@@ -21,7 +21,7 @@ RSpec.describe 'DNS redirect contracts' do
     File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('network' => { 'redirects' => rules }))
     effective = Empeira::Configuration::Loader.new(project_path: @directory).load
     expect(effective.dig('network', 'redirects')).to eq(rules)
-    expect(effective.dig('network', 'egress')).to eq([])
+    expect(effective.dig('network', 'egress')).to eq('nodes' => [], 'infrastructure' => [])
     File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('network' => { 'redirects' => [rules.last] }))
     expect(Empeira::Configuration::Loader.new(project_path: @directory).load.dig('network', 'redirects'))
       .to eq([rules.last])

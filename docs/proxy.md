@@ -1,19 +1,23 @@
 # Proxy policy
 
-Normal external HTTP/HTTPS access stays behind Squid. Enabling the workspace proxy
-makes it available to every node; global and hostname rules remain the destination
-allowlist:
+Normal external HTTP/HTTPS access stays behind Squid. Nodes and infrastructure
+have independent switches and destination lists, both disabled by default. Enabling
+the node scope makes its global and hostname rules available to nodes:
 
 ```yaml
 proxy:
-  enabled: true
-  global:
-    - forgeapi.puppet.com
-  rules:
-    - hosts: ["lab-*"]
-      allow: ["*.github.com"]
-    - hosts: ["*-web-*"]
-      allow: [github.com, nginx.org]
+  nodes:
+    enabled: true
+    global:
+      - forgeapi.puppet.com
+    rules:
+      - hosts: ["lab-*"]
+        allow: ["*.github.com"]
+      - hosts: ["*-web-*"]
+        allow: [github.com, nginx.org]
+  infrastructure:
+    enabled: false
+    allow: []
 ```
 
 ```console
@@ -46,7 +50,7 @@ infrastructure has already been reconciled.
 
 ## Matching and destinations
 
-Defaults are `proxy.global: []` and `proxy.rules: []`. Every node receives
+Defaults are `proxy.nodes.global: []` and `proxy.nodes.rules: []`. Every node receives
 all global destinations plus `allow` from **every** matching rule. Duplicate entries
 are removed while preserving configuration order. A rule matches when any of its
 `hosts` patterns matches the complete lowercase hostname. Patterns must be lowercase.
@@ -66,14 +70,14 @@ Destination rules are separate from hostname globs:
 Only HTTP port 80 and HTTPS CONNECT port 443 are allowed. Allowed DNS destinations
 are reachable regardless of their target IP range, including private, loopback,
 link-local and reserved addresses. Domains without a matching allow rule remain
-denied. There is no TLS interception. Server-side outbound traffic gets
-`proxy.global` only; node hostname rules do not expand server access.
+denied. There is no TLS interception. Node destinations never grant infrastructure
+access, and infrastructure destinations never grant node access.
 
 ## Node policy and reconciliation
 
-When `proxy.enabled` is true, all nodes are authorized as proxy clients. Nodes get
+When `proxy.nodes.enabled` is true, all nodes are authorized as proxy clients. Nodes get
 upper/lowercase proxy variables and internal `NO_PROXY` entries, including explicitly
-configured `network.egress` hosts. Those named hosts use the common workspace
+configured `network.egress.nodes` hosts. Those named hosts use the common workspace
 gateway for their configured ports. VM access uses the same destination policy bound
 directly to the VM instance's reserved peer address. The proxy is reached at
 `proxy.empeira.internal:3128` on the isolated network. A request without a matching
@@ -90,17 +94,56 @@ Container and VM nodes consume the new policy without a restart; open proxy
 connections can end during reconciliation. Enabling/disabling proxy mode is a
 separate topology change and may require explicit node cleanup as reported by `up`.
 
-Changing direct-egress destinations also changes the server's `NO_PROXY`
-environment. `up` replaces a server whose environment definition changes while
+Changing `network.egress.infrastructure` destinations also changes infrastructure
+`NO_PROXY`. Changing node destinations does not change the server environment. `up` replaces a server whose environment definition changes while
 retaining CA storage and node identities. Changing only destination ports or
 transparent redirect rules preserves the server when its definition is unchanged.
+
+## Infrastructure policy
+
+`proxy.infrastructure.enabled` controls the Puppet/OpenVox server, PostgreSQL,
+PuppetDB backend/relay and `containers.additional` services. Its independent
+`allow` list uses the same exact-domain and domain-family syntax as node grants.
+The browser, DNS, Squid and gateway transports do not receive these application
+proxy settings.
+
+```yaml
+proxy:
+  infrastructure:
+    enabled: true
+    allow: [api.example.net]
+```
+
+When disabled, infrastructure definitions contain empty proxy values, overriding
+any image defaults. They contain no configured proxy endpoint and receive no Squid
+client grants, even if the node proxy is enabled. No startup wrapper removes an
+otherwise configured proxy. Internal names and mocks remain directly reachable.
+When enabled, only infrastructure's own direct destinations enter its `NO_PROXY`.
+Explicit environment settings in additional-service definitions remain application
+configuration; they do not add Squid permissions.
+
+`up` creates the shared normal proxy when either scope is enabled and removes it
+when both are disabled. Changing infrastructure's switch updates affected service
+definitions while retaining storage and node identities. Allowlist-only edits reload
+Squid without replacing unrelated services. Direct grants remain independent of
+both proxy switches; keep `network.egress.infrastructure: []` for internal-only
+infrastructure.
+
+## Migrating shared settings
+
+The former `proxy.enabled`, `proxy.global` and `proxy.rules` keys are rejected with
+a migration diagnostic. Move them under `proxy.nodes`; configure infrastructure
+explicitly with its own switch and `allow` list. Old shared `network.egress` arrays
+and legacy `mode` values are also rejected. Move grants to `network.egress.nodes`
+or `network.egress.infrastructure` according to the intended clients. No existing
+grant is silently copied to infrastructure.
 
 ## Managed bootstrap
 
 Managed bootstrap destinations are separate from normal user policy. Reviewed
 agent and distribution endpoints in `agent.install` and `bootstrap.guests` allow
 Puppet/OpenVox and required guest packages to be installed without duplicating them
-in `proxy.global`. The temporary authenticated bootstrap proxy uses workspace DNS
+in `proxy.nodes.global`. The temporary authenticated bootstrap proxy uses workspace DNS
 and retains its private, loopback, link-local and reserved destination-address
 restrictions independently of normal proxy policy. Its credential is not stored in
 the guest seed, JSON inventory or logs. A /32 source ACL admits only the provisioning

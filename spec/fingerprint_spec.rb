@@ -14,8 +14,10 @@ RSpec.describe Empeira::Infrastructure::Definition do
   end
 
   it 'ignores YAML representation, comments and unrelated effective configuration' do
-    original = definition("runtime: {container_engine: podman}\nnetwork: {egress: []}").fingerprint
-    expect(definition("# comment\nnetwork:\n  egress: []\nruntime:\n  container_engine: podman").fingerprint)
+    original = definition("runtime: {container_engine: podman}\n" \
+                          'network: {egress: {nodes: [], infrastructure: []}}').fingerprint
+    expect(definition("# comment\nnetwork:\n  egress: {nodes: [], infrastructure: []}\n" \
+                      "runtime:\n  container_engine: podman").fingerprint)
       .to eq(original)
     expect(definition('node_defaults: {memory: 4096, os: debian}').fingerprint).to eq(original)
     expect(definition('puppetdb: {enabled: false}').fingerprint).not_to eq(original)
@@ -24,7 +26,7 @@ RSpec.describe Empeira::Infrastructure::Definition do
 
   it 'tracks relevant policy, runtime and infrastructure model changes' do
     original = definition.fingerprint
-    expect(definition('proxy: {enabled: true}').fingerprint).not_to eq(original)
+    expect(definition('proxy: {nodes: {enabled: true}}').fingerprint).not_to eq(original)
     expect(definition('runtime: {container_engine: docker}').fingerprint).not_to eq(original)
     expect(definition('{}', revision: described_class::REVISION + 1).fingerprint).not_to eq(original)
   end

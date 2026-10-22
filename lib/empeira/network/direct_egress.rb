@@ -24,19 +24,12 @@ module Empeira
       module_function
 
       def validate!(value, path = 'network.egress')
-        return legacy!(value, path) if value.is_a?(Hash)
         unless value.is_a?(Array) && value.size <= MAX_HOSTS
           raise ConfigurationError, "#{path} must be an array with at most #{MAX_HOSTS} destination entries"
         end
 
         hosts = value.each_with_index.map { |entry, index| validate_entry!(entry, "#{path}[#{index}]") }
         raise ConfigurationError, "#{path} contains duplicate destinations" unless hosts.uniq.size == hosts.size
-      end
-
-      def legacy!(value, path)
-        return if value.keys == ['mode'] && %w[none proxy].include?(value['mode'])
-
-        raise ConfigurationError, "#{path} must be a host array (legacy mode accepts only none or proxy)"
       end
 
       def destinations(value)

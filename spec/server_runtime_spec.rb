@@ -79,7 +79,7 @@ RSpec.describe 'Configuration server runtime contract' do
     expect(database.fetch('user')).to eq('1000')
     expect(database.fetch('command')).to include('/opt/custom/conf', '/opt/custom/data/restartcounter')
     expect(database.fetch('command')).to include('-Xmx384m')
-    expect(database).not_to have_key('environment')
+    expect(database.fetch('environment')).to include('HTTP_PROXY' => '', 'http_proxy' => '')
     expect(database.fetch('mounts')).to include(a_string_including('dst=/opt/custom/conf/jetty.ini'))
   end
 

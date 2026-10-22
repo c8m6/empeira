@@ -3,6 +3,7 @@
 module Empeira
   module Runtime
     class ServiceArguments
+      PROXY_VARIABLES = %w[http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY no_proxy NO_PROXY].freeze
       SCALARS = { 'dns' => '--dns', 'user' => '--user', 'entrypoint' => '--entrypoint',
                   'env_file' => '--env-file', 'shm_size' => '--shm-size', 'mac_address' => '--mac-address',
                   'ip' => '--ip', 'runtime_ip' => '--ip' }.freeze
@@ -20,7 +21,7 @@ module Empeira
          '--network', @options.fetch('network'), '--memory', "#{@options.fetch('memory')}m",
          '--cpus', @options.fetch('cpus', 1).to_s, '--no-healthcheck',
          *init_options, *security_options, *pairs('--label', @definition.labels), *scalar_options,
-         *pairs('--env', @options.fetch('environment', {}).merge(@options.fetch('runtime_environment', {}))),
+         *pairs('--env', environment),
          *pairs('--sysctl', @options.fetch('sysctls', {})),
          *@options.fetch('mounts', []).flat_map { |mount| ['--mount', mount] },
          *@options.fetch('ports', []).flat_map { |port| ['--publish', port] },
@@ -28,6 +29,11 @@ module Empeira
       end
 
       private
+
+      def environment
+        PROXY_VARIABLES.to_h { |key| [key, ''] }.merge(@options.fetch('environment', {}))
+                       .merge(@options.fetch('runtime_environment', {}))
+      end
 
       def security_options
         values = { 'cap_drop' => '--cap-drop', 'cap_add' => '--cap-add', 'devices' => '--device',

@@ -176,7 +176,7 @@ RSpec.describe Empeira::ControlPlane::Controller do
     resolver = instance_double(Empeira::Network::DirectEgress::Resolver)
     allow(resolver).to receive(:resolve).and_return(first, second)
     allow(Empeira::Network::DirectEgress::Resolver).to receive(:new).and_return(resolver)
-    config = { 'network' => { 'egress' => [{ 'host' => 'api.example.com', 'ports' => [443] }] },
+    config = { 'network' => { 'egress' => { 'nodes' => [{ 'host' => 'api.example.com', 'ports' => [443] }] } },
                'puppetdb' => { 'enabled' => false } }
     plane = controller(config)
 
@@ -212,17 +212,17 @@ RSpec.describe Empeira::ControlPlane::Controller do
   end
 
   it 'replaces the server for changed direct-egress bypass destinations but retains it for port changes' do
-    config = { 'puppetdb' => { 'enabled' => false }, 'network' => { 'egress' => [] } }
+    config = { 'puppetdb' => { 'enabled' => false }, 'network' => { 'egress' => { 'infrastructure' => [] } } }
     mutate(controller(config), :up)
     ids = runtime.services.transform_values { |resource| resource.fetch('id') }
-    config['network']['egress'] = [{ 'ip' => '192.0.2.20', 'ports' => [443] }]
+    config['network']['egress']['infrastructure'] = [{ 'ip' => '192.0.2.20', 'ports' => [443] }]
     mutate(controller(config), :up)
     granted_server = runtime.services.fetch('server').fetch('id')
     expect(granted_server).not_to eq(ids.fetch('server'))
-    config['network']['egress'].first['ports'] = [8443]
+    config['network']['egress']['infrastructure'].first['ports'] = [8443]
     expect(mutate(controller(config), :up)).to be(true)
     expect(runtime.services.fetch('server').fetch('id')).to eq(granted_server)
-    config['network']['egress'] = []
+    config['network']['egress']['infrastructure'] = []
     mutate(controller(config), :up)
     expect(runtime.services.fetch('server').fetch('id')).not_to eq(granted_server)
     %w[gateway dns].each { |key| expect(runtime.services.fetch(key).fetch('id')).to eq(ids.fetch(key)) }
@@ -240,7 +240,7 @@ RSpec.describe Empeira::ControlPlane::Controller do
     allow_any_instance_of(Empeira::Network::DirectEgress::Resolver).to receive(:resolve) do |_resolver, entries, **|
       entries.empty? ? empty : resolved
     end
-    config = { 'network' => { 'egress' => [{ 'host' => 'api.example.com', 'ports' => [443] }] },
+    config = { 'network' => { 'egress' => { 'nodes' => [{ 'host' => 'api.example.com', 'ports' => [443] }] } },
                'puppetdb' => { 'enabled' => false } }
     mutate(controller(config), :up)
 
@@ -410,6 +410,18 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect { mutate(controller(redirect_configuration), :up) }
       .to raise_error(Empeira::Error, /Gateway does not support transparent/)
     expect(runtime.services.fetch('gateway').fetch('state')).to eq('stopped')
+  end
+
+  it 'stops an old custom gateway before it can widen source-scoped direct grants' do
+    allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
+      result = method.call(resource, arguments, **options)
+      arguments.include?('scoped-egress-capability') ? result.with(stdout: '') : result
+    end
+    config = { 'network' => { 'egress' => { 'nodes' => [{ 'ip' => '192.0.2.10', 'ports' => [443] }] } } }
+    expect { mutate(controller(config), :up) }
+      .to raise_error(Empeira::Error, /Gateway does not support scoped direct egress/)
+    expect(runtime.services.fetch('gateway').fetch('state')).to eq('stopped')
+    expect(runtime.calls.select { |entry| entry.first == :exec }.flatten).not_to include('apply')
   end
 
   it 'disables server environment caching and removes obsolete content checkpoints' do
@@ -582,11 +594,11 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(runtime).to receive(:reload_service).once do |_resource|
       expect(ready).to be(true)
     end
-    mutate(controller('proxy' => { 'enabled' => true }), :up)
+    mutate(controller('proxy' => { 'nodes' => { 'enabled' => true } }), :up)
   end
 
   it 'reloads proxy policy without replacing services and keeps unchanged policy idle' do
-    config = { 'proxy' => { 'enabled' => true, 'global' => ['example.org'] } }
+    config = { 'proxy' => { 'nodes' => { 'enabled' => true, 'global' => ['example.org'] } } }
     mutate(controller(config), :up)
     state = @store.load
     state['nodes'] = rewrite_node_records
@@ -594,14 +606,14 @@ RSpec.describe Empeira::ControlPlane::Controller do
     mutate(controller(config), :up)
     ids = runtime.services.transform_values { |resource| resource['id'] }
     runtime.calls.clear
-    config['proxy']['rules'] = [{ 'hosts' => ['*-node'], 'allow' => ['example.net'] }]
+    config['proxy']['nodes']['rules'] = [{ 'hosts' => ['*-node'], 'allow' => ['example.net'] }]
     expect(mutate(controller(config), :up)).to be(true)
     expect(runtime.services.transform_values { |resource| resource['id'] }).to eq(ids)
     expect(runtime.calls).to include([:reload, ids.fetch('proxy'), 'HUP'])
     runtime.calls.clear
     expect(mutate(controller(config), :up)).to be(false)
     expect(runtime.calls.none? { |call| call.first == :reload }).to be(true)
-    config['proxy']['global'] = ['packages.example.org']
+    config['proxy']['nodes']['global'] = ['packages.example.org']
     expect(mutate(controller(config), :up)).to be(true)
     expect(runtime.services.transform_values { |resource| resource['id'] }).to eq(ids)
     expect(runtime.calls).to include([:reload, ids.fetch('proxy'), 'HUP'])
@@ -610,10 +622,10 @@ RSpec.describe Empeira::ControlPlane::Controller do
   end
 
   it 'retries a failed proxy reload even when the desired files are already current' do
-    config = { 'proxy' => { 'enabled' => true, 'global' => ['example.org'] } }
+    config = { 'proxy' => { 'infrastructure' => { 'enabled' => true, 'allow' => ['example.org'] } } }
     mutate(controller(config), :up)
     checkpoint = @store.load.dig('control_plane', 'proxy_reload')
-    config['proxy']['global'] = ['example.net']
+    config['proxy']['infrastructure']['allow'] = ['example.net']
     allow(runtime).to receive(:reload_service).and_raise(Empeira::Providers::ExecutionError, 'reload failed')
     expect { mutate(controller(config), :up) }.to raise_error(Empeira::Providers::ExecutionError, /reload failed/)
     expect(@store.load.dig('control_plane', 'proxy_reload')).to eq(checkpoint)
@@ -631,7 +643,7 @@ RSpec.describe Empeira::ControlPlane::Controller do
   end
 
   it 'replaces a proxy with the previous IP restriction on up without changing user policy or other services' do
-    config = { 'proxy' => { 'enabled' => true, 'global' => ['example.org'] } }
+    config = { 'proxy' => { 'nodes' => { 'enabled' => true, 'global' => ['example.org'] } } }
     mutate(controller(config), :up)
     current = Empeira::ControlPlane::Plan.new(context: context(config))
     definition = current.definitions.fetch('proxy')
@@ -657,7 +669,7 @@ RSpec.describe Empeira::ControlPlane::Controller do
   end
 
   it 'removes proxy but retains the common DNS gateway when disabling proxy access' do
-    mutate(controller('proxy' => { 'enabled' => true }), :up)
+    mutate(controller('proxy' => { 'nodes' => { 'enabled' => true } }), :up)
     mutate(controller, :up)
     expect(runtime.services).not_to have_key('proxy')
     expect(runtime.networks.size).to eq(1)
