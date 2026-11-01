@@ -82,7 +82,7 @@ jobs:
           bundle exec ruby script/release.rb build
           echo "build_time=$EMPEIRA_BUILD_TIME" >> "$GITHUB_OUTPUT"
           ruby -rdigest -e 'File.open(ENV.fetch("GITHUB_OUTPUT"), "a") { |f| f.puts "checksum=#{Digest::SHA256.file(Dir["pkg/*.gem"].fetch(0)).hexdigest}" }'
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0, MIT
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v6.0.0, MIT
         with:
           name: release-gem
           path: pkg/*.gem
