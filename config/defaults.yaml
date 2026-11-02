@@ -56,6 +56,7 @@ network:
   redirects: []
 proxy:
   nodes:
+    memory: 128
     enabled: false
     global: []
     rules: []

@@ -22,7 +22,7 @@ module Empeira
         'puppetdb' => { 'enabled' => :boolean, 'memory' => :positive_integer, 'runtime' => :puppetdb_runtime },
         'network' => { 'egress' => { 'nodes' => :network_egress, 'infrastructure' => :network_egress },
                        'redirects' => :network_redirects },
-        'proxy' => { 'nodes' => { 'enabled' => :boolean, 'global' => :allowlist, 'rules' => :proxy_rules },
+        'proxy' => { 'nodes' => { 'memory' => :positive_integer, 'enabled' => :boolean, 'global' => :allowlist, 'rules' => :proxy_rules },
                      'infrastructure' => { 'enabled' => :boolean, 'allow' => :allowlist } },
         'vm' => { 'disk' => :vm_disk, 'interfaces' => :vm_interfaces,
                   'console' => { 'root_password' => :optional_string } },
@@ -134,7 +134,7 @@ module Empeira
       end
 
       def validate_proxy_scope_migration!(proxy)
-        return unless proxy.is_a?(Hash) && proxy.keys.intersect?(%w[enabled global rules])
+        return unless proxy.is_a?(Hash) && proxy.keys.intersect?(%w[memory enabled global rules])
 
         raise ConfigurationError, 'Shared proxy settings have moved to proxy.nodes; configure ' \
                                   'proxy.infrastructure separately'
