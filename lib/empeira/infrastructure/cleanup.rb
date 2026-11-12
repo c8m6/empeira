@@ -107,6 +107,12 @@ module Empeira
       end
 
       def remove_container(record)
+        return remove_container_instance(record) unless record['id']
+
+        Node::SessionLock.new(context: @context, record: record).exclusive { remove_container_instance(record) }
+      end
+
+      def remove_container_instance(record)
         name = record.fetch('hostname')
         path = @store.directory.join('containers', name)
         OwnedFiles.verify_removable!(path, root: @store.directory)

@@ -528,8 +528,7 @@ module Empeira
       def require_started!(key, resource)
         return if resource.fetch('state') == 'running'
 
-        raise Error, "Managed service #{key} is #{resource.fetch('state')} after start; " \
-                     "inspect #{@context.container_engine} logs #{resource.fetch('id')}"
+        raise StartupFailure.new(key: key, resource: resource, engine: @context.container_engine)
       end
 
       def update_hosts(reload_proxy: false)

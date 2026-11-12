@@ -93,6 +93,24 @@ system SSH. Guest commands use argument arrays and owned process groups; stdout
 and stderr stream in bounded frames without truncation. Timeouts, interrupts and
 host disconnects terminate those groups. Binary uploads are SHA-256 verified,
 staged privately and atomically installed in the real guest filesystem.
+The management supervisor and workers retain `umask 077`, private 0700 staging and
+explicit upload modes. Only executed commands (including Puppet and its children)
+and PTY shells start with `umask 022`. Previously the worker's private mask leaked
+into these children, causing ordinary file/directory creation to yield 0600/0700;
+APT could not read public keys created by commands that omitted an explicit mode.
+Commands still run as numeric root, and explicit private modes remain private.
+Empeira's native APT acquisition already copies its own signing key with mode 0644
+under `/var/tmp`; it does not create project repository keys under
+`/usr/share/keyrings` or `/etc/apt/keyrings`.
+
+This correction applies to newly seeded VMs. Recreate disposable existing VMs to
+receive the updated adapter; `up` does not replace seeded management code or repair
+existing files. No directory-wide chmod or post-Puppet keyring rewrite is performed.
+A catalog explicitly setting mode 0600, or a tool using private temporary files,
+still needs correction at its owning resource. Project-managed public APT keys
+should specify root:root and 0644, with searchable parent directories. The reported
+Docker/Elastic/project key names are absent from Empeira's source; their exact
+catalog resources require inspection in the affected project.
 
 The QEMU monitor verifies workspace/node/instance identity before management.
 A 0700 host directory and 0600 Unix socket restrict access; recorded device/inode
