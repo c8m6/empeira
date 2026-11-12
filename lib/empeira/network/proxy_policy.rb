@@ -27,7 +27,7 @@ module Empeira
       def configuration
         [
           'dns_nameservers @EMPEIRA_DNS@', 'http_port 3128',
-          'visible_hostname empeira-proxy', 'cache deny all', 'cache_mem 16 MB', 'workers 0',
+          'visible_hostname empeira-proxy', 'cache deny all', 'cache_mem 16 MB', 'workers 1',
           'access_log none', 'cache_log /dev/null', 'pid_filename none',
           client_rule, 'http_access deny !clients',
           'request_header_access Proxy-Authorization deny all',

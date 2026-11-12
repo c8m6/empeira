@@ -9,7 +9,9 @@ class BootstrapRuntimeFixture < ServiceRuntime
 end
 
 RSpec.describe Empeira::Network::BootstrapProxy do
+  let(:configuration) { {} }
   let(:app) do
+    File.write(File.join(@directory, '.empeira.yaml'), YAML.dump(configuration))
     Empeira::Application.new(project_path: @directory,
                              locations: Empeira::Platform::Locations.new(home: File.join(@directory, 'user-home'),
                                                                          environment: {}))
@@ -24,6 +26,26 @@ RSpec.describe Empeira::Network::BootstrapProxy do
     { 'peer_network' => { 'subnet' => '172.20.0.0/24' },
       'control_plane' => { 'egress' => @egress_id,
                            'services' => { 'gateway' => { 'id' => @gateway_id }, 'dns' => { 'id' => @dns_id } } } }
+  end
+
+  context 'with a custom shared memory limit and both regular proxy scopes disabled' do
+    let(:configuration) do
+      { 'proxy' => { 'memory' => 768, 'nodes' => { 'enabled' => false },
+                     'infrastructure' => { 'enabled' => false } } }
+    end
+
+    it 'passes the configured limit through the actual temporary proxy creation plan' do
+      expect(plan.proxy?).to be(false)
+      expect(runtime).to receive(:create_service).and_wrap_original do |create, definition|
+        expect(definition.key).to eq('bootstrap-proxy')
+        expect(definition.options.fetch('memory')).to eq(768)
+        arguments = Empeira::Runtime::ServiceArguments.new(definition).build
+        expect(arguments.each_cons(2).to_a).to include(['--memory', '768m'])
+        create.call(definition)
+      end
+      proxy.start(state, requirements, source: record.fetch('peer').fetch('ip'))
+      proxy.cleanup(state)
+    end
   end
 
   before do

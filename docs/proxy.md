@@ -6,7 +6,7 @@ the node scope makes its global and hostname rules available to nodes:
 
 ```yaml
 proxy:
-  memory: 512 # MiB for the shared managed Squid container
+  memory: 512 # MiB per regular or temporary bootstrap Squid container
   nodes:
     enabled: true
     global:
@@ -51,9 +51,19 @@ infrastructure has already been reconciled.
 
 ## Memory budget and startup diagnostics
 
-`proxy.memory` is a positive integer MiB limit for the shared managed Squid
-container, defaulting to 512. Existing configurations inherit this value; neither
-proxy scope is enabled by setting it. Docker and Podman use the same native
+`proxy.memory` is a positive integer MiB limit per managed Squid container,
+defaulting to 512. Node access and infrastructure access share one regular proxy;
+the same limit applies when either or both scopes are enabled. The temporary,
+authenticated bootstrap proxy inherits this value as its own container limit.
+If both containers run simultaneously, each has a separate 512 MiB limit by
+default (1024 MiB combined), not one shared 512 MiB budget. These limits are
+neither memory reservations nor measured peak consumption.
+
+Existing configurations inherit the default. Setting `proxy.memory` alone does
+not enable a regular proxy or start a bootstrap proxy. Node and infrastructure
+access keep independent activation switches and destination grants. Bootstrap
+keeps its separate temporary activation, authentication and destination grants.
+Docker and Podman use the same native
 `--memory` argument, including rootless Podman. The engine host (or its Linux VM on
 macOS) still needs enough available memory and working cgroup memory controls.
 
@@ -65,25 +75,30 @@ maximum or a guarantee for arbitrary workloads. Validate actual peak usage with
 native container stats and host cgroup/OOM diagnostics in the affected environment.
 
 Generated policy keeps `cache deny all`, sets `cache_mem 16 MB`, and explicitly uses
-`workers 0` together with `-N` for one foreground main process. No disk cache is
-configured. Squid's [cache_mem documentation](https://www.squid-cache.org/Doc/config/cache_mem/)
+`workers 1` together with `-N` for one foreground main process. An explicit
+`workers 0` causes Squid 7.7 to exit during startup with
+`FATAL: check failed: theProcessCount > 0`; `-N` already selects foreground mode.
+No disk cache is configured. Squid's [cache_mem documentation](https://www.squid-cache.org/Doc/config/cache_mem/)
 describes an object-memory target, not a cap on process RSS; in-flight requests can
 exceed it. The [workers setting](https://www.squid-cache.org/Doc/config/workers/)
 avoids multiplying main-process memory. These settings preserve DNS, source-bound
 client rules and the HTTP/HTTPS destination policy.
 
-If the service exits during startup, diagnostics include the native exit code,
-`OOMKilled` observation and actual inspected memory limit in bytes/MiB when
-available. Only `OOMKilled=true` confirms an OOM kill. Exit 137 alone does not:
+If the regular proxy exits during startup or its readiness check, diagnostics
+include the native exit code, `OOMKilled` observation and actual inspected memory
+limit in bytes/MiB when available. Only `OOMKilled=true` confirms an OOM kill. Exit 137 alone does not:
 external SIGKILL can produce the same exit. Missing observations are explicitly
 reported as unavailable, and a runtime-reported zero limit is shown as unlimited.
 For confirmed proxy OOM, increase `proxy.memory`, check engine-host capacity, and
 run `empeira up`. Native logs remain available via the displayed runtime command.
+The temporary bootstrap proxy uses its own endpoint verification and readiness
+probe; the new regular-proxy OOM diagnostics do not apply to that separate path.
 
-A memory change replaces only the proxy on the next `up`; CA/database storage,
-nodes and unrelated services retain their identities. Unchanged runs reuse the
-proxy. Generated policy changes use the existing readiness/reload checkpoint.
+A memory change replaces only the regular proxy on the next `up`; CA/database
+storage, nodes and unrelated services retain their identities. Unchanged runs
+reuse the proxy. Generated policy changes use the existing readiness/reload checkpoint.
 Replacing or reloading the proxy may interrupt active proxy connections.
+The next temporary bootstrap proxy receives the configured limit when created.
 
 ## Matching and destinations
 
