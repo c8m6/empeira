@@ -159,6 +159,8 @@ def start_exec(message):
     try:
         process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, start_new_session=True,
+                                   # Workers are single-threaded; support guest Python 3.6 as well.
+                                   preexec_fn=lambda: os.umask(0o022),
                                    env={**{key: value for key, value in os.environ.items() if key != 'RUNTIME_DIRECTORY'}, 'PATH': '/opt/puppetlabs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'})
     except OSError as error:
         send({'type': 'stderr', 'data': base64.b64encode((os.strerror(error.errno) + '\n').encode()).decode()})
@@ -211,6 +213,8 @@ def start_shell(message):
     pid, master = pty.fork()
     if pid == 0:
         try:
+            # Keep management staging private without changing ordinary guest file creation.
+            os.umask(0o022)
             fcntl.ioctl(0, termios.TIOCSWINSZ, size)
             try:
                 home = pwd.getpwuid(0).pw_dir

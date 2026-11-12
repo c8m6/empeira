@@ -38,6 +38,20 @@ RSpec.describe 'Native agent package acquisition' do
     expect(files.fetch(Empeira::Node::AgentRepository::SOURCE_PATH).first).not_to include('trusted=yes')
   end
 
+  it 'copies only its owned public signing key with an explicit APT-readable mode on repeated acquisition' do
+    source['key'] = { 'url' => 'https://packages.example.org/key.asc' }
+    allow(download).to receive(:fetch) do |_url, destination, **|
+      File.binwrite(destination, "-----BEGIN PGP PUBLIC KEY BLOCK-----\nsynthetic\n")
+      destination
+    end
+    2.times do
+      resolver.prepare_keys
+      key = "#{Empeira::Node::AgentRepository::KEY_PATH}.asc"
+      expect(files.keys).to eq([key])
+      expect(files.fetch(key).last).to eq('0644')
+    end
+  end
+
   it 'rejects ambiguous native releases without selecting the latest' do
     allow(execute).to receive(:call).and_wrap_original do |method, arguments|
       result = method.call(arguments)
