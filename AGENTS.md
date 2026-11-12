@@ -1,7 +1,8 @@
 # Project conventions
 
-These conventions apply to all repository work unless an explicit task instruction
-overrides them. Prefer existing architecture and helpers; keep changes focused.
+Read and apply the [shared engineering guidelines](docs/engineering/AGENTS.md)
+alongside this file. The rules below specify Empeira's contracts and required
+checks. An explicit task instruction may override a convention for that task.
 
 ## Purpose and scope
 
@@ -16,16 +17,13 @@ must not become a Compose replacement.
 
 The product is Empeira, the CLI is `empeira`, and the project marker is
 `.empeira.yaml`. Documentation and configuration-example comments are English.
-Preserve literal CLI labels and keys. Do not create planning, scratch, progress or
-temporary Markdown files unless requested; project documentation and this file
-are exempt. Update affected documentation with every change.
+Do not create planning, scratch, progress or temporary Markdown files unless
+requested. Project documentation and this file are exempt.
 
 ## Licensing and dependencies
 
-Project-owned code and documentation use `AGPL-3.0-or-later`. Preserve licensing and
-third-party attribution. Before introducing dependencies or third-party material,
-check provenance, compatibility, maintenance and known vulnerabilities. Prefer
-Ruby's standard library and small dependencies; report uncertainty explicitly.
+Project-owned code and documentation use `AGPL-3.0-or-later`. Prefer Ruby's
+standard library and small dependencies.
 Never commit, bundle, redistribute or include proprietary Puppet Enterprise
 software in release artifacts. Users own licensing and compatibility of their
 custom images and packages.
@@ -294,9 +292,8 @@ separate so future shells can use core completion data without runtime probing.
 Local work stays on the checked-out branch unless requested otherwise. Remote
 work uses the explicitly designated integration base and task branches; never
 infer `main` merely because it exists. Honor task-specific push/PR/release limits.
-Commit successfully validated work automatically in logical Conventional Commits,
-after reviewing every change for scope, documentation and accidental content.
-Do not commit unexpected test failures. Report created commits and actual checks.
+Commit successfully validated work automatically in logical Conventional Commits
+and report the commits created. Unexpected test failures block the commit.
 
 Use `feat`, `fix`, `perf` and `refactor` for public functional changes; use `docs`,
 `test`, `chore`, `ci`, `build` and `style` for the corresponding internal work.
