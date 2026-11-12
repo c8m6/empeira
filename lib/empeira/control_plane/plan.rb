@@ -330,7 +330,7 @@ module Empeira
         configured = config.dig('images', 'proxy')
         {
           **Images::Configuration.artifact(configured, registry: config.dig('images', 'registry')),
-          memory: 128, runtime_ip: subnet && Network::Gateway.address(subnet, 'proxy'),
+          memory: config.dig('proxy', 'memory'), runtime_ip: subnet && Network::Gateway.address(subnet, 'proxy'),
           sysctls: { 'net.ipv4.ip_forward' => '0', 'net.ipv6.conf.all.disable_ipv6' => '1',
                      'net.ipv6.conf.default.disable_ipv6' => '1' }, entrypoint: '/usr/sbin/squid-gnutls',
           command: ['-N', '-f', '/empeira-proxy/squid.conf'],

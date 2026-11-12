@@ -147,7 +147,11 @@ module Empeira
           'networks' => data.fetch('NetworkSettings').fetch('Networks'),
           'host_config' => data['HostConfig'], 'image_id' => data['Image'],
           'mounts' => data.fetch('Mounts'), 'dns' => data.dig('HostConfig', 'Dns') || [],
-          **port_observations(data) }
+          **port_observations(data), **exit_observations(data) }
+      end
+
+      def exit_observations(data)
+        { 'exit_code' => data.dig('State', 'ExitCode'), 'oom_killed' => data.dig('State', 'OOMKilled') }
       end
 
       def port_observations(data)

@@ -159,6 +159,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `network.egress.nodes` | Node-only direct TCP host/port grants, `[]`; arrays replace |
 | `network.egress.infrastructure` | Infrastructure-only direct TCP host/port grants, `[]`; arrays replace |
 | `network.redirects` | Exact IPv4/protocol/port endpoints redirected to enabled internal services, `[]` |
+| `proxy.memory` | Positive integer MiB, `512`; shared managed Squid container limit |
 | `proxy.nodes.enabled` | Boolean, `false`; enables normal node HTTP/HTTPS proxy access |
 | `proxy.nodes.global` | DNS destination array, `[]` |
 | `proxy.nodes.rules` | Additive node hostname-glob rules with `hosts` and `allow` arrays, `[]` |
@@ -970,7 +971,7 @@ The default control plane has six containers, or seven with the proxy, plus the
 runtime's peer-network adapter. Requested limits
 are 1536 MiB for the server (768 MiB JVM heap), 768 MiB for PuppetDB (256 MiB heap),
 256 MiB for PostgreSQL, 64 MiB for DNS, 96 MiB for the database relay, 64 MiB
-for the gateway and 128 MiB for Squid. The control-plane memory ceiling is about
+for the gateway and 512 MiB for Squid (`proxy.memory`). The control-plane memory ceiling is about
 2.7 GiB without the proxy, excluding the peer adapter and nodes. The server gets two CPUs and each
 other service one. Actual idle use is lower and varies by provider and platform.
 `up` automatically pulls missing remote images and builds missing recipe images.

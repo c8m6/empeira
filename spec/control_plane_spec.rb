@@ -118,6 +118,42 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(@store.load.dig('control_plane', 'services', 'server', 'id')).to eq(server_id)
   end
 
+  [true, false, nil].each do |oom|
+    it "reports proxy exit 137 with runtime OOM evidence #{oom.inspect}" do
+      plane = controller('proxy' => { 'nodes' => { 'enabled' => true } })
+      allow(runtime).to receive(:start_service).and_wrap_original do |method, resource|
+        method.call(resource)
+        if resource.equal?(runtime.services['proxy'])
+          resource.merge!('state' => 'exited', 'exit_code' => 137, 'oom_killed' => oom,
+                          'host_config' => { 'Memory' => 134_217_728 })
+        end
+      end
+      expect { mutate(plane, :up) }.to raise_error(Empeira::Error) { |error|
+        expect(error.message).to include('proxy is exited', 'exit code 137', '134217728 bytes (128 MiB)')
+        if oom
+          expect(error.message).to include('confirmed OOM kill', 'proxy.memory', 'empeira up')
+        else
+          expect(error.message).not_to include('confirmed OOM kill')
+          expect(error.message).to include(oom == false ? 'OOMKilled=false' : 'OOM status unavailable')
+        end
+      }
+      expect(@store.load.dig('control_plane', 'services', 'proxy', 'id')).to eq(runtime.services['proxy']['id'])
+    end
+  end
+
+  it 'replaces only the proxy for a changed memory budget and then reuses it' do
+    config = { 'proxy' => { 'nodes' => { 'enabled' => true } } }
+    mutate(controller(config), :up)
+    ids = runtime.services.transform_values { |resource| resource.fetch('id') }
+    config['proxy']['memory'] = 768
+    expect(mutate(controller(config), :up)).to be(true)
+    updated = runtime.services.transform_values { |resource| resource.fetch('id') }
+    expect(updated.except('proxy')).to eq(ids.except('proxy'))
+    expect(updated.fetch('proxy')).not_to eq(ids.fetch('proxy'))
+    expect(mutate(controller(config), :up)).to be(false)
+    expect(runtime.services.transform_values { |resource| resource.fetch('id') }).to eq(updated)
+  end
+
   it 'batches a warm reconcile and refreshes observations after success or failure' do
     plane = controller
     mutate(plane, :up)
