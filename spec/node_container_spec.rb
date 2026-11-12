@@ -358,6 +358,51 @@ RSpec.describe Empeira::Node::Container do
     expect(store.load.fetch('nodes').fetch('test-node')).to eq(record)
   end
 
+  %w[test-node other-node].each do |second|
+    it "allows overlapping SSH to #{second} while retaining lifecycle exclusion" do
+      provider.run(request)
+      if second != 'test-node'
+        provider.run(Empeira::Node::RunRequest.from_config(hostname: second, provider: 'container',
+                                                           config: app.context.configuration))
+      end
+      client = instance_double(Empeira::Node::UserSSH)
+      allow(Empeira::Node::UserSSH).to receive(:new).and_return(client)
+      calls = 0
+      allow(client).to receive(:session) do |record, **|
+        calls += 1
+        expect { store.with_lock { nil } }.not_to raise_error
+        expect { provider.stop(name: record.fetch('hostname')) }.to raise_error(Empeira::Infrastructure::Locked)
+        expect { provider.destroy(name: record.fetch('hostname')) }.to raise_error(Empeira::Infrastructure::Locked)
+        provider.ssh(name: second) if calls == 1
+        runtime.stream_service(nil, [])
+      end
+      expect(provider.ssh(name: 'test-node')).to be_success
+      expect(calls).to eq(2)
+      expect(provider.stop(name: 'test-node').changed).to be(true)
+      expect(provider.destroy(name: 'test-node').changed).to be(true)
+    end
+  end
+
+  it 'releases the acquired instance guard when SSH preparation fails' do
+    provider.run(request)
+    expect { provider.ssh(name: 'test-node', port: 0) }.to raise_error(Empeira::ConfigurationError)
+    expect { store.with_lock { nil } }.not_to raise_error
+    expect(provider.destroy(name: 'test-node').changed).to be(true)
+  end
+
+  [IOError, Interrupt, SignalException].each do |error|
+    it "releases SSH workspace and instance locks after #{error}" do
+      provider.run(request)
+      client = instance_double(Empeira::Node::UserSSH)
+      allow(Empeira::Node::UserSSH).to receive(:new).and_return(client)
+      failure = error == SignalException ? SignalException.new('TERM') : error.new
+      allow(client).to receive(:session).and_raise(failure)
+      expect { provider.ssh(name: 'test-node') }.to raise_error(error)
+      expect { store.with_lock { nil } }.not_to raise_error
+      expect(provider.destroy(name: 'test-node').changed).to be(true)
+    end
+  end
+
   it 'keeps failed Puppet results separate from running container state' do
     runtime.agent_exit = 6
     expect { provider.run(request) }.to raise_error(Empeira::Error, /Puppet agent failed/)

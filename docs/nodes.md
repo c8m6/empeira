@@ -296,12 +296,18 @@ Empeira uses the private privileged VirtIO channel internally to install the VM 
 enroll certificates and run Puppet. User-facing SSH opens an ordinary interactive
 login without the internal provisioning command or automatic sudo.
 
-VM exec, shell, SSH and serial sessions release the workspace mutation lock after ownership and
-running-state checks. Parallel sessions and read-only status remain available. A
+Container SSH and VM exec, shell, SSH and serial sessions release the workspace
+mutation lock after ownership and running-state checks. Parallel sessions and read-only status remain available. A
 shared instance guard prevents `node stop`, `node destroy` or restart from replacing
-the VM while a session is attached; detach first and retry the conflicting operation.
+that node instance while a session is attached; detach first and retry the conflicting operation.
 Other nodes and workspace commands can proceed. Instance lock files stay stable;
 their open descriptors are released on detach, disconnect, errors and signals.
+Container SSH preparation remains inside the workspace transaction and pins the
+observed container ID before releasing that lock. Concurrent SSH sessions to the
+same or different nodes are allowed. Container `exec` and `shell` retain their
+existing workspace transaction. Mutations still use the exclusive workspace lock;
+`down` continues to require node removal, and destroy retains attached instances
+for a retry after sessions detach.
 
 ## Root diagnostic commands and interactive shell
 

@@ -199,8 +199,9 @@ incomplete running nodes. Preserve independent `--user`/`--identity` overrides.
 Authentication failure never injects users/keys or falls back to shell. Verify owned
 endpoints and use private node known-hosts. VM interactive access releases the
 workspace mutation lock and holds a shared instance guard; conflicting VM lifecycle
-operations fail until sessions detach. Console password applies once, is redacted
-and removed from temporary seed material, never restored after Puppet changes it.
+operations fail until sessions detach. Container SSH follows the same handoff, pinned
+to the observed container ID; container stop/removal honor that shared guard.
+Console password applies once, is redacted and removed from temporary seed material, never restored after Puppet changes it.
 Private console sockets support macOS path limits and are removed with the node.
 
 Browser traffic stays isolated; publish only its fixed TLS UI destination on a

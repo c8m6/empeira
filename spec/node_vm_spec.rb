@@ -539,6 +539,8 @@ RSpec.describe Empeira::Node::VM do
     allow(client).to receive(:session) do |record, **|
       calls += 1
       expect(record['provisioned']).to be(false)
+      expect { provider.stop(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::Locked)
+      expect { provider.destroy(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::Locked)
       expect { store.with_lock { nil } }.not_to raise_error
       provider.ssh(name: 'vm-host', user: 'deploy', identity: '/some/key') if calls == 1
       result
@@ -555,6 +557,21 @@ RSpec.describe Empeira::Node::VM do
       provider.run(request)
       allow(provider.instance_variable_get(:@qemu)).to receive(:console).and_raise(error)
       expect { provider.console(name: 'vm-host') }.to raise_error(error)
+      expect(provider.stop(name: 'vm-host').changed).to be(true)
+    end
+  end
+
+  [IOError, Interrupt, SignalException].each do |error|
+    it "releases the VM session guard after SSH #{error}" do
+      engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+      provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+      provider.run(request)
+      client = instance_double(Empeira::VM::SystemSSH)
+      allow(Empeira::VM::SystemSSH).to receive(:new).and_return(client)
+      failure = error == SignalException ? SignalException.new('TERM') : error.new
+      allow(client).to receive(:session).and_raise(failure)
+      expect { provider.ssh(name: 'vm-host') }.to raise_error(error)
+      expect { store.with_lock { nil } }.not_to raise_error
       expect(provider.stop(name: 'vm-host').changed).to be(true)
     end
   end
