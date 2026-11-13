@@ -58,6 +58,24 @@ end
 
 RSpec.describe 'Batched service snapshots' do
   %w[docker podman].each do |engine|
+    it "retains #{engine} native exit, OOM and actual memory observations" do
+      app = Empeira::Application.new(project_path: @directory)
+      definition = Empeira::Services::Definition.new(key: 'proxy', workspace: app.context.workspace)
+      data = { 'Id' => 'proxy-id', 'Name' => definition.name, 'Config' => { 'Labels' => definition.labels },
+               'State' => { 'Status' => 'exited', 'ExitCode' => 137, 'OOMKilled' => true },
+               'HostConfig' => { 'Memory' => 134_217_728 },
+               'NetworkSettings' => { 'Networks' => {} }, 'Mounts' => [] }
+      runner = instance_double(Empeira::Execution::Runner)
+      result = Empeira::Execution::Result.new(stdout: JSON.generate([data]), stderr: '', exit_status: 0,
+                                              timed_out: false)
+      expect(runner).to receive(:run).with(engine, arguments: %w[container inspect proxy-id], timeout: 30)
+                                     .and_return(result)
+      runtime = Empeira::Runtime.registry.build(engine, context: app.context, runner: runner)
+      resource = runtime.inspect_service(definition, expected_id: 'proxy-id')
+      expect(resource).to include('state' => 'exited', 'exit_code' => 137, 'oom_killed' => true,
+                                  'host_config' => { 'Memory' => 134_217_728 })
+    end
+
     it "inspects five #{engine} services with two calls and retains ID/ownership validation" do
       app = Empeira::Application.new(project_path: @directory)
       definitions = %w[dns server proxy postgres puppetdb].to_h do |key|

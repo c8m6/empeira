@@ -32,6 +32,42 @@ RSpec.describe 'Control-plane configuration and service contracts' do
     expect(value.definitions['puppetdb'].options['ports']).to be_nil
   end
 
+  it 'budgets Squid independently and applies a configured MiB limit to native container arguments' do
+    defaults = plan('proxy' => { 'nodes' => { 'enabled' => true } })
+    expect(defaults.definitions.fetch('proxy').options.fetch('memory')).to eq(512)
+    custom = plan('proxy' => { 'memory' => 768, 'nodes' => { 'enabled' => true } })
+    proxy = custom.definitions.fetch('proxy')
+    expect(Empeira::Runtime::ServiceArguments.new(proxy).build).to include('--memory', '768m')
+    expect(custom.fingerprints.except('proxy')).to eq(defaults.fingerprints.except('proxy'))
+    expect(custom.fingerprints.fetch('proxy')).not_to eq(defaults.fingerprints.fetch('proxy'))
+    policy = Empeira::Network::ProxyPolicy.new(custom.config.dig('proxy', 'nodes')).configuration
+    expect(policy).to include('cache deny all', 'cache_mem 16 MB', 'workers 1')
+    expect(proxy.options.fetch('command')).to include('-N')
+  end
+
+  [0, -1, '512', nil, true].each do |memory|
+    it "rejects invalid proxy memory #{memory.inspect} with its full path" do
+      expect { plan('proxy' => { 'memory' => memory }) }
+        .to raise_error(Empeira::ConfigurationError, /proxy.memory/)
+    end
+  end
+
+  it 'applies the shared memory limit when only infrastructure proxy access is enabled' do
+    value = plan('proxy' => { 'memory' => 768, 'nodes' => { 'enabled' => false },
+                              'infrastructure' => { 'enabled' => true } })
+    proxy = value.definitions.fetch('proxy')
+    expect(value.proxy?).to be(true)
+    expect(Empeira::Runtime::ServiceArguments.new(proxy).build.each_cons(2).to_a).to include(['--memory', '768m'])
+  end
+
+  it 'does not enable a regular or bootstrap proxy just by configuring its memory limit' do
+    value = plan('proxy' => { 'memory' => 768 })
+    expect(value.config.dig('proxy', 'nodes', 'enabled')).to be(false)
+    expect(value.config.dig('proxy', 'infrastructure', 'enabled')).to be(false)
+    expect(value.proxy?).to be(false)
+    expect(value.definitions.keys).not_to include('proxy', 'bootstrap-proxy')
+  end
+
   it 'configures OpenVox through the service and certificate contract' do
     value = plan
     expect(value.definitions.keys).to match_array(%w[gateway dns server postgres puppetdb-backend puppetdb])

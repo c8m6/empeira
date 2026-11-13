@@ -23,12 +23,15 @@ module Empeira
 
       def stop(name:)
         mutate do
-          resource = observed(fetch(name))
+          record = fetch(name)
+          resource = observed(record)
           raise Error, 'Node is missing; inspect node list' unless resource
 
-          changed = resource['state'] == 'running'
-          @runtime.stop_service(resource) if changed
-          lifecycle_result(name.downcase, :stopped, changed: changed)
+          SessionLock.new(context: context, record: record).exclusive do
+            changed = resource['state'] == 'running'
+            @runtime.stop_service(resource) if changed
+            lifecycle_result(name.downcase, :stopped, changed: changed)
+          end
         end
       end
 
@@ -73,27 +76,19 @@ module Empeira
         end
       end
 
-      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Verify the owned endpoint before selecting a guest tunnel.
       def ssh(name:, user: nil, identity: nil, port: nil)
-        mutate do
-          port = Configuration::SSHPreferences.port!(port || 22)
-          record = fetch(name)
-          resource = running(record)
-          unless record['ssh_host'] && record['ssh_port']
-            raise Error, 'Node has no managed SSH endpoint; destroy and recreate it with the current Empeira image'
-          end
-
-          proxy = if port != 22
-                    @runtime.ssh_proxy_command(resource, port: port)
-                  elsif record['ssh_transport'] == 'tunnel'
-                    @runtime.ssh_proxy_command(resource)
-                  end
-          record = record.merge('ssh_port' => port) if port != 22
-          UserSSH.new(runner: @runner, credentials: ssh_credentials(record.fetch('hostname')),
-                      proxy_command: proxy, home: context.locations.home).session(
-                        record, user: user, identity: identity
-                      )
+        lock = nil
+        client, record = mutate do
+          current = fetch(name)
+          resource = running(current)
+          lock = SessionLock.new(context: context, record: current).acquire(shared: true)
+          prepare_ssh(current, resource, port)
         end
+        Execution::Terminal.with_interrupts do
+          @progress.streaming { client.session(record, user: user, identity: identity) }
+        end
+      ensure
+        lock&.close
       end
 
       def logs(name:)
@@ -107,6 +102,22 @@ module Empeira
 
       private
 
+      def prepare_ssh(record, resource, port)
+        port = Configuration::SSHPreferences.port!(port || 22)
+        unless record['ssh_host'] && record['ssh_port']
+          raise Error, 'Node has no managed SSH endpoint; destroy and recreate it with the current Empeira image'
+        end
+
+        proxy = if port != 22
+                  @runtime.ssh_proxy_command(resource, port: port)
+                elsif record['ssh_transport'] == 'tunnel'
+                  @runtime.ssh_proxy_command(resource)
+                end
+        client = UserSSH.new(runner: @runner, credentials: ssh_credentials(record.fetch('hostname')),
+                             proxy_command: proxy, home: context.locations.home)
+        [client, port == 22 ? record : record.merge('ssh_port' => port)]
+      end
+
       def require_provisioned!(record)
         return if record['provisioned']
 
@@ -117,6 +128,13 @@ module Empeira
         record = @nodes[name]
         return unless record
 
+        SessionLock.new(context: context, record: record).exclusive do
+          remove_node_instance(name, record, certificates: certificates)
+        end
+      end
+
+      # rubocop:disable-next Naming/PredicateMethod -- Removes an owned instance and persists its absence.
+      def remove_node_instance(name, record, certificates:)
         observed(record)
         if certificates && record['certificate_key']
           Certificates.new(runtime: @runtime, server: ready_server).clean(record)

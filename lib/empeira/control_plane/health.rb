@@ -14,6 +14,8 @@ module Empeira
         deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @plan.config.dig('server', 'timeout')
         loop do
           return if ready?(key, resources)
+
+          verify_proxy_running!(resources) if key == 'proxy'
           if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
             raise Error,
                   "#{key} did not become ready within server.timeout; inspect empeira status and owned service logs\n" \
@@ -51,6 +53,15 @@ module Empeira
       end
 
       private
+
+      def verify_proxy_running!(resources)
+        resource = @runtime.inspect_service(@plan.definitions.fetch('proxy'),
+                                            expected_id: resources.fetch('proxy').fetch('id'))
+        raise Error, 'Managed service proxy disappeared during readiness' unless resource
+        return if resource.fetch('state') == 'running'
+
+        raise StartupFailure.new(key: 'proxy', resource: resource, engine: @plan.context.container_engine)
+      end
 
       def puppetdb_ready?(server)
         path = '/pdb/query/v4/nodes'
