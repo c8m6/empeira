@@ -88,7 +88,8 @@ module Empeira
         record['state'] = 'running'
         save
         @progress.stage(95, 'Running Puppet...')
-        puppet_run(record)
+        InitialPuppetRuns.new(count: context.configuration.dig('node_defaults', 'puppet_runs'), progress: @progress)
+                         .run { puppet_run(record, initial: true) }
       end
 
       # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Preserve bootstrap cleanup before runtime activation.
@@ -145,14 +146,14 @@ module Empeira
         end
       end
 
-      def puppet_run(record)
+      def puppet_run(record, initial: false)
         reconcile_provider_fact(record)
         result = @progress.streaming do
           @guest.stream(record, RuntimeProxy.command(context, PuppetCommand.arguments))
         end
         record['last_puppet_exit'] = result.exit_status
         save
-        return result if [0, 2].include?(result.exit_status)
+        return result if initial || [0, 2].include?(result.exit_status)
 
         raise Error, "Puppet agent failed (exit #{result.exit_status}); VM retained for shell/logs"
       end

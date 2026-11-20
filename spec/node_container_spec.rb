@@ -2,6 +2,7 @@
 
 require_relative 'support/service_runtime'
 require_relative 'support/command_mock_guest'
+require_relative 'support/initial_puppet_runs'
 
 class NodeRuntimeFixture < ServiceRuntime
   attr_accessor :agent_exit
@@ -28,6 +29,10 @@ class NodeRuntimeFixture < ServiceRuntime
     calls << [:puppet]
     Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: agent_exit || 0, timed_out: false)
   end
+
+  def diagnostic_exec(resource, arguments, **)
+    stream_service(resource, arguments)
+  end
 end
 
 RSpec.describe Empeira::Node::Container do
@@ -47,6 +52,8 @@ RSpec.describe Empeira::Node::Container do
     Empeira::Node::RunRequest.from_config(hostname: 'test-node', provider: 'container',
                                           config: app.context.configuration)
   end
+
+  it_behaves_like 'initial Puppet runs'
 
   before do
     allow($stdin).to receive(:tty?).and_return(true)
