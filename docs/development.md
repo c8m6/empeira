@@ -423,6 +423,15 @@ and the same tag/asset; missing assets, a retained draft or an API error fail th
 Alpha/beta/rc are prereleases and do not become latest stable.
 Dry-run performs all quality/build gates but skips the entire publishing job.
 
+After the GitHub release is published and verified, the same release workflow
+calls the existing `publish-rubygems.yml` workflow as a reusable job. The publisher
+re-downloads and independently verifies the exact GitHub release gem and tag, then
+publishes it to RubyGems.org using its existing OIDC trusted publisher. If the
+GitHub release fails, the RubyGems job is skipped. A RubyGems failure leaves the
+GitHub release intact for diagnosis; the standalone publisher remains available
+to retry that exact release without rebuilding it. Ensure RubyGems trusted
+publishing names `publish-rubygems.yml` as the authorized workflow.
+
 ### Release failure and recovery
 
 Tag creation and GitHub release publication are separate operations. A failed run

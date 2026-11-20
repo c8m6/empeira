@@ -1,6 +1,16 @@
 name: Publish existing release to RubyGems.org
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing, published GitHub release tag
+        type: string
+        required: true
+      dry_run:
+        description: Verify only; do not upload to RubyGems.org
+        type: boolean
+        default: true
   workflow_dispatch:
     inputs:
       tag:
