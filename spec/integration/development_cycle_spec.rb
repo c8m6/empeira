@@ -102,7 +102,10 @@ RSpec.describe 'Real Puppet development cycle', :integration do
       # rubocop:disable-next Metrics/AbcSize -- Compare real node sources across the complete retained lifecycle.
       def verify_apt
         sources = read_node('/etc/apt/sources.list.d/ubuntu.sources')
-        expect(sources).to include('Types: deb', 'Suites: noble', 'Components: main')
+        release = app.context.configuration.dig('node_defaults', 'version')
+        suite = Empeira::Agent::Target.new(os: 'ubuntu', release: release,
+                                           architecture: runtime.architecture).expand('$suite')
+        expect(sources).to include('Types: deb', "Suites: #{suite}", 'Components: main')
         app.nodes.stop(name: 'cache-node')
         app.nodes.start(name: 'cache-node')
         app.infrastructure.up
@@ -115,7 +118,8 @@ RSpec.describe 'Real Puppet development cycle', :integration do
       # rubocop:disable-next Metrics/AbcSize -- Bracket the owned temporary proxy in one locked transaction.
       def with_package_proxy
         proxy = Empeira::Network::BootstrapProxy.new(context: app.context, runtime: runtime, store: store)
-        requirements = Empeira::VM::BootstrapRequirements.new(context: app.context, os: 'ubuntu', version: '24.04')
+        version = app.context.configuration.dig('node_defaults', 'version')
+        requirements = Empeira::VM::BootstrapRequirements.new(context: app.context, os: 'ubuntu', version: version)
         store.with_lock do
           state = store.load
           begin

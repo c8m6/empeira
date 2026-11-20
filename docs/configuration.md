@@ -118,7 +118,7 @@ proxy:
     allow: []
 node_defaults:
   os: ubuntu
-  version: "24.04"
+  version: "26.04"
   memory: 2048
   cpus: 2
 puppetdb:
@@ -173,10 +173,11 @@ release version. A partial project mapping may omit it and inherit the default.
 | `dns.rewrites` | Exact external hostnames mapped to enabled `<service>.empeira.internal` targets; `[]` by default |
 | `hiera.mounts` | Puppet-aware module/environment mounts, `[]`; each source is optional unless `required: true` |
 | `node_defaults.os` | Configured node OS family, default `ubuntu` |
-| `node_defaults.version` | OS version string, default `"24.04"` |
+| `node_defaults.version` | OS version string, default `"26.04"` |
 | `node_defaults.init` | `process` by default; `systemd` requires supported Podman/cgroup v2 |
 | `node_defaults.memory` | Positive integer MiB, `1024` |
 | `node_defaults.cpus` | Positive integer, `2` |
+| `node_defaults.puppet_runs` | Integer from `1` to `10`, default `1`; initial `node run` only |
 | `mocks.commands` | Named command stubs for test nodes, `{}`; each requires `path`, `mock_to` and `exit_code` |
 | `puppetdb.enabled` | Boolean, `true` |
 | `eyaml.enabled` | Boolean, `false`; requires both key paths when enabled |
@@ -552,10 +553,11 @@ no transport selector or additional management YAML configuration. See
 
 ## Images and bootstrap
 
-`images.nodes` selects container recipes and base images. VM image sources currently
-resolve reviewed Ubuntu/Rocky upstream URLs in the image-source adapter; they are
-not configurable through an `images.vm` namespace. A custom adapter can be injected
-at the provider boundary. `bootstrap.guests` records whether an agent is preinstalled
+`images.nodes` selects container recipes and base images. Ubuntu entries also contain
+`vm.url` and `vm.checksum_url`, HTTPS URLs for the cloud image and its SHA-256 manifest.
+The optional `{architecture}` placeholder expands to `amd64` or `arm64`; credentials,
+query strings and URL fragments are rejected. Reviewed sources live in `config/defaults.yaml`.
+Rocky sources retain their existing adapter. `bootstrap.guests` records whether an agent is preinstalled
 and the reviewed destination domains that the temporary bootstrap proxy may reach.
 Rocky metadata also supplies the stable `baseurl` needed to avoid arbitrary mirror
 selection. Ubuntu and Debian package source URLs come exclusively from the base
@@ -596,7 +598,7 @@ Configure only the manager you use. A project `apt.default` or `dnf.default`
 supersedes the built-in release sources for that family. OS-specific entries
 merge over the generic default; existing complete source definitions and `suffix`
 overrides remain supported. APT suites default to `jammy` for Ubuntu 22.04 and
-`noble` for Ubuntu 24.04. RPM keys remain `el8`/`el9` for Rocky, AlmaLinux and
+`noble` for Ubuntu 24.04, and `resolute` for Ubuntu 26.04. RPM keys remain `el8`/`el9` for Rocky, AlmaLinux and
 Oracle Linux's existing supported releases. Architecture comes from the target
 node: `amd64`/`arm64` for DEB and `x86_64`/`aarch64` for RPM. Only `$suite`,
 `$releasever` and `$basearch` URL placeholders are expanded; arbitrary environment
@@ -1235,3 +1237,19 @@ or `expose` schema. `images.network_adapter_builder` selects the reviewed Go bui
 image used by the existing recipe-hash image cache; Go is not a host prerequisite.
 Node IP/MAC leases survive stop/start and are released on destroy. See
 [networking](networking.md) for address pools, isolation and platform validation.
+
+### Initial Puppet runs
+
+```yaml
+node_defaults:
+  puppet_runs: 4
+```
+
+`empeira node run` runs the agent sequentially this many times after bootstrap,
+network cleanup and enrollment. The default is one; accepted values are integers
+from one through ten. Every run streams its normal Puppet output and reports its
+position and detailed exit code. Completed failing catalogs do not stop the sequence:
+for example, `4, 6, 2, 0` succeeds. The final run decides success (`0` or `2`). A
+failing final catalog retains the provisioned node for diagnosis and a later retry.
+Transport failures, timeouts and processes that cannot start abort immediately.
+`empeira node puppet` still runs once; start and other lifecycle commands add no runs.

@@ -41,7 +41,8 @@ module Empeira
           reconcile_guest(resource, record)
           complete_provisioning(record)
           @progress.stage(85, 'Running Puppet agent...')
-          agent_run(resource, record)
+          InitialPuppetRuns.new(count: context.configuration.dig('node_defaults', 'puppet_runs'), progress: @progress)
+                           .run { agent_run(resource, record, initial: true) }
           lifecycle_result(record['hostname'], :running, changed: true)
         end
       end

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'uri'
+
 module Empeira
   module Configuration
     # Node image metadata and architecture validation.
@@ -35,8 +37,13 @@ module Empeira
 
       def node_image!(image, path)
         mapping!(image, path)
-        ImageSchema.validate!(image.except('architectures', 'build'), path)
+        ImageSchema.validate!(image.except('architectures', 'build', 'vm'), path)
+        vm_image!(image['vm'], "#{path}.vm") if image.key?('vm')
         ImageSchema.validate!({ 'build' => image['build'] }, path) if image.key?('build')
+        architectures!(image, path)
+      end
+
+      def architectures!(image, path)
         return unless image.key?('architectures')
 
         architectures = image['architectures']
@@ -51,9 +58,30 @@ module Empeira
           versions.each do |version, image|
             path = "images.nodes.#{os}.#{version}"
             required!(image, ['architectures'], path)
-            ImageSchema.validate!(image.except('architectures', 'build'), path, effective: true)
+            ImageSchema.validate!(image.except('architectures', 'build', 'vm'), path, effective: true)
+            required!(image.fetch('vm'), %w[url checksum_url], "#{path}.vm") if image.key?('vm')
           end
         end
+      end
+
+      def vm_image!(image, path)
+        mapping!(image, path)
+        image.each do |key, value|
+          next if %w[url checksum_url].include?(key) && vm_url?(value)
+
+          raise ConfigurationError, "#{path}.#{key} must be an HTTPS URL without credentials, " \
+                                    'query strings or fragments; ' \
+                                    'supported VM fields are url and checksum_url'
+        end
+      end
+
+      def vm_url?(value)
+        return false unless value.is_a?(String)
+
+        uri = URI(value.gsub('{architecture}', 'amd64'))
+        uri.is_a?(URI::HTTPS) && uri.host && !uri.userinfo && !uri.query && !uri.fragment
+      rescue URI::InvalidURIError
+        false
       end
 
       def required!(data, keys, path)

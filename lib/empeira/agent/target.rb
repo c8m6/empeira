@@ -3,7 +3,7 @@
 module Empeira
   module Agent
     class Target < Data.define(:os, :release, :architecture)
-      SUITES = { '22.04' => 'jammy', '24.04' => 'noble' }.freeze
+      SUITES = { '22.04' => 'jammy', '24.04' => 'noble', '26.04' => 'resolute' }.freeze
       ARCHITECTURES = { 'amd64' => 'x86_64', 'arm64' => 'aarch64' }.freeze
 
       def family

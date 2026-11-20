@@ -78,6 +78,13 @@ RSpec.describe Empeira::VM::CloudInit do
     network = YAML.safe_load(captured.fetch('network-config'))
     expect(network.dig('ethernets', 'peer', 'nameservers', 'addresses')).to eq(['10.203.20.130'])
     expect(network.fetch('ethernets').keys).to eq(['peer'])
+    expect(network.dig('ethernets', 'peer', 'set-name')).to eq('eth0')
+    %w[22.04 26.04].each do |version|
+      cloud.prepare(record.merge('hostname' => "ubuntu-#{version.delete('.')}.example.test", 'version' => version))
+      rendered = YAML.safe_load(captured.fetch('network-config')).dig('ethernets', 'peer')
+      expect(rendered.except('set-name')).to eq(network.dig('ethernets', 'peer').except('set-name'))
+      version == '26.04' ? expect(rendered).not_to(have_key('set-name')) : expect(rendered['set-name']).to(eq('eth0'))
+    end
   end
 
   it 'rejects bootstrap scripts that resolve outside the project' do

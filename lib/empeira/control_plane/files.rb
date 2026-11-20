@@ -18,10 +18,11 @@ module Empeira
         directory.join(name).to_s
       end
 
-      def prepare(upstreams: nil, routes: {}, bootstrap: false)
+      def prepare(upstreams: nil, routes: {}, bootstrap: false, preserve_corefile: false)
         FileUtils.mkdir_p(directory, mode: 0o755)
         configuration(bootstrap: bootstrap).each do |name, content|
           next if name == 'squid.conf'
+          next if name == 'Corefile' && preserve_corefile
 
           content = if name == 'Corefile'
                       corefile_content(upstreams:, routes:, bootstrap:)
@@ -33,12 +34,28 @@ module Empeira
         prepare_discovery_files
       end
 
-      def corefile_current?(upstreams:, routes:)
-        File.file?(path('Corefile')) && File.binread(path('Corefile')) == corefile_content(upstreams:, routes:)
+      def corefile_current?(**options)
+        File.file?(path('Corefile')) && File.binread(path('Corefile')) == corefile_content(**options)
       end
 
-      def activate_additional_resolver(upstreams:, routes:)
-        write('Corefile', corefile_content(upstreams:, routes:))
+      def activate_additional_resolver(**options)
+        write('Corefile', corefile_content(**options))
+      end
+
+      def corefile_content(upstreams:, routes:, bootstrap: false, additional: nil)
+        content = corefile(bootstrap: bootstrap).gsub('@HOST_UPSTREAM@', Array(upstreams).join(' ')) +
+                  resolver_routes(routes, bootstrap: bootstrap) + rewrite_zones(upstreams: upstreams, routes: routes,
+                                                                                bootstrap: bootstrap)
+        configured = @context.configuration.dig('dns', 'additional_resolver')
+        content = content.gsub("forward . #{configured} {", "forward . #{additional} {") if additional && configured
+        generation = Digest::SHA256.hexdigest(content)
+        content + <<~CONFIG
+          _empeira-config.empeira.internal:53 {
+            template IN TXT {
+              answer "{{ .Name }} 0 IN TXT \\"#{generation}\\""
+            }
+          }
+        CONFIG
       end
 
       def configuration(bootstrap: false)
@@ -129,12 +146,6 @@ module Empeira
       end
 
       private
-
-      def corefile_content(upstreams:, routes:, bootstrap: false)
-        corefile(bootstrap: bootstrap).gsub('@HOST_UPSTREAM@', Array(upstreams).join(' ')) +
-          resolver_routes(routes, bootstrap: bootstrap) + rewrite_zones(upstreams: upstreams, routes: routes,
-                                                                        bootstrap: bootstrap)
-      end
 
       # Reloadable DNS policy is deliberately outside the container definition fingerprint.
       # Exact rewrites use authoritative discovery; unmatched descendants keep normal forwarding.

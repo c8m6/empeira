@@ -79,4 +79,67 @@ RSpec.describe 'Additional DNS resolver configuration' do
   def forwarder_lines(additional, upstream)
     "forward . #{additional} {\n    next NXDOMAIN\n    next_on_nodata\n  }\n  forward . #{upstream}"
   end
+
+  describe 'managed resolver discovery' do
+    def resolver_plan(value, services: ['mockly'])
+      files('dns' => { 'additional_resolver' => value },
+            'containers' => { 'additional' => services.map do |name|
+              { 'name' => name, 'image' => { 'repository' => 'example/resolver', 'tag' => 'test' } }
+            end })
+      Empeira::ControlPlane::Plan.new(context: Empeira::Application.new(project_path: @directory).context)
+    end
+
+    def resolver_resource(plan, state: 'running', address: '192.0.2.10')
+      definition = plan.definitions.fetch('mockly')
+      { 'id' => 'observed-id', 'name' => definition.name, 'labels' => definition.labels, 'state' => state,
+        'networks' => { plan.network => { 'IPAddress' => address } } }
+    end
+
+    %w[mockly mockly.empeira.internal MOCKLY.EMPEIRA.INTERNAL.].each do |value|
+      it "binds #{value} to the observed address without a host DNS lookup" do
+        plan = resolver_plan(value)
+        address = plan.additional_resolver('mockly' => resolver_resource(plan))
+        expect(address).to eq('192.0.2.10')
+        content = plan.files.corefile_content(upstreams: ['192.0.2.53'], routes: {}, additional: address)
+        expect(content).to include('forward . 192.0.2.10 {')
+        expect(content).not_to include(value)
+      end
+    end
+
+    %w[missing.empeira.internal dns dns.empeira.internal coredns.empeira.internal localhost 127.0.0.1 0.0.0.0
+       puppetdb.empeira.internal].each do |value|
+      it "rejects an absent, disabled or cyclic target #{value}" do
+        resolver_plan(value)
+        if value == 'puppetdb.empeira.internal'
+          config = { 'dns' => { 'additional_resolver' => value }, 'puppetdb' => { 'enabled' => false } }
+          File.write(File.join(@directory, '.empeira.yaml'), YAML.dump(config))
+        end
+        plan = Empeira::ControlPlane::Plan.new(context: Empeira::Application.new(project_path: @directory).context)
+        expect { plan.additional_resolver_key }.to raise_error(Empeira::ConfigurationError, /dns.additional_resolver/)
+      end
+    end
+
+    it 'rejects stopped, missing, foreign and invalid-address services' do
+      plan = resolver_plan('mockly.empeira.internal')
+      expect { plan.additional_resolver({}) }.to raise_error(Empeira::Error, /must be running/)
+      expect { plan.additional_resolver('mockly' => resolver_resource(plan, state: 'stopped')) }
+        .to raise_error(Empeira::Error, /must be running/)
+      expect { plan.additional_resolver('mockly' => resolver_resource(plan, address: 'invalid')) }
+        .to raise_error(Empeira::Error, /invalid IPv4/)
+      foreign = resolver_resource(plan).merge('labels' => {})
+      expect { plan.additional_resolver('mockly' => foreign) }.to raise_error(Empeira::Providers::OwnershipError)
+    end
+
+    it 'rebinds after a service address changes' do
+      plan = resolver_plan('mockly.empeira.internal')
+      expect(plan.additional_resolver('mockly' => resolver_resource(plan))).to eq('192.0.2.10')
+      expect(plan.additional_resolver('mockly' => resolver_resource(plan, address: '192.0.2.11'))).to eq('192.0.2.11')
+    end
+
+    it 'rejects the CoreDNS service address as an IP resolver' do
+      plan = resolver_plan('192.0.2.53')
+      resources = { 'dns' => { 'networks' => { plan.network => { 'IPAddress' => '192.0.2.53' } } } }
+      expect { plan.additional_resolver(resources) }.to raise_error(Empeira::ConfigurationError, /itself/)
+    end
+  end
 end
