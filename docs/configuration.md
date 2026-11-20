@@ -118,7 +118,7 @@ proxy:
     allow: []
 node_defaults:
   os: ubuntu
-  version: "24.04"
+  version: "26.04"
   memory: 2048
   cpus: 2
 puppetdb:
@@ -173,7 +173,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `dns.rewrites` | Exact external hostnames mapped to enabled `<service>.empeira.internal` targets; `[]` by default |
 | `hiera.mounts` | Puppet-aware module/environment mounts, `[]`; each source is optional unless `required: true` |
 | `node_defaults.os` | Configured node OS family, default `ubuntu` |
-| `node_defaults.version` | OS version string, default `"24.04"` |
+| `node_defaults.version` | OS version string, default `"26.04"` |
 | `node_defaults.init` | `process` by default; `systemd` requires supported Podman/cgroup v2 |
 | `node_defaults.memory` | Positive integer MiB, `1024` |
 | `node_defaults.cpus` | Positive integer, `2` |

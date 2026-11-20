@@ -33,7 +33,9 @@ RSpec.describe 'Real node runtime management', :integration do
 
     initialize_project(project)
     FileUtils.mkdir_p(File.join(project, 'manifests'))
-    destinations = app.context.configuration.dig('bootstrap', 'guests', 'ubuntu', '24.04', 'destinations')
+    defaults = app.context.configuration.fetch('node_defaults')
+    destinations = app.context.configuration.dig('bootstrap', 'guests', defaults.fetch('os'),
+                                                 defaults.fetch('version'), 'destinations')
     @config = { 'puppetdb' => { 'enabled' => false },
                 'vm' => { 'disk' => 30,
                           'interfaces' => [{ 'hosts' => ['RUNTIME-*.EXAMPLE.TEST'], 'devices' => devices }] },

@@ -76,7 +76,7 @@ dns:
   rewrites: []
 node_defaults:
   os: ubuntu
-  version: "24.04"
+  version: "26.04"
   init: process
   memory: 1024
   cpus: 2

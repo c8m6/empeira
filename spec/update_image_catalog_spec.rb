@@ -28,7 +28,7 @@ RSpec.describe Empeira::Updates::Images do
       :updated
     }
     progress.run('Updating images...') { updater.refresh }
-    expect(events.map(&:message)).to include('Ubuntu 24.04 node image — updated (11/12)',
+    expect(events.map(&:message)).to include('Ubuntu 26.04 node image — updated (11/12)',
                                              'Rocky 9 node image — updated (12/12)')
     expect(calls.grep(/empeira-node/).size).to eq(2)
     expect(calls).to include(context.configuration.dig('images', 'dns').then { |image|
@@ -60,7 +60,7 @@ RSpec.describe Empeira::Updates::Images do
     allow(runtime).to receive(:refresh_image).and_return(:unchanged)
     progress.run('Updating images...') { updater.refresh }
     expect(events.map(&:message)).to include('Browser — unchanged (3/11)',
-                                             'Ubuntu 24.04 node image — unchanged (11/11)')
+                                             'Ubuntu 26.04 node image — unchanged (11/11)')
     expect(events.last).to have_attributes(percent: 100, state: :complete)
     expect(events.map(&:message).join).not_to include('updating (')
   end

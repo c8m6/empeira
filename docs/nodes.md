@@ -5,7 +5,7 @@ Create nodes imperatively after `empeira up`; named nodes do not belong in
 Existing-node commands use the provider recorded in workspace state.
 
 ```console
-empeira node run host1 --provider container --os ubuntu --version 24.04
+empeira node run host1 --provider container --os ubuntu --version 26.04
 empeira node run vm1 --provider vm --memory 2048 --cpus 2
 empeira node list
 empeira node puppet host1
@@ -19,7 +19,7 @@ empeira node start host1
 empeira node destroy host1
 ```
 
-The default node is Ubuntu 24.04, 1024 MiB, and two CPUs. External traffic requires
+The default node is Ubuntu 26.04, 1024 MiB, and two CPUs. External traffic requires
 an explicit TCP egress rule or an allowlisted proxy policy. If the workspace proxy
 is enabled, the node automatically gets
 controlled HTTP/HTTPS access to destinations allowed by its proxy policy.
@@ -42,7 +42,7 @@ restart; the static address, DNS and gateway settings stay the same. Older relea
 retain their existing `eth0` naming.
 Containers still default to process init; systemd init retains the documented
 Podman/cgroup requirements. Ubuntu 22.04/24.04 and existing VM base revisions are
-preserved; Ubuntu 24.04 remains the default.
+preserved; new nodes default to Ubuntu 26.04 unless configured otherwise.
 
 Hostname/certname is unique across both providers within a workspace. Names are
 normalized to lowercase; service names are reserved. Another checkout may reuse

@@ -3,15 +3,12 @@
 require 'empeira/completion/catalog'
 
 RSpec.describe 'Ubuntu 26.04 node support' do
-  let(:app) do
-    Empeira::Application.new(project_path: @directory,
-                             overrides: { 'node_defaults' => { 'os' => 'ubuntu', 'version' => '26.04' } })
-  end
+  let(:app) { Empeira::Application.new(project_path: @directory) }
   let(:config) { app.context.configuration }
 
-  it 'preserves Ubuntu 24.04 as the default while exposing all three LTS versions to completion' do
+  it 'defaults to Ubuntu 26.04 while exposing all three LTS versions to completion' do
     defaults = Empeira::Configuration::Loader.new(project_path: @directory).load_defaults
-    expect(defaults.dig('node_defaults', 'version')).to eq('24.04')
+    expect(defaults.fetch('node_defaults')).to include('os' => 'ubuntu', 'version' => '26.04')
     Dir.chdir(@directory) do
       words = ['node', 'run', 'host', '--version', '']
       expect(Empeira::Completion::Catalog.new.candidates(words, words.size - 1)).to include('22.04', '24.04', '26.04')

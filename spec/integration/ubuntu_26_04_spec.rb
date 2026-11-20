@@ -30,9 +30,7 @@ RSpec.describe 'Real Ubuntu 26.04 nodes', :integration do
       ENV['EMPEIRA_UBUNTU_26_INTEGRATION'] == '1'
 
     initialize_project(project)
-    File.write(File.join(project, '.empeira.yaml'), YAML.dump('puppetdb' => { 'enabled' => false },
-                                                              'node_defaults' => { 'os' => 'ubuntu',
-                                                                                   'version' => '26.04' }))
+    File.write(File.join(project, '.empeira.yaml'), YAML.dump('puppetdb' => { 'enabled' => false }))
     FileUtils.mkdir_p(File.join(project, 'manifests'))
     File.write(File.join(project, 'manifests/site.pp'), <<~PUPPET)
       service { 'puppet': ensure => stopped, enable => false }

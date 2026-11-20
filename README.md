@@ -92,7 +92,7 @@ empeira node exec host1 -- id
 empeira node shell host1
 ```
 
-`node run` creates an Ubuntu 24.04 container, installs the default OpenVox Agent,
+`node run` creates an Ubuntu 26.04 container, installs the default OpenVox Agent,
 enrolls its certificate and applies the catalog. Inside the shell, inspect
 `/tmp/empeira-example`; `exit` returns to the host. Select Docker with
 `--container-engine docker` when Podman is not installed. Optional workstation
