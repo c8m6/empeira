@@ -3,6 +3,7 @@
 require_relative 'support/service_runtime'
 require_relative 'support/command_mock_guest'
 require_relative 'support/vm_network_guest'
+require_relative 'support/initial_puppet_runs'
 
 class VMRuntimeFixture < ServiceRuntime
   def check_available!; end
@@ -35,6 +36,8 @@ RSpec.describe Empeira::Node::VM do
   let(:request) do
     Empeira::Node::RunRequest.from_config(hostname: 'vm-host', provider: 'vm', config: app.context.configuration)
   end
+
+  it_behaves_like 'initial Puppet runs'
 
   before do
     definition = Empeira::Infrastructure::Definition.new(context: app.context)

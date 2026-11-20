@@ -79,7 +79,7 @@ RSpec.describe Empeira::Configuration do
     write_config("version: 1\nnode_defaults:\n  memory: 2048\n  os: debian\n")
     config = load_config('node_defaults' => { 'cpus' => 4 })
     expect(config['node_defaults']).to eq('memory' => 2048, 'cpus' => 4, 'os' => 'debian', 'version' => '26.04',
-                                          'init' => 'process')
+                                          'init' => 'process', 'puppet_runs' => 1)
   end
 
   it 'accepts and ignores the removed network.internet project key for compatibility' do

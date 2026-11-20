@@ -30,7 +30,8 @@ module Empeira
         'dns' => { 'upstream' => { 'mode' => :dns_mode, 'servers' => :dns_servers },
                    'additional_resolver' => :additional_resolver, 'rewrites' => :dns_rewrites },
         'node_defaults' => { 'init' => :node_init, 'os' => :optional_string, 'version' => :optional_string,
-                             'memory' => :positive_integer, 'cpus' => :positive_integer },
+                             'memory' => :positive_integer, 'cpus' => :positive_integer,
+                             'puppet_runs' => :puppet_runs },
         'mocks' => { 'commands' => :command_mocks },
         'hiera' => { 'mounts' => :hiera_mounts },
         'eyaml' => { 'enabled' => :boolean, 'private_key' => :optional_string, 'public_key' => :optional_string },
@@ -68,6 +69,7 @@ module Empeira
                            'must be an image repository'],
         image_tag: [->(v) { v.is_a?(String) && v.match?(Images::Configuration::TAG) }, 'must be an image tag'],
         node_init: [->(v) { %w[process systemd].include?(v) }, 'must be process or systemd'],
+        puppet_runs: [->(v) { v.is_a?(Integer) && v.between?(1, 10) }, 'must be an integer between 1 and 10'],
         dns_mode: [->(v) { %w[host explicit].include?(v) }, 'must be host or explicit'],
         dns_servers: [lambda do |v|
           v.is_a?(Array) && v.all? do |address|

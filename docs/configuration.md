@@ -177,6 +177,7 @@ release version. A partial project mapping may omit it and inherit the default.
 | `node_defaults.init` | `process` by default; `systemd` requires supported Podman/cgroup v2 |
 | `node_defaults.memory` | Positive integer MiB, `1024` |
 | `node_defaults.cpus` | Positive integer, `2` |
+| `node_defaults.puppet_runs` | Integer from `1` to `10`, default `1`; initial `node run` only |
 | `mocks.commands` | Named command stubs for test nodes, `{}`; each requires `path`, `mock_to` and `exit_code` |
 | `puppetdb.enabled` | Boolean, `true` |
 | `eyaml.enabled` | Boolean, `false`; requires both key paths when enabled |
@@ -1235,3 +1236,19 @@ or `expose` schema. `images.network_adapter_builder` selects the reviewed Go bui
 image used by the existing recipe-hash image cache; Go is not a host prerequisite.
 Node IP/MAC leases survive stop/start and are released on destroy. See
 [networking](networking.md) for address pools, isolation and platform validation.
+
+### Initial Puppet runs
+
+```yaml
+node_defaults:
+  puppet_runs: 4
+```
+
+`empeira node run` runs the agent sequentially this many times after bootstrap,
+network cleanup and enrollment. The default is one; accepted values are integers
+from one through ten. Every run streams its normal Puppet output and reports its
+position and detailed exit code. Completed failing catalogs do not stop the sequence:
+for example, `4, 6, 2, 0` succeeds. The final run decides success (`0` or `2`). A
+failing final catalog retains the provisioned node for diagnosis and a later retry.
+Transport failures, timeouts and processes that cannot start abort immediately.
+`empeira node puppet` still runs once; start and other lifecycle commands add no runs.

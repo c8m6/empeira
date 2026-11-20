@@ -80,6 +80,7 @@ node_defaults:
   init: process
   memory: 1024
   cpus: 2
+  puppet_runs: 1
 hiera:
   mounts: []
 eyaml:

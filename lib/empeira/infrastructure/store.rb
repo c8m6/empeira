@@ -228,7 +228,11 @@ module Empeira
         flags.all? { |flag| [nil, true, false].include?(flag) } &&
           (plane['bridge_image'].nil? || plane['bridge_image'].is_a?(String)) &&
           (plane['gateway_policy'].nil? || valid_code_digest?(plane['gateway_policy'])) &&
-          valid_proxy_reload?(plane['proxy_reload'])
+          valid_plane_checkpoints?(plane)
+      end
+
+      def valid_plane_checkpoints?(plane)
+        %w[proxy_reload dns_definition].all? { |key| valid_proxy_reload?(plane[key]) }
       end
 
       def valid_proxy_reload?(checkpoint)
