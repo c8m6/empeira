@@ -148,4 +148,37 @@ RSpec.describe 'CoreDNS additional resolver forwarding', :integration do
     end
     expect(docker('inspect', '--format', '{{.State.Running}}', "#{@network}-reload")).to eq('true')
   end
+
+  it 'keeps the previous answers after CoreDNS rejects a reload and accepts an atomic restoration' do
+    original = ".:53 {\n  forward . #{@upstream}\n  reload\n}\n"
+    server = start_dns('rejected', original, '')
+    expect(query('hit.test', 'A', server).first).to include('198.51.100.20')
+    directory = File.join(@directory, 'rejected')
+    publish = lambda do |content|
+      Tempfile.create('corefile-', directory) do |file|
+        file.chmod(0o644)
+        file.write(content)
+        file.flush
+        File.rename(file.path, File.join(directory, 'Corefile'))
+      end
+    end
+    publish.call(".:53 {\n  empeira_invalid_directive\n}\n")
+    container = "#{@network}-rejected"
+    docker('kill', '--signal', 'USR1', container)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 10
+    loop do
+      stdout, stderr, = Open3.capture3('docker', 'logs', container)
+      break if "#{stdout}\n#{stderr}".match?(/unknown directive/i)
+      if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+        raise "CoreDNS did not report the rejected reload: #{stdout} #{stderr}"
+      end
+
+      sleep 0.2
+    end
+    expect(query('hit.test', 'A', server).first).to include('198.51.100.20')
+    publish.call(original)
+    docker('kill', '--signal', 'USR1', container)
+    expect(query('hit.test', 'A', server).first).to include('198.51.100.20')
+    expect(docker('inspect', '--format', '{{.State.Running}}', container)).to eq('true')
+  end
 end

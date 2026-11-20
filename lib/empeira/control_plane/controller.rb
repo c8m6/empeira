@@ -113,8 +113,7 @@ module Empeira
 
         definition = @plan.definitions.fetch('dns')
         resource = service_resource(definition, expected_id: recorded('dns'))
-        return if resource && !image_changed?(resource, definition) &&
-                  resource.dig('labels', 'io.empeira.definition') == definition.fingerprint
+        return if resource && !stale?('dns', resource, definition)
 
         raise Error, 'DNS replacement would invalidate existing node resolver bindings; destroy nodes before empeira up'
       end
@@ -159,6 +158,7 @@ module Empeira
 
       def preflight
         load_state
+        capture_dns_definition
         @plan.validate_server_mounts!
         check_network_architecture!
         check_service_names!
@@ -172,6 +172,11 @@ module Empeira
       end
 
       private
+
+      def capture_dns_definition
+        @plan.additional_resolver_key
+        @previous_dns_options = @state.dig('definition', 'components', 'dns')&.except('environment')
+      end
 
       def validate_redirect_routes!
         entries = @plan.config.dig('network', 'redirects')
@@ -209,11 +214,17 @@ module Empeira
         @plan.additional_configurations.prepare
         @plan.module_request
         prepare_dns_resolution
-        @reload_dns = dns_reload_needed?
-        @bootstrap_dns = bootstrap_dns?(**@dns_resolution)
         @direct_egress = resolve_direct_egress
-        @plan.files.prepare(**@dns_resolution, bootstrap: @bootstrap_dns)
+        prepare_service_configuration
         prepare_gateway_plan
+      end
+
+      def prepare_service_configuration
+        definition = @plan.definitions.fetch('dns')
+        resource = service_resource(definition, expected_id: recorded('dns'))
+        record_dns_definition(resource, definition) if resource && !definition_changed?('dns', resource, definition)
+        @plan.files.prepare(**@dns_resolution, bootstrap: true,
+                                               preserve_corefile: resource&.fetch('state') == 'running')
       end
 
       def prepare_dns_resolution
@@ -225,7 +236,11 @@ module Empeira
       def prepare_gateway_plan
         @plan.validate_network_redirects!
         @gateway_plan = Network::Gateway.plan(state: @state, resolved: @direct_egress,
-                                              additional: @plan.config.dig('dns', 'additional_resolver'),
+                                              additional: if @plan.additional_resolver_key
+                                                            nil
+                                                          else
+                                                            @plan.config.dig('dns', 'additional_resolver')
+                                                          end,
                                               redirects: resolved_redirects(existing_redirect_targets),
                                               **@dns_resolution)
         @plan.files.write('gateway.json', JSON.generate(@gateway_plan))
@@ -260,28 +275,12 @@ module Empeira
         Network::DirectEgress::Resolved.new(entries)
       end
 
-      def bootstrap_dns?(upstreams:, routes:)
-        return false unless @plan.config.dig('dns', 'additional_resolver')
-        return true unless @plan.files.corefile_current?(upstreams: upstreams, routes: routes)
-
-        definition = @plan.definitions.fetch('dns')
-        resource = service_resource(definition, expected_id: recorded('dns'))
-        resource.nil? || resource['state'] != 'running' || stale?('dns', resource, definition)
-      end
-
-      def dns_reload_needed?
-        return false if @plan.files.corefile_current?(**@dns_resolution)
-
-        definition = @plan.definitions.fetch('dns')
-        service_resource(definition, expected_id: recorded('dns'))&.fetch('state') == 'running'
-      end
-
       def activate_dns
-        return unless @bootstrap_dns || @reload_dns
-
-        @plan.files.activate_additional_resolver(**@dns_resolution) if @bootstrap_dns
-        @runtime.reload_service(@observed.fetch('dns'), signal: 'USR1')
-        @changed = true
+        content = @plan.files.corefile_content(**@dns_resolution, additional: @plan.additional_resolver(@observed))
+        changed = DNSConfiguration.new(plan: @plan, runtime: @runtime, inventory: @inventory,
+                                       persist: method(:save)).activate(content, resources: @observed)
+        @changed = changed || @changed
+        record_dns_definition(@observed.fetch('dns'), @plan.definitions.fetch('dns'))
       end
 
       def service_keys
@@ -561,9 +560,35 @@ module Empeira
       end
 
       def stale?(key, resource, definition)
-        resource.dig('labels', 'io.empeira.definition') != definition.fingerprint ||
+        definition_changed?(key, resource, definition) ||
           image_changed?(resource, definition) || address_changed?(resource, definition) ||
           (!%w[dns gateway].include?(key) && resource['dns'] != [@dns])
+      end
+
+      def definition_changed?(key, resource, definition)
+        return false if resource.dig('labels', 'io.empeira.definition') == definition.fingerprint
+        return true unless key == 'dns'
+
+        desired = dns_checkpoint(resource, definition.options)
+        return false if @inventory['dns_definition'] == desired
+
+        previous = @previous_dns_options
+        previous.nil? || Infrastructure::Definition.fingerprint(previous) !=
+          resource.dig('labels', 'io.empeira.definition') || dns_checkpoint(resource, previous) != desired
+      end
+
+      def dns_checkpoint(resource, options)
+        { 'id' => resource.fetch('id'),
+          'fingerprint' => Infrastructure::Definition.fingerprint(options.except('configuration', 'dns',
+                                                                                 'runtime_environment', 'runtime_ip')) }
+      end
+
+      def record_dns_definition(resource, definition)
+        checkpoint = dns_checkpoint(resource, definition.options)
+        return if @inventory['dns_definition'] == checkpoint
+
+        @inventory['dns_definition'] = checkpoint
+        save
       end
 
       def address_changed?(resource, definition)
@@ -755,6 +780,7 @@ module Empeira
         @inventory.fetch('services').delete(key)
         @inventory.delete('gateway_policy') if key == 'gateway'
         @inventory.delete('proxy_reload') if key == 'proxy'
+        @inventory.delete('dns_definition') if key == 'dns'
         @observed.delete(key)
         @service_snapshot&.delete(key)
         save

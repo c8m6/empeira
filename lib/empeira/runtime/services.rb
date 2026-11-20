@@ -61,6 +61,11 @@ module Empeira
         service_command(['kill', '--signal', signal, resource.fetch('id')], operation: 'service reload')
       end
 
+      def service_logs(resource)
+        result = service_command(['logs', '--tail', '50', resource.fetch('id')], operation: 'service diagnostics')
+        Execution::Diagnostics.bounded(Execution::Diagnostics.safe_text("#{result.stdout}\n#{result.stderr}"))
+      end
+
       def stop_service(resource)
         service_command(['stop', '--time', '20', resource.fetch('id')], operation: 'node stop', timeout: 40)
       end
