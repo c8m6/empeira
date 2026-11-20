@@ -78,7 +78,7 @@ RSpec.describe Empeira::Configuration do
   it 'merges project configuration and permitted CLI overrides in order' do
     write_config("version: 1\nnode_defaults:\n  memory: 2048\n  os: debian\n")
     config = load_config('node_defaults' => { 'cpus' => 4 })
-    expect(config['node_defaults']).to eq('memory' => 2048, 'cpus' => 4, 'os' => 'debian', 'version' => '24.04',
+    expect(config['node_defaults']).to eq('memory' => 2048, 'cpus' => 4, 'os' => 'debian', 'version' => '26.04',
                                           'init' => 'process', 'puppet_runs' => 1)
   end
 

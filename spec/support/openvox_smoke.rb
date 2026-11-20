@@ -18,11 +18,12 @@ module OpenVoxSmoke
 
   def verify_default_agent(resource)
     config = app.context.configuration
-    expect(runtime.service_exec(resource, %w[cat /etc/os-release]).stdout).to include('VERSION_ID="24.04"')
+    os, release = config.fetch('node_defaults').values_at('os', 'version')
+    expect(runtime.service_exec(resource, %w[cat /etc/os-release]).stdout).to include("VERSION_ID=\"#{release}\"")
     version = runtime.service_exec(resource, ['dpkg-query', '-W', '-f', '${Version}', config.dig('agent', 'package')])
     expect(version).to be_success
     expect(version.stdout).to eq(config.dig('agent', 'version') + config.dig('agent', 'install', 'repositories',
-                                                                             'ubuntu24.04', 'suffix'))
+                                                                             "#{os}#{release}", 'suffix'))
   end
 
   def verify_node_certificate(resource)

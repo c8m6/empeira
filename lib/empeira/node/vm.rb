@@ -75,7 +75,7 @@ module Empeira
       def prepare_components(context, runner, backend, runtime)
         @peer = Network::Peer::Backend.build(context: context, runtime: runtime, runner: runner, store: @store)
         @bootstrap_proxy = Network::BootstrapProxy.new(context: context, runtime: runtime, store: @store)
-        @source = ::Empeira::VM::ImageSource.new
+        @source = ::Empeira::VM::ImageSource.new(config: context.configuration)
         @cache = ::Empeira::VM::ImageCache.new(locations: context.locations)
         @disk = ::Empeira::VM::Disk.new(engine: backend, runner: runner,
                                         workspace_directory: context.locations.workspace(context.workspace))
