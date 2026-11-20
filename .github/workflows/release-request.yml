@@ -1,0 +1,54 @@
+name: Dispatch release request
+
+# A committed request lets GitHub integrations without Actions-dispatch permission
+# initiate the existing, fully gated manual release workflow.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/release-request.json
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: release-request
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate committed release request
+        id: request
+        run: |
+          ruby -rjson -e '
+            request = JSON.parse(File.read(".github/release-request.json"))
+            abort "Expected tag, channel and dry_run only" unless
+              request.is_a?(Hash) && request.keys.sort == %w[channel dry_run tag]
+            tag, channel, dry_run = request.values_at("tag", "channel", "dry_run")
+            abort "Invalid release tag" unless tag.is_a?(String) &&
+              tag.match?(/\Av\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?\z/)
+            expected = tag.include?("-") ? tag.split("-", 2).last.split(".", 2).first : "stable"
+            abort "Release channel does not match tag" unless channel == expected
+            abort "dry_run must be a boolean" unless dry_run == true || dry_run == false
+            File.open(ENV.fetch("GITHUB_OUTPUT"), "a") do |out|
+              out.puts "tag=#{tag}", "channel=#{channel}", "dry_run=#{dry_run}"
+            end
+          '
+      - name: Dispatch existing validated release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.request.outputs.tag }}
+          RELEASE_CHANNEL: ${{ steps.request.outputs.channel }}
+          RELEASE_DRY_RUN: ${{ steps.request.outputs.dry_run }}
+        run: |
+          gh workflow run release.yml --ref main \
+            -f "tag=$RELEASE_TAG" \
+            -f "channel=$RELEASE_CHANNEL" \
+            -f "dry_run=$RELEASE_DRY_RUN"
