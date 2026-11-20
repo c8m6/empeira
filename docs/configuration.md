@@ -480,8 +480,9 @@ Invalid expressions fail validation at `requirements.empeira`.
 Before `up`, `down` or `destroy` takes a lock or mutates infrastructure/state, the central
 build abstraction verifies this requirement. Incompatible releases fail with the
 required and installed versions and the `empeira self-update` command. Self-update
-itself is not implemented yet, so install a compatible build through your existing
-installation method. Infrastructure operations never update Empeira automatically.
+updates regular RubyGems installations independently of the project configuration.
+Git checkouts and Bundler must use their existing installation method.
+Infrastructure operations never update Empeira automatically.
 `--version`, `config show`, `config validate`, and `status` remain usable on mismatch.
 If project or user configuration cannot be loaded, `destroy` uses built-in defaults
 and the validated workspace inventory for recovery. An unreadable requirement cannot

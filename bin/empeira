@@ -6,7 +6,7 @@ require_relative '../lib/empeira/cli/main'
 
 begin
   Empeira::CLI::Main.start(ARGV)
-rescue Empeira::Addons::Error => e
+rescue Empeira::Addons::Error, Empeira::Updates::CommandFailed => e
   $stderr.write "#{e.message}\n"
   exit e.exit_status
 rescue Empeira::Error => e

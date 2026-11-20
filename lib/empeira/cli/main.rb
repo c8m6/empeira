@@ -95,12 +95,15 @@ module Empeira
         say 'Workspace infrastructure and persistent data removed.'
       end
 
-      desc 'self-update', 'Update only Empeira (not implemented yet)'
+      desc 'self-update', 'Update Empeira to the latest stable version via RubyGems'
       def self_update
-        Updates::Service.new.self_update
+        say 'Updating Empeira via RubyGems...'
+        previous, installed = Updates::Service.new.self_update
+        say(installed > previous.version ? 'Empeira updated successfully.' : 'Empeira is already up to date.')
+        say "Installed version: #{installed}"
       end
 
-      desc 'update SUBCOMMAND', 'Update managed targets (not implemented yet)'
+      desc 'update SUBCOMMAND', 'Update Empeira and managed artifacts'
       subcommand 'update', Update
 
       %w[images].each do |operation|

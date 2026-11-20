@@ -228,4 +228,6 @@ disposable helper with normal container-runtime networking and supplied user pro
 variables. Git uses the invoking user's host Git/SSH configuration and network
 access, without copying private keys. No update starts Squid, CoreDNS or other
 workspace services. See [update-plane architecture](architecture.md#runtime-and-update-planes).
-Self-update and the aggregate `update all` remain unavailable.
+RubyGems installations support `self-update`. The aggregate `update all` first
+updates Empeira, then runs image and module updates in fresh processes using the
+verified installed version. A failed step stops the sequence.

@@ -321,8 +321,10 @@ diagnostics identify the affected image. Successful tool logs remain hidden.
 Update helpers are removed after completion where the engine is reachable. If an
 engine stops responding during cleanup, restore access and inspect the reported
 update-helper failure before removing anything; names alone do not establish
-ownership. `self-update` and `update all` remain unavailable until release package
-replacement is implemented. Image updates are not atomic across the full catalog;
+ownership. `self-update` supports regular RubyGems installations; Git checkouts and
+Bundler must use their original installation method. `update all` runs self-update,
+then images and modules in fresh processes, stopping on the first failure without
+rolling back earlier updates. Image updates are not atomic across the full catalog;
 earlier successful pulls/builds remain after a later failure.
 
 ## User preferences and registry authentication

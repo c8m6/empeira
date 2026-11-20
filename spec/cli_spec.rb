@@ -84,12 +84,27 @@ RSpec.describe Empeira::CLI::Main do
       .to output(/Workspace:.*Empeira version:.*Infrastructure: down.*Infrastructure fingerprint:/m).to_stdout
   end
 
-  %w[self-update].concat(%w[all].map { |target| "update #{target}" }).each do |command|
-    it "returns non-success for unavailable #{command}" do
-      result = cli(*command.split)
-      expect(result.exit_status).to eq(1)
-      expect(result.stderr).to match(/not implemented|unavailable/)
-    end
+  it 'routes update all through the project-independent update service' do
+    service = instance_double(Empeira::Updates::Service)
+    allow(Empeira::Updates::Service).to receive(:new).and_return(service)
+    expect(Empeira::Application).not_to receive(:new)
+    expect(service).to receive(:update).with('all')
+    expect { described_class.start(%w[update all]) }.to output(/Updating Empeira, images and modules/).to_stdout
+  end
+
+  it 'rejects self-update from a checkout without invoking a package manager' do
+    result = cli('self-update')
+    expect(result.exit_status).to eq(1)
+    expect(result.stderr).to include('regular RubyGems installation', 'Git checkouts', 'Bundler')
+  end
+
+  it 'reports the verified self-update version without constructing a project application' do
+    previous = instance_double(Gem::Specification, version: Gem::Version.new('1.0'))
+    service = instance_double(Empeira::Updates::Service, self_update: [previous, Gem::Version.new('1.1')])
+    allow(Empeira::Updates::Service).to receive(:new).and_return(service)
+    expect(Empeira::Application).not_to receive(:new)
+    expect { described_class.start(['self-update']) }
+      .to output(/Updating Empeira via RubyGems.*updated successfully.*Installed version: 1.1/m).to_stdout
   end
 
   it 'routes update modules through the independent update plane' do

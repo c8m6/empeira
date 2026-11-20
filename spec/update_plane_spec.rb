@@ -92,10 +92,10 @@ RSpec.describe 'Update plane' do
     expect(store.directory).not_to exist
   end
 
-  it 'fails update all before any target mutation while self-update is unavailable' do
+  it 'fails update all before any artifact mutation when self-update is unsupported' do
     expect(@installer).not_to receive(:synchronize)
     expect(registry).not_to receive(:build)
-    expect { app.updates.update('all') }.to raise_error(Empeira::UnavailableFeature, /self-update/)
+    expect { app.updates.update('all') }.to raise_error(Empeira::UnavailableFeature, /RubyGems/)
     expect(store.directory).not_to exist
   end
   it 'refreshes configured container images through runtime registry operations with no infrastructure' do

@@ -241,7 +241,23 @@ The control repository must already be a Git repository. Project commands resolv
 `.empeira.yaml` at that canonical root. An empty file uses defaults. Subdirectory
 invocation and paths with spaces work. No Puppet-file heuristic or `--project`
 selector exists. The source shell function preserves the current directory.
-Version/help/self-update work outside Git (self-update currently reports unavailable).
+Version/help/self-update work outside Git. Regular RubyGems installations can update
+to the latest stable Empeira version with:
+
+```console
+empeira self-update
+```
+
+The command uses the current Ruby interpreter and verifies the installed version
+after RubyGems finishes. It never invokes sudo. Git checkouts, Bundler and unsupported
+installations must use their original installation method. Permission and download
+failures retain RubyGems diagnostics.
+
+Inside a project, `empeira update all` first performs self-update, then starts
+`empeira update images` and `empeira update modules` in fresh Ruby processes using
+the verified installed version. The first failure stops the sequence and returns
+that command's exit code. These commands update artifacts; existing nodes and
+running infrastructure are not reconciled automatically.
 
 ## Install the GitHub Release gem (alternative)
 

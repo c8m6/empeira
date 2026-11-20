@@ -7,12 +7,13 @@ module Empeira
     class Update < Base
       Updates::Service::TARGETS.each do |target|
         desc target,
-             { 'all' => 'Update all managed targets, including Empeira (unavailable)',
+             { 'all' => 'Update Empeira, then images and modules using the updated installation',
                'modules' => 'Synchronize Puppetfile module artifacts',
                'images' => 'Refresh configured container image artifacts' }.fetch(target)
         define_method(target) do
           if target == 'all'
-            application.updates.update(target)
+            say 'Updating Empeira, images and modules...'
+            Updates::Service.new.update(target)
           else
             progressing("Updating #{target}...") { |app| app.updates.update(target) }
           end
