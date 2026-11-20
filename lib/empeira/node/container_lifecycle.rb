@@ -146,15 +146,16 @@ module Empeira
         true
       end
 
-      def agent_run(resource, record)
+      def agent_run(resource, record, initial: false)
         require_provisioned!(record)
         reconcile_provider_fact(resource, record)
         result = @progress.streaming do
-          @runtime.stream_service(resource, RuntimeProxy.command(context, PuppetCommand.arguments))
+          arguments = RuntimeProxy.command(context, PuppetCommand.arguments)
+          initial ? @runtime.diagnostic_exec(resource, arguments) : @runtime.stream_service(resource, arguments)
         end
         record['last_puppet_exit'] = result.exit_status
         save
-        return result if [0, 2].include?(result.exit_status)
+        return result if initial || [0, 2].include?(result.exit_status)
 
         raise Error, "Puppet agent failed (exit #{result.exit_status}); node retained for shell/logs and another run"
       end
