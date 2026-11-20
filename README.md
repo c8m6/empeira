@@ -138,7 +138,8 @@ cooperative lab, and its internal PuppetDB API is unauthenticated.
 Container process mode does not provide a full booted OS. Systemd requires Podman
 and cgroup v2. VM and shared-network support require actual host capabilities;
 macOS/HVF and arm64 runtime validation are manual gates. Native Windows, automatic
-self-update, aggregate `update all` and standalone platform binaries are unavailable.
+self-update and standalone platform binaries are unavailable. RubyGems installations
+support explicit `self-update` and `update all` commands.
 Distribution is through RubyGems.org and the matching GitHub Release gem asset.
 
 ## Community and license
