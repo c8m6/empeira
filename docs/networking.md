@@ -290,8 +290,24 @@ dns:
 
 The optional additional resolver is queried first for non-Empeira names; NXDOMAIN
 or NODATA falls through to the existing upstream. It may be a DNS name or address
-and need not be an Empeira service. `up` activates it after additional services
-start. VPN/engine routing remains the host's responsibility; flat Linux resolver
+and need not be an Empeira service. For a managed service, use its service name
+or `<service>.empeira.internal`. `up` requires that service to be enabled and
+running, then binds its verified isolated IPv4 address into CoreDNS. Address changes
+are reconciled on the next `up`; missing services and self references fail clearly.
+External resolver names and IPv4 addresses retain their existing behavior.
+
+Before publishing a changed Corefile, `up` starts a disposable CoreDNS validator
+inside the isolated workspace network. It verifies the candidate with a private
+TXT generation query, removes the validator, atomically publishes the file and
+signals the existing DNS process. Completion requires the same generation answer
+from that process. A failed activation restores the previous working Corefile and
+reports any failure to verify restoration. Unchanged `up` does not restart or reload
+CoreDNS. The validation helper never publishes host ports or attaches to an external
+network. Internal names stay authoritative; successful additional-resolver answers
+never fall through to the host upstream. `next NXDOMAIN` and `next_on_nodata` apply
+only to negative or empty answers, respectively.
+
+VPN/engine routing remains the host's responsibility; flat Linux resolver
 files cannot represent every split-DNS route. AAAA queries return NODATA.
 
 ### Exact DNS rewrites

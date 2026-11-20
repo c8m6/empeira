@@ -88,6 +88,39 @@ module Empeira
         end
       end
 
+      # rubocop:disable-next Metrics/CyclomaticComplexity, Metrics/PerceivedComplexity -- Normalize managed aliases without resolving names on the host.
+      def additional_resolver_key
+        value = config.dig('dns', 'additional_resolver')&.downcase&.delete_suffix('.')
+        return unless value
+
+        reject_local_resolver!(value)
+        return unless definitions.key?(value) || value == Network::Naming::DOMAIN ||
+                      value.end_with?(".#{Network::Naming::DOMAIN}")
+
+        key = value.delete_suffix(".#{Network::Naming::DOMAIN}")
+        unless definitions.key?(key) && !%w[dns gateway browser-ui].include?(key)
+          raise ConfigurationError, "dns.additional_resolver service #{value} is missing, disabled or cannot " \
+                                    'be used as a resolver (self references are forbidden)'
+        end
+        key
+      end
+
+      def additional_resolver(resources)
+        key = additional_resolver_key
+        return external_resolver(resources) unless key
+
+        resource = resources[key]
+        definitions.fetch(key).verify!(resource)
+        address = resource&.dig('networks', network, 'IPAddress')
+        unless resource&.fetch('state') == 'running' && valid_resolver_address?(address)
+          raise Error, "dns.additional_resolver service #{key} must be running with a verified isolated IPv4 address"
+        end
+
+        address
+      rescue IPAddr::InvalidAddressError
+        raise Error, "dns.additional_resolver service #{key} has an invalid IPv4 address", cause: nil
+      end
+
       def validate_network_redirects!(subnet: self.subnet)
         Network::Redirects.validate!(config.dig('network', 'redirects'), definitions: definitions, subnet: subnet)
       end
@@ -180,6 +213,27 @@ module Empeira
       end
 
       private
+
+      def reject_local_resolver!(value)
+        return unless %w[coredns localhost].include?(value) ||
+                      (value.match?(/\A[\d.]+\z/) && (IPAddr.new(value).loopback? || value == '0.0.0.0'))
+
+        raise ConfigurationError, 'dns.additional_resolver must not point to CoreDNS itself'
+      end
+
+      def external_resolver(resources)
+        value = config.dig('dns', 'additional_resolver')
+        if value && value == resources.dig('dns', 'networks', network, 'IPAddress')
+          raise ConfigurationError, 'dns.additional_resolver must not point to CoreDNS itself'
+        end
+
+        value
+      end
+
+      def valid_resolver_address?(address)
+        address && IPAddr.new(address).ipv4? && IPAddr.new(address).to_s == address &&
+          (subnet.nil? || IPAddr.new(subnet).include?(address))
+      end
 
       def image_reference(data)
         Images::Configuration.reference(data, registry: config.dig('images', 'registry'))

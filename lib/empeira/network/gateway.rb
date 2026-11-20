@@ -40,7 +40,7 @@ module Empeira
       end
 
       def self.additional_addresses(value)
-        return [] if value.nil? || value.end_with?('.empeira.internal')
+        return [] if value.nil? || value.downcase.delete_suffix('.').end_with?('.empeira.internal')
 
         return [value] if value.match?(/\A[\d.]+\z/)
 

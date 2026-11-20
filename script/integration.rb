@@ -20,7 +20,7 @@ suites = {
   'update-plane' => [%w[update_plane], 'EMPEIRA_INTEGRATION', 'update-plane'],
   'browser' => [%w[browser], 'EMPEIRA_BROWSER_INTEGRATION', '1'],
   'vm' => [%w[vm vm_proxy vm_interfaces], 'EMPEIRA_VM_INTEGRATION', '1'],
-  'dns-nodes' => [%w[dns_rewrites_nodes], 'EMPEIRA_DNS_NODE_INTEGRATION', '1'],
+  'dns-nodes' => [%w[dns_rewrites_nodes dns_additional_resolver_nodes], 'EMPEIRA_DNS_NODE_INTEGRATION', '1'],
   'redirect-nodes' => [%w[network_redirects], 'EMPEIRA_INTEGRATION', 'direct-egress'],
   'shared-network' => [%w[peer_network], 'EMPEIRA_PEER_NETWORK', '1']
 }
@@ -36,7 +36,7 @@ selected.each do |files, gate, value|
   environment['EMPEIRA_REDIRECT_VM'] = '1' if scope == 'redirect-nodes'
   environment['EMPEIRA_VM_PROXY_INTEGRATION'] = '1' if files.include?('vm_proxy')
   arguments = ['exec', 'rspec', *files.map { |name| "spec/integration/#{name}_spec.rb" }]
-  unless %w[vm peer_network dns_additional_resolver dns_rewrites_nodes].intersect?(files)
+  unless %w[vm peer_network dns_additional_resolver dns_rewrites_nodes dns_additional_resolver_nodes].intersect?(files)
     arguments += ['--example', runtime]
   end
   result = runner.stream('bundle', arguments: arguments, environment: environment)

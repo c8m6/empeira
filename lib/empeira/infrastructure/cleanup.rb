@@ -312,7 +312,7 @@ module Empeira
         unknown = @state.fetch('resources').keys - ['network']
         @errors << "Unrecognized resource groups retained: #{unknown.join(', ')}" unless unknown.empty?
         known_plane = %w[services volumes egress bridge_prepared bridge_image stopped environment_cache
-                         gateway_policy proxy_reload]
+                         gateway_policy proxy_reload dns_definition]
         unknown = plane.keys - known_plane
         @errors << "Unrecognized control-plane fields retained: #{unknown.join(', ')}" unless unknown.empty?
         return unless @state.key?('vm_gateway')
