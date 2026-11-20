@@ -84,12 +84,17 @@ module Empeira
       end
 
       def network_config(record)
-        { 'version' => 2, 'ethernets' => {
+        network = { 'version' => 2, 'ethernets' => {
           'peer' => { 'match' => { 'macaddress' => record.fetch('mac_address') }, 'set-name' => 'eth0',
                       'addresses' => ["#{record.fetch('peer').fetch('ip')}/24"], 'dhcp4' => false, 'dhcp6' => false,
                       'routes' => [{ 'to' => '0.0.0.0/0', 'via' => record.fetch('peer').fetch('gateway') }],
                       'link-local' => [], 'nameservers' => { 'addresses' => [record.fetch('peer').fetch('dns')] } }
         } }
+        # Ubuntu 26.04 cloud-init can race udev's persistent rename on subsequent boots.
+        if record['os'] == 'ubuntu' && record['version'] == '26.04'
+          network.fetch('ethernets').fetch('peer').delete('set-name')
+        end
+        network
       end
 
       def cloud_config(record, public_key, console: true)

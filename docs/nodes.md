@@ -23,6 +23,27 @@ The default node is Ubuntu 24.04, 1024 MiB, and two CPUs. External traffic requi
 an explicit TCP egress rule or an allowlisted proxy policy. If the workspace proxy
 is enabled, the node automatically gets
 controlled HTTP/HTTPS access to destinations allowed by its proxy policy.
+
+Ubuntu 26.04 LTS is available for both providers on AMD64 and ARM64:
+
+```sh
+empeira node run container.example.test --provider container --os ubuntu --version 26.04
+empeira node run vm.example.test --provider vm --os ubuntu --version 26.04
+```
+
+The container uses the official Ubuntu index pin in `config/defaults.yaml`; VM
+images use Ubuntu's Resolute release and its HTTPS SHA-256 manifest. The configured
+OpenVox Agent is available for both architectures in the
+[official Ubuntu 26.04 repository](https://apt.voxpupuli.org/dists/ubuntu26.04/).
+The existing APT source preservation, DNS setup, privilege and cgroup rules apply.
+New Ubuntu 26.04 VMs keep the kernel's interface name and match the peer NIC by its
+fixed MAC address. This avoids the upstream cloud-init/udev rename race during
+restart; the static address, DNS and gateway settings stay the same. Older releases
+retain their existing `eth0` naming.
+Containers still default to process init; systemd init retains the documented
+Podman/cgroup requirements. Ubuntu 22.04/24.04 and existing VM base revisions are
+preserved; Ubuntu 24.04 remains the default.
+
 Hostname/certname is unique across both providers within a workspace. Names are
 normalized to lowercase; service names are reserved. Another checkout may reuse
 the same hostname. Before the first Puppet run, Empeira installs
@@ -107,7 +128,7 @@ on startup.
 ## Distribution package sources
 
 The reviewed Ubuntu container recipes retain the upstream distribution sources.
-Ubuntu 24.04 uses `/etc/apt/sources.list.d/ubuntu.sources` (deb822); older images may
+Ubuntu 24.04 and 26.04 use `/etc/apt/sources.list.d/ubuntu.sources` (deb822); older images may
 use `/etc/apt/sources.list`. VM Cloud-Init leaves the base image's APT configuration
 untouched. It does not generate archive, security, ports, or internal repository
 entries.
@@ -424,7 +445,7 @@ VM. Capability detection selects KVM or HVF; software emulation is never automat
 Preflight checks commands, acceleration, image metadata, scripts, package destinations
 and control-plane readiness before downloads or node reservation.
 
-Ubuntu 22.04/24.04 cloud images and Rocky 8/9 GenericCloud images come directly from
+Ubuntu 22.04/24.04/26.04 cloud images and Rocky 8/9 GenericCloud images come directly from
 [Ubuntu](https://cloud-images.ubuntu.com/releases/) and
 [Rocky Linux](https://dl.rockylinux.org/pub/rocky/). Availability depends on architecture.
 SHA-256 manifests are fetched over HTTPS and complete images verified before caching.
@@ -530,7 +551,7 @@ and checks the exact address and device type.
 
 | OS catalog key | Versions | Build source |
 | --- | --- | --- |
-| `ubuntu` | `22.04`, `24.04` | Docker Official Ubuntu images |
+| `ubuntu` | `22.04`, `24.04`, `26.04` | Docker Official Ubuntu images |
 | `rocky` | `8`, `9` | Rocky Linux project images |
 | `almalinux` | `8`, `9` | Docker Official AlmaLinux images |
 | `oraclelinux` | `8` | Docker Official Oracle Linux image |

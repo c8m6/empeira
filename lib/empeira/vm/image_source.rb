@@ -8,11 +8,11 @@ module Empeira
     # Resolve moving upstream aliases to a content-addressed image before downloading.
     class ImageSource
       Image = Data.define(:identity, :url, :filename)
-      UBUNTU = { '22.04' => 'jammy', '24.04' => 'noble' }.freeze
       ARCHITECTURES = { 'amd64' => 'x86_64', 'arm64' => 'aarch64' }.freeze
 
-      def initialize(fetch_text: nil)
+      def initialize(fetch_text: nil, config: nil)
         @fetch_text = fetch_text || method(:read_text)
+        @images = (config || Configuration::Document.new.read(Configuration::Loader::DEFAULTS)).dig('images', 'nodes')
       end
 
       def resolve(distribution:, version:, architecture:)
@@ -34,11 +34,10 @@ module Empeira
       private
 
       def ubuntu(version, arch)
-        codename = UBUNTU[version]
-        raise UnavailableFeature, "Ubuntu #{version} VM image is not supported" unless codename
+        source = @images.dig('ubuntu', version, 'vm')
+        raise UnavailableFeature, "Ubuntu #{version} VM image is not supported" unless source
 
-        base = "https://cloud-images.ubuntu.com/releases/#{codename}/release"
-        ["#{base}/ubuntu-#{version}-server-cloudimg-#{arch}.img", "#{base}/SHA256SUMS"]
+        source.values_at('url', 'checksum_url').map { |url| url.gsub('{architecture}', arch) }
       end
 
       def rocky(version, arch)

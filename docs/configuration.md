@@ -551,10 +551,11 @@ no transport selector or additional management YAML configuration. See
 
 ## Images and bootstrap
 
-`images.nodes` selects container recipes and base images. VM image sources currently
-resolve reviewed Ubuntu/Rocky upstream URLs in the image-source adapter; they are
-not configurable through an `images.vm` namespace. A custom adapter can be injected
-at the provider boundary. `bootstrap.guests` records whether an agent is preinstalled
+`images.nodes` selects container recipes and base images. Ubuntu entries also contain
+`vm.url` and `vm.checksum_url`, HTTPS URLs for the cloud image and its SHA-256 manifest.
+The optional `{architecture}` placeholder expands to `amd64` or `arm64`; credentials,
+query strings and URL fragments are rejected. Reviewed sources live in `config/defaults.yaml`.
+Rocky sources retain their existing adapter. `bootstrap.guests` records whether an agent is preinstalled
 and the reviewed destination domains that the temporary bootstrap proxy may reach.
 Rocky metadata also supplies the stable `baseurl` needed to avoid arbitrary mirror
 selection. Ubuntu and Debian package source URLs come exclusively from the base
@@ -595,7 +596,7 @@ Configure only the manager you use. A project `apt.default` or `dnf.default`
 supersedes the built-in release sources for that family. OS-specific entries
 merge over the generic default; existing complete source definitions and `suffix`
 overrides remain supported. APT suites default to `jammy` for Ubuntu 22.04 and
-`noble` for Ubuntu 24.04. RPM keys remain `el8`/`el9` for Rocky, AlmaLinux and
+`noble` for Ubuntu 24.04, and `resolute` for Ubuntu 26.04. RPM keys remain `el8`/`el9` for Rocky, AlmaLinux and
 Oracle Linux's existing supported releases. Architecture comes from the target
 node: `amd64`/`arm64` for DEB and `x86_64`/`aarch64` for RPM. Only `$suite`,
 `$releasever` and `$basearch` URL placeholders are expanded; arbitrary environment

@@ -121,11 +121,26 @@ images:
         tag: "22.04"
         build: nodes/debian/Containerfile
         architectures: [amd64, arm64]
+        vm:
+          url: "https://cloud-images.ubuntu.com/releases/jammy/release/ubuntu-22.04-server-cloudimg-{architecture}.img"
+          checksum_url: "https://cloud-images.ubuntu.com/releases/jammy/release/SHA256SUMS"
       "24.04":
         repository: library/ubuntu
         tag: "24.04"
         build: nodes/debian/Containerfile
         architectures: [amd64, arm64]
+        vm:
+          url: "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-{architecture}.img"
+          checksum_url: "https://cloud-images.ubuntu.com/releases/noble/release/SHA256SUMS"
+      "26.04":
+        repository: library/ubuntu
+        tag: "26.04"
+        digest: "sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db"
+        build: nodes/debian/Containerfile
+        architectures: [amd64, arm64]
+        vm:
+          url: "https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-{architecture}.img"
+          checksum_url: "https://cloud-images.ubuntu.com/releases/resolute/release/SHA256SUMS"
     rocky:
       "8":
         repository: rockylinux/rockylinux
@@ -172,6 +187,11 @@ agent:
         destinations: [apt.voxpupuli.org]
         sha256: "40b8052bcece23ed707e609504dd14b178dc662652455f2d30e9c8e614955a94"
         suffix: "-1+ubuntu24.04"
+      ubuntu26.04:
+        url: "https://apt.voxpupuli.org/openvox8-release-ubuntu26.04.deb"
+        destinations: [apt.voxpupuli.org]
+        sha256: "aa9726d90965b6701a546713e3dfa583b121be544ef1ee021254c2410d51ae4e"
+        suffix: "-1+ubuntu26.04"
       el8:
         url: "https://yum.voxpupuli.org/openvox8-release-el-8.noarch.rpm"
         destinations: [yum.voxpupuli.org]
@@ -203,6 +223,9 @@ bootstrap:
         agent_preinstalled: false
         destinations: [archive.ubuntu.com, security.ubuntu.com, ports.ubuntu.com]
       "24.04":
+        agent_preinstalled: false
+        destinations: [archive.ubuntu.com, security.ubuntu.com, ports.ubuntu.com]
+      "26.04":
         agent_preinstalled: false
         destinations: [archive.ubuntu.com, security.ubuntu.com, ports.ubuntu.com]
     rocky:
