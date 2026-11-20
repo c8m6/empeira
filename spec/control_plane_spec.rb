@@ -495,7 +495,10 @@ RSpec.describe Empeira::ControlPlane::Controller do
     end
     allow(runtime).to receive(:reload_service).and_wrap_original do |reload, resource, **options|
       expect(runtime.services.fetch('resolver').fetch('state')).to eq('running')
-      expect(File.read(corefile)).to include('forward . resolver.empeira.internal')
+      address = runtime.services.fetch('resolver').dig('networks', Empeira::ControlPlane::Plan.new(
+        context: context(config)
+      ).network, 'IPAddress')
+      expect(File.read(corefile)).to include("forward . #{address}")
       reload.call(resource, **options)
     end
 
@@ -503,7 +506,8 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(snapshots.fetch('dns')).to include('forward . 10.20.30.1')
     expect(snapshots.fetch('dns')).not_to include('resolver.empeira.internal')
     expect(snapshots.fetch('resolver')).not_to include('resolver.empeira.internal')
-    expect(File.read(corefile)).to include('forward . resolver.empeira.internal', 'next_on_nodata', 'reload')
+    expect(File.read(corefile)).not_to include('resolver.empeira.internal')
+    expect(File.read(corefile)).to include('next_on_nodata', 'reload')
 
     ids = runtime.services.transform_values { |resource| resource.fetch('id') }
     expect(runtime.calls).to include([:reload, ids.fetch('dns'), 'USR1'])
@@ -532,6 +536,45 @@ RSpec.describe Empeira::ControlPlane::Controller do
     mutate(controller(config), :up)
     expect(at_start).not_to include('resolver.example.test')
     expect(File.read(corefile)).to include('forward . 10.20.30.53')
+  end
+
+  it 'refreshes an internal resolver address without replacing DNS or either provider node' do
+    config = helper_services('mockly').merge('dns' => { 'additional_resolver' => 'mockly.empeira.internal' })
+    plane = controller(config)
+    mutate(plane, :up)
+    state = @store.load
+    state['nodes'] = rewrite_node_records
+    @store.with_lock { @store.write(state) }
+    ids = runtime.services.transform_values { |resource| resource.fetch('id') }
+    plan = Empeira::ControlPlane::Plan.new(context: context(config))
+    runtime.services.fetch('mockly').dig('networks', plan.network)['IPAddress'] = '172.20.0.222'
+    runtime.calls.clear
+    expect(mutate(controller(config), :up)).to be(true)
+    expect(File.binread(plan.files.path('Corefile'))).to include('forward . 172.20.0.222 {')
+    expect(runtime.services.transform_values { |resource| resource.fetch('id') }).to eq(ids)
+    expect(@store.load.fetch('nodes')).to eq(state.fetch('nodes'))
+    expect(mutate(controller(config), :up)).to be(false)
+  end
+
+  it 'retains verified legacy DNS identity across a failed policy activation and an envelope refresh' do
+    mutate(controller, :up)
+    state = @store.load
+    state.fetch('control_plane').delete('dns_definition')
+    @store.with_lock { @store.write(state) }
+    config = helper_services('mockly').merge('dns' => { 'additional_resolver' => 'mockly.empeira.internal' })
+    dns_id = runtime.services.fetch('dns').fetch('id')
+    allow(Empeira::ControlPlane::DNSConfiguration).to receive(:new)
+      .and_raise(Empeira::Error, 'synthetic activation failure')
+    expect { mutate(controller(config), :up) }.to raise_error(Empeira::Error, /synthetic activation failure/)
+    state = @store.load
+    expect(state.dig('control_plane', 'dns_definition', 'id')).to eq(dns_id)
+    definition = Empeira::Infrastructure::Definition.new(context: context(config))
+    state.merge!('definition' => definition.metadata, 'fingerprint' => definition.fingerprint,
+                 'component_fingerprints' => definition.component_fingerprints)
+    @store.with_lock { @store.write(state) }
+    allow(Empeira::ControlPlane::DNSConfiguration).to receive(:new).and_call_original
+    expect(mutate(controller(config), :up)).to be(true)
+    expect(runtime.services.fetch('dns').fetch('id')).to eq(dns_id)
   end
 
   it 'reconciles a refreshed image only during up and rechecks artifacts when the controller is reused' do
@@ -754,7 +797,9 @@ RSpec.describe Empeira::ControlPlane::Controller do
       expect(mutate(controller(desired), :up)).to be(true)
       expect(runtime.services.transform_values { |resource| resource.fetch('id') }).to eq(ids)
       expect(runtime.calls).to include([:reload, ids.fetch('dns'), 'USR1'])
-      expect(runtime.calls.select { |call| %i[create remove start stop].include?(call.first) }).to be_empty
+      expect(runtime.calls.select do |call|
+        %i[create remove start stop].include?(call.first) && !call.last.to_s.include?('dns-validation')
+      end).to be_empty
       expect(@store.load.fetch('nodes')).to eq(state.fetch('nodes'))
       before = File.stat(files.path('Corefile')).ino
       runtime.calls.clear

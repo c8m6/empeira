@@ -6,7 +6,7 @@ module Empeira
       NAME = /\A[a-z][a-z0-9]*(?:-[a-z0-9]+)*\z/
       RESERVED = %w[server puppetdb puppetdb-backend postgres dns coredns proxy gateway browser browser-ui vm-gateway
                     bootstrap-proxy module-installer ca ssl server-data postgres-data
-                    puppetdb-data node localhost].freeze
+                    puppetdb-data node localhost dns-validation].freeze
       FIELDS = %w[name image environment command configuration].freeze
 
       def self.validate!(entries, path)
