@@ -378,6 +378,20 @@ and `dry_run` (default true). Dispatch it from `main`; a prerelease tag must mat
 its channel, for example `v0.1.0-alpha.1`. Other branches and existing tags/releases
 are rejected. Quality and real Docker/OpenVox gates must pass before the build.
 
+For GitHub integrations that cannot dispatch Actions directly, create or update
+`.github/release-request.json` in a PR with exactly these fields:
+
+```json
+{"tag":"v0.1.0-alpha.1","channel":"alpha","dry_run":true}
+```
+
+Merging the request to `main` invokes the dedicated dispatcher, which validates
+the tag/channel and calls the same manual release workflow. Keep `dry_run: true`
+for the validation pass; only set `false` in a separate, explicitly approved
+publish request. Both passes run the existing release gates. An ordinary source
+change without a changed request file never triggers publishing. A release request
+PR is not itself a release or proof that its downstream workflow succeeded.
+
 The build uses the existing `rake build_info` task in a temporary source staging
 directory, builds an installable gem, and checks its contents, license, normalized
 Gem version and exact embedded metadata. RubyGems normalizes a tag such as
