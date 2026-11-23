@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 require_relative '../../lib/empeira'
+require 'pathname'
 
 path = Pathname(ARGV.fetch(0))
 metadata = path.lstat

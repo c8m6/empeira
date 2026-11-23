@@ -2,7 +2,7 @@
 
 require 'json'
 
-RSpec.describe 'QEMU VM prerequisites and overlays' do
+RSpec.describe 'QEMU VM prerequisites and overlays', :files_only do
   def context(os:, architecture:)
     Struct.new(:platform).new(Struct.new(:os, :architecture).new(os, architecture))
   end

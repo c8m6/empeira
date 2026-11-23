@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Addons::Manifest do
+RSpec.describe Empeira::Addons::Manifest, :files_only do
   let(:root) { Pathname(@directory).join('addon') }
   let(:manifest) { root.join('empeira-addon.yaml') }
   let(:data) { YAML.safe_load(manifest.read) }

@@ -3,7 +3,7 @@
 require 'spec_helper'
 require 'rubygems'
 
-RSpec.describe 'Ruby compatibility contract' do
+RSpec.describe 'Ruby compatibility contract', :files_only do
   it 'allows Ruby 3.1 through Ruby 4.0 in the published gem metadata' do
     gemspec = Gem::Specification.load(File.expand_path('../empeira.gemspec', __dir__))
     expect(gemspec).not_to be_nil

@@ -48,5 +48,3 @@ module Empeira
     end
   end
 end
-
-Empeira::Runtime::Container.include(Empeira::Runtime::DiagnosticExecution)

@@ -126,12 +126,8 @@ module Empeira
       end
 
       def configure(resource, record)
-        { 'certname' => record.fetch('hostname'), 'server' => 'server.empeira.internal',
-          'environment' => context.configuration.dig('server', 'environment') }.each do |key, value|
-          result = @runtime.service_exec(resource,
-                                         [Certificates::PUPPET, 'config', 'set', key, value, '--section', 'main'])
-          raise Error, 'Node agent configuration failed; node retained for diagnosis' unless result.success?
-        end
+        AgentConfiguration.apply(record: record, environment: context.configuration.dig('server', 'environment'),
+                                 execute: ->(arguments) { @runtime.service_exec(resource, arguments) })
         refresh_dns
       end
 

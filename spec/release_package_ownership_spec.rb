@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe 'Agent helper release-package ownership' do
+RSpec.describe 'Agent helper release-package ownership', :files_only do
   let(:success) { Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false) }
   let(:installed) { [] }
   let(:calls) { [] }

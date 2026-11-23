@@ -73,13 +73,35 @@ RSpec.describe Empeira::ControlPlane::Controller do
     inode = File.stat(corefile).ino
     expect(runtime.calls.select { |entry| entry.first == :create }.map(&:last))
       .to eq(%w[gateway dns postgres server puppetdb-backend puppetdb])
+    setup = runtime.calls.find { |kind, args| kind == :exec && args.include?('/empeira/setup.sql') }
+    expect(runtime.calls.index([:start, runtime.services.fetch('server').fetch('name')]))
+      .to be < runtime.calls.index(setup)
     expect(mutate(controller, :up)).to be(false)
+    expect(runtime.calls.count { |kind, args| kind == :exec && args.include?('/empeira/setup.sql') }).to eq(1)
     expect(runtime.services.transform_values { |resource| resource['id'] }).to eq(ids)
     expect(File.stat(corefile).ino).to eq(inode)
     expect(runtime.calls.none? { |entry| entry.first == :reload }).to be(true)
     expect(plane.status).to include('Server' => 'running', 'Puppetdb' => 'running',
                                     'Puppetdb-backend' => 'running', 'Postgres' => 'running',
                                     'Dns' => 'running')
+  end
+
+  it 'retries failed database initialization and refreshes a previous setup revision on the same volume' do
+    plane = controller
+    allow(runtime).to receive(:service_exec).and_wrap_original do |original, resource, arguments, **options|
+      result = original.call(resource, arguments, **options)
+      arguments.include?('/empeira/setup.sql') ? result.with(exit_status: 1) : result
+    end
+    expect { mutate(plane, :up) }.to raise_error(Empeira::Error, /PostgreSQL roles/)
+    expect(@store.load.fetch('control_plane')).not_to have_key('database_setup')
+    allow(runtime).to receive(:service_exec).and_call_original
+    mutate(plane, :up)
+    state = @store.load
+    state.fetch('control_plane').fetch('database_setup')['fingerprint'] = 'a' * 64
+    @store.with_lock { @store.write(state) }
+    runtime.calls.clear
+    mutate(plane, :up)
+    expect(runtime.calls.count { |kind, args| kind == :exec && args.include?('/empeira/setup.sql') }).to eq(1)
   end
 
   it 'preserves unchanged discovery files and shares lockdown only until policy application' do
@@ -318,7 +340,8 @@ RSpec.describe Empeira::ControlPlane::Controller do
         original.call(resource, arguments, **options)
       end
     end
-    expect(plane.status).to include('Workspace network' => 'unhealthy')
+    expect(plane.status).to include('Network policy' => 'not checked; use empeira status --verify')
+    expect(plane.status(verify: true)).to include('Workspace network' => 'unhealthy', 'Network policy' => 'unverified')
     expect { mutate(controller, :up) }.to raise_error(Empeira::Error, /Gateway/)
     expect(runtime.services.fetch('gateway').fetch('state')).to eq('stopped')
   end

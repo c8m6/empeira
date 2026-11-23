@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Node::DnfAgentRepository do
+RSpec.describe Empeira::Node::DnfAgentRepository, :files_only do
   let(:calls) { [] }
   let(:files) { {} }
   let(:source) { { 'url' => 'https://packages.example.org/el/9/x86_64' } }
@@ -75,7 +75,7 @@ RSpec.describe Empeira::Node::DnfAgentRepository do
   end
 end
 
-RSpec.describe Empeira::Agent::ReleaseSources do
+RSpec.describe Empeira::Agent::ReleaseSources, :files_only do
   it 'preserves native APT sources by default and scopes exceptions to selected list or deb822 sources' do
     source = "deb [signed-by=/etc/apt/keyrings/agent.gpg] https://packages.example.org/apt noble main\n"
     expect(described_class.apt(source, format: '.list', source: {})).to eq(source)

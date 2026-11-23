@@ -351,7 +351,9 @@ metadata failures never fall back to a full pull.
 
 ## Workspace gateway and direct egress
 
-`status` reports Gateway/DNS/Proxy readiness and overall Workspace network health.
+`status` reports observed service state and network membership without starting
+diagnostic helpers. Use `empeira status --verify` to check live gateway firewall,
+forwarding and Docker bridge rules. Application readiness is checked by `up`.
 After an egress edit or DNS change, run `empeira up`; nodes keep their identities.
 A failed hostname lookup leaves egress blocked. Check the host/corporate resolver
 and every A record first. An IPv6-only destination is unsupported, not silently allowed.

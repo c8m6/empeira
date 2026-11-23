@@ -5,7 +5,7 @@ require_relative 'support/shared_network/mac_assets'
 require_relative 'support/shared_network/mac_guest'
 require_relative 'support/shared_network/mac_topology'
 
-RSpec.describe 'macOS shared network proof contracts' do
+RSpec.describe 'macOS shared network proof contracts', :files_only do
   describe SharedNetworkProof::MacGuest do
     it 'requires native HVF with exactly one private Ethernet channel and no application forwarding' do
       identity = { name: 'vm-a', ip: '10.204.1.10', mac: '02:ee:00:00:00:01', token: 'owned' }

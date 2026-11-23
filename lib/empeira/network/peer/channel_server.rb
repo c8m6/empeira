@@ -1,6 +1,10 @@
 # frozen_string_literal: true
 
 require 'io/wait'
+require 'json'
+require 'pathname'
+require 'socket'
+require 'fileutils'
 
 module Empeira
   module Network

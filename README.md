@@ -109,6 +109,9 @@ empeira node destroy host1
 empeira destroy
 ```
 
+`status` reports observed resources. Use `empeira status --verify` when diagnosing
+live gateway firewall or Docker bridge drift.
+
 `destroy` permanently removes the workspace's owned nodes, CA and database data.
 The control repository, module directory and shared image caches are preserved.
 Destroy works independently of release requirements and guest management versions.

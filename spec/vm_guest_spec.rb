@@ -2,7 +2,7 @@
 
 require 'base64'
 
-RSpec.describe Empeira::VM::Guest do
+RSpec.describe Empeira::VM::Guest, :files_only do
   let(:record) { { 'management_layout' => Empeira::VM::Management::VERSION, 'peer' => { 'token' => 'a' * 32 } } }
   let(:path) { Pathname(@directory).join('guest.sock') }
   let(:qemu) { instance_double(Empeira::VM::QemuRuntime, management_socket: path) }

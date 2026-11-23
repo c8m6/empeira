@@ -20,12 +20,16 @@ RSpec.describe Empeira::Node::RuntimeProxy do
     expect(proxy.reconcile).to be(true)
     expect(snapshots.first.fetch('runtime_proxy')).to have_key('previous')
     expect(described_class.valid_inventory?(record.fetch('runtime_proxy'))).to be(true)
+    writes = snapshots.size
     expect(proxy.reconcile).to be(false)
+    expect(snapshots.size).to eq(writes)
     File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'nodes' => { 'enabled' => false } }))
     disabled = context.with(configuration: Empeira::Configuration::Loader.new(project_path: @directory).load)
     proxy = described_class.new(context: disabled, record: record, execute: execute, persist: persist)
     expect(proxy.reconcile).to be(true)
+    writes = snapshots.size
     expect(proxy.reconcile).to be(false)
+    expect(snapshots.size).to eq(writes)
     expect(record.fetch('runtime_proxy')).to eq('current' => nil)
   end
 

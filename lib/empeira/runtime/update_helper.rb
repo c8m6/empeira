@@ -91,7 +91,5 @@ module Empeira
         raise Providers::ExecutionError, 'Update helper removal could not be verified' if inspect_service(identity)
       end
     end
-
-    Container.include(UpdateHelper)
   end
 end

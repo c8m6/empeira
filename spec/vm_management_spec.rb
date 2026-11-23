@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::VM::Management do
+RSpec.describe Empeira::VM::Management, :files_only do
   let(:record) { { 'management_layout' => described_class::VERSION, 'peer' => { 'token' => 'a' * 32 } } }
 
   it 'seeds numeric-root VirtIO execution before project bootstrap without login or network authentication' do

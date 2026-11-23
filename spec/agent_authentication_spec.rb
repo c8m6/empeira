@@ -2,7 +2,7 @@
 
 require_relative 'support/agent_login_terminal'
 
-RSpec.describe Empeira::Agent::Authentication do
+RSpec.describe Empeira::Agent::Authentication, :files_only do
   let(:input) { AgentLoginTerminal.new("yes\nfixture-user\nfixture-password\n") }
   let(:output) { AgentLoginTerminal.new }
   let(:progress) { Empeira::Progress.new }
@@ -80,7 +80,7 @@ RSpec.describe Empeira::Agent::Authentication do
   end
 end
 
-RSpec.describe Empeira::Agent::Download do
+RSpec.describe Empeira::Agent::Download, :files_only do
   let(:authentication) { Empeira::Agent::Authentication.new(url: 'https://packages.example.org/agent.deb') }
   let(:download) { described_class.new(authentication: authentication) }
   let(:path) { Pathname(@directory).join('package.deb') }

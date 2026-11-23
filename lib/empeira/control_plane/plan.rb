@@ -136,13 +136,13 @@ module Empeira
       end
 
       def project_server_mounts
-        @project_server_mounts ||= validate_server_mounts!
+        @project_server_mounts ||= validate_server_mounts!(verify_tree: false)
       end
 
       # rubocop:disable-next Metrics/AbcSize -- Compare resolved data mounts with the actual managed definition.
-      def validate_server_mounts!
+      def validate_server_mounts!(verify_tree: true)
         resolved = Configuration::ServerMounts.new(entries: config.dig('server', 'mounts'),
-                                                   project: context.project.path)
+                                                   project: context.project.path, verify_tree: verify_tree)
         targets = managed_server_mounts.map { |mount| mount.split(',').find { |field| field.start_with?('dst=') }[4..] }
         resolved.verify_targets!(targets)
         @project_server_mounts = resolved.entries.map do |entry|

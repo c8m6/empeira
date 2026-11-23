@@ -63,6 +63,9 @@ RSpec.describe 'Workspace gateway attachment' do
     %w[docker podman].each do |engine|
       adapter = Empeira::Runtime.registry.build(engine, context: app.context, runner: runner)
       allow(adapter).to receive(:inspect_service).and_return(nil)
+      allow(adapter).to receive(:service_exec).and_return(
+        Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 127, timed_out: false)
+      )
       owned = { 'id' => 'node-id', 'labels' => definition.labels }
       expect(runner).to receive(:run) do |binary, arguments:, **|
         expect(binary).to eq(engine)
@@ -79,6 +82,16 @@ RSpec.describe 'Workspace gateway attachment' do
     expect(runner).not_to receive(:run)
     expect { runtime.configure_workspace_route({ 'labels' => {} }, gateway: '10.210.40.2', image: 'fixture') }
       .to raise_error(Empeira::Providers::OwnershipError)
+  end
+
+  it 'does not launch a routing helper when the observed guest route is already correct' do
+    owned = { 'id' => 'node-id', 'labels' => definition.labels }
+    table = "Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\n" \
+            "eth0 00000000 0228D20A 0003 0 0 0 00000000 0 0 0\n"
+    result = Empeira::Execution::Result.new(stdout: table, stderr: '', exit_status: 0, timed_out: false)
+    allow(runtime).to receive(:service_exec).with(owned, ['cat', '/proc/net/route'], timeout: 3).and_return(result)
+    expect(runner).not_to receive(:run)
+    runtime.configure_workspace_route(owned, gateway: '10.210.40.2', image: 'fixture')
   end
 end
 

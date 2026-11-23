@@ -12,17 +12,20 @@ module Empeira
 
       def wait(key, resources)
         deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @plan.config.dig('server', 'timeout')
+        interval = 0.25
         loop do
           return if ready?(key, resources)
 
           verify_proxy_running!(resources) if key == 'proxy'
-          if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+          remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          if remaining <= 0
             raise Error,
                   "#{key} did not become ready within server.timeout; inspect empeira status and owned service logs\n" \
                   "#{@failure}"
           end
 
-          sleep 2
+          sleep [interval, remaining].min
+          interval = [interval * 2, 2].min
         end
       end
 

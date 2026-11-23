@@ -5,7 +5,7 @@ require_relative 'support/shared_network/assets'
 require_relative 'support/shared_network/guest'
 require_relative 'support/shared_network/topology'
 
-RSpec.describe 'Shared network proof contracts' do
+RSpec.describe 'Shared network proof contracts', :files_only do
   describe SharedNetworkProof::Commands do
     it 'reports bounded stdout, stderr, exit status and timeout without arguments or environment secrets' do
       runner = instance_double(Empeira::Execution::Runner)

@@ -16,8 +16,7 @@ module Empeira
 
       def reconcile
         helper = Pathname(__dir__).join('../../../resources/nodes/interactive_tools.rb').read
-        @record['interactive_tools'] = { 'version' => 1 }
-        @persist.call
+        prepare_inventory
         result = @execute.call([Certificates::RUBY, '-e', helper, JSON.generate('puppet' => Certificates::PUPPET)])
         unless result.success?
           details = Execution::Diagnostics.command(result, operation: 'Interactive agent tool PATH', tool: 'ruby')
@@ -27,6 +26,15 @@ module Empeira
         JSON.parse(result.stdout).fetch('changed')
       rescue JSON::ParserError, KeyError
         raise Error, 'Cannot verify interactive agent tool PATH; node retained for diagnosis', cause: nil
+      end
+
+      private
+
+      def prepare_inventory
+        return if self.class.valid_inventory?(@record['interactive_tools'])
+
+        @record['interactive_tools'] = { 'version' => 1 }
+        @persist.call
       end
     end
   end

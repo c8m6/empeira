@@ -3,7 +3,7 @@
 require 'pty'
 require 'io/console'
 
-RSpec.describe Empeira::VM::GuestShell do
+RSpec.describe Empeira::VM::GuestShell, :files_only do
   let(:runner) { Empeira::Execution::Runner.new }
 
   it 'refuses non-TTY input before connecting a privileged management session' do
@@ -43,6 +43,7 @@ RSpec.describe Empeira::VM::GuestShell do
       end
       code = <<~RUBY
         require 'empeira'
+        require 'pathname'
         $stdout.sync = true
         puts Process.pid
         path = Pathname(ARGV.fetch(0))

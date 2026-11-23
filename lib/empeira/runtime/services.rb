@@ -119,7 +119,5 @@ module Empeira
         ServiceArguments.new(definition).build
       end
     end
-
-    Container.include(Services)
   end
 end

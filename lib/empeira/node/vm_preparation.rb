@@ -136,14 +136,8 @@ module Empeira
       end
 
       def configure_agent(record)
-        { 'certname' => record.fetch('hostname'), 'server' => 'server.empeira.internal',
-          'environment' => context.configuration.dig('server', 'environment') }.each do |key, value|
-          result = @guest.run(record, [Certificates::PUPPET, 'config', 'set', key, value, '--section', 'main'])
-          next if result.success?
-
-          details = Execution::Diagnostics.command(result, operation: "VM agent configuration: #{key}", tool: 'puppet')
-          raise Error, "VM agent configuration failed; node retained for diagnosis\n#{details}", cause: nil
-        end
+        AgentConfiguration.apply(record: record, environment: context.configuration.dig('server', 'environment'),
+                                 execute: ->(arguments) { @guest.run(record, arguments) })
       end
 
       def puppet_run(record, initial: false)

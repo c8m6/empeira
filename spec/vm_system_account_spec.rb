@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'shellwords'
-RSpec.describe 'Dedicated system account guard' do
+RSpec.describe 'Dedicated system account guard', :files_only do
   let(:runner) { Empeira::Execution::Runner.new }
   let(:root) { Pathname(@directory).join('guest') }
   let(:home) { root.join('var/lib/empeira') }

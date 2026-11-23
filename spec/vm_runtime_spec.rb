@@ -2,7 +2,7 @@
 
 require 'securerandom'
 
-RSpec.describe Empeira::VM::QemuRuntime do
+RSpec.describe Empeira::VM::QemuRuntime, :files_only do
   let(:workspace) { Struct.new(:id).new(SecureRandom.hex(12)) }
   let(:locations) do
     Empeira::Platform::Locations.new(home: Dir.pwd, environment: {}, temporary_root: @directory)

@@ -4,7 +4,7 @@ require_relative 'support/addon_source'
 require 'empeira/completion/catalog'
 require 'empeira/completion/bash'
 
-RSpec.describe 'Addon Bash completion' do
+RSpec.describe 'Addon Bash completion', :files_only do
   include AddonFixture
 
   let(:source) { AddonSource.new(@directory).start }

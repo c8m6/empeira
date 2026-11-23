@@ -44,9 +44,7 @@ jobs:
           echo "$(brew --prefix gnu-tar)/libexec/gnubin" >> "$GITHUB_PATH"
       - name: Check Ruby syntax including entrypoints, helpers and tests
         run: |
-          ruby -c empeira.gemspec
-          ruby -c bin/empeira
-          find lib spec script resources -type f -name '*.rb' -print0 | xargs -0 -n 1 ruby -c > /dev/null
+          ruby -e '(["empeira.gemspec", "bin/empeira"] + Dir["{lib,spec,script,resources}/**/*.rb"]).each { |path| RubyVM::InstructionSequence.compile_file(path) }'
       - run: bundle exec rspec --exclude-pattern 'spec/integration/**/*_spec.rb'
       - if: matrix.os == 'ubuntu-24.04' && matrix.ruby == '3.4'
         run: bundle exec rubocop

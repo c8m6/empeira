@@ -16,7 +16,8 @@ module Empeira
         ['config'] => %w[help show validate],
         ['node'] => %w[help run start stop destroy list exec shell console ssh puppet logs],
         ['completion'] => %w[help bash],
-        ['version'] => ['--verbose']
+        ['version'] => ['--verbose'],
+        ['status'] => ['--verify']
       }.tap { |commands| Immutable.deep_freeze(commands) }
       GLOBAL_OPTIONS = %w[--container-engine --help].freeze
       NODE_OPTIONS = %w[--provider --os --version --memory --cpus].freeze
@@ -104,7 +105,7 @@ module Empeira
       end
 
       def values(option, context)
-        return Configuration::Schema::CONTAINER_ENGINES if option == '--container-engine'
+        return Empeira::Runtime.registry.names if option == '--container-engine'
         return Empeira::Node.registry.names if option == '--provider' && context == %w[node run]
         return node_values(option) if %w[--os --version].include?(option) && context == %w[node run]
         return [] if VALUE_OPTIONS.include?(option)
@@ -123,7 +124,7 @@ module Empeira
       end
 
       def completion_application
-        Application.new
+        @completion_application ||= Application.new
       end
 
       def recovery_node_names

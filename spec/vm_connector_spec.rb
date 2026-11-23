@@ -3,7 +3,7 @@
 require 'socket'
 require 'io/wait'
 
-RSpec.describe 'System SSH byte connector' do
+RSpec.describe 'System SSH byte connector', :files_only do
   it 'relays independent concurrent connections and preserves half-close semantics' do
     server = TCPServer.new('127.0.0.1', 0)
     port = server.addr[1]

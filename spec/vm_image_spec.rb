@@ -2,7 +2,7 @@
 
 require 'digest'
 
-RSpec.describe 'Verified VM images' do
+RSpec.describe 'Verified VM images', :files_only do
   let(:payload) { 'qcow2 test image' }
   let(:checksum) { Digest::SHA256.hexdigest(payload) }
 

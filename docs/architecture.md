@@ -223,6 +223,9 @@ proxy, browser and additional infrastructure services. Readiness probes test rea
 DNS, server, SQL and PuppetDB responses. Shared naming and peer backends preserve
 container/VM connectivity and isolation. Network capabilities and isolation must
 be verifiable; there is no host-network or software-emulation fallback.
+PostgreSQL and the configuration server start before waiting for database readiness.
+Database role/extension initialization is recorded against the retained volume and
+SQL revision; unchanged starts reuse it. Live service readiness remains checked.
 See [networking](networking.md) for the privilege and trust boundaries.
 
 `browser` validates existing infrastructure and reconciles only Chromium and its

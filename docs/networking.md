@@ -131,7 +131,7 @@ HTTP Host or TLS SNI. DNS changes require another `up`.
 Reconciliation installs DROP before applying complete rules. Removed grants also
 revoke existing connections. DNS or firewall failure leaves egress blocked/stopped,
 never on unrestricted provider NAT. Policy edits preserve node/gateway identities;
-`status` checks actual rules and forwarding, and `up` repairs drift.
+`status --verify` checks actual rules and forwarding, and `up` repairs drift.
 
 CoreDNS alone receives TCP/UDP 53 to its selected resolvers. Proxies alone receive
 TCP 80/443 and enforce their destination allowlists. Normal proxy allow rules apply
@@ -215,7 +215,7 @@ the complete filter. Mapping changes therefore revoke old connections, including
 previous connections to the original external destination. This also interrupts
 other connections passing through that gateway; clients must reconnect. Identical
 NAT on repeated `up` preserves connection state. Any apply/capability failure leaves
-the gateway blocked/stopped. `status` checks complete filter/NAT rules and forwarding.
+the gateway blocked/stopped. `status --verify` checks complete filter/NAT rules and forwarding.
 No host conntrack, foreign firewall or target container configuration is changed.
 
 The same helper runs in the Linux engine for Docker, rootless Podman, Docker Desktop

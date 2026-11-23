@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Platform::Kvm do
+RSpec.describe Empeira::Platform::Kvm, :files_only do
   let(:platform) { Struct.new(:os).new(:linux) }
   let(:probe) { described_class.new(platform: platform) }
   let(:device) { instance_double(File) }
@@ -60,7 +60,7 @@ RSpec.describe Empeira::Platform::Kvm do
   end
 end
 
-RSpec.describe Empeira::VM::Prerequisites do
+RSpec.describe Empeira::VM::Prerequisites, :files_only do
   let(:platform) { Empeira::Platform::Facts.new(host_os: 'linux', host_cpu: 'x86_64', environment: {}, kernel_release: '') }
   let(:engine) do
     instance_double(Empeira::VM::Qemu, required_tools: %w[qemu-system-x86_64 qemu-img xorriso ssh],

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe 'Private native package proxy configuration' do
+RSpec.describe 'Private native package proxy configuration', :files_only do
   let(:success) { Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false) }
   let(:url) { 'http://bootstrap:temporary-secret@proxy.test:3128' }
   let(:files) { {} }

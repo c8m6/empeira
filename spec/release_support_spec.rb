@@ -2,7 +2,7 @@
 
 require_relative '../script/release_support'
 
-RSpec.describe ReleaseSupport do
+RSpec.describe ReleaseSupport, :files_only do
   it 'requires canonical version syntax and a matching release channel' do
     %w[alpha beta rc].each do |channel|
       expect(described_class.validate!("v1.2.3-#{channel}.1", channel).version).to eq("1.2.3-#{channel}.1")

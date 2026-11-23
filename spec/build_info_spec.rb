@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::BuildInfo do
+RSpec.describe Empeira::BuildInfo, :files_only do
   it 'uses development defaults without Git or generated metadata' do
     info = described_class.load(path: File.join(@directory, 'missing.json'))
     expect(info.to_h).to eq(version: 'development', revision: nil, build_time: nil)

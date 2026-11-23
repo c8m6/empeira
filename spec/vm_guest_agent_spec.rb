@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe 'Guest VirtIO execution adapter' do
+RSpec.describe 'Guest VirtIO execution adapter', :files_only do
   it 'does not leak the private management umask into guest commands or interactive shells' do
     probe = File.expand_path('support/guest_umask_probe.py', __dir__)
     agent = Empeira::VM::Management.resource('guest_agent.py')

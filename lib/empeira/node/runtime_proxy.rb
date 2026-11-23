@@ -40,7 +40,14 @@ module Empeira
         desired = definition
         entry = @record['runtime_proxy']
         return false unless desired || entry
+        return execute(desired, [desired].compact) if entry == { 'current' => desired }
 
+        reconcile_change(desired, entry)
+      end
+
+      private
+
+      def reconcile_change(desired, entry)
         recovered = recover(entry) if entry&.key?('previous')
         previous = [entry&.fetch('current')].compact
         @record['runtime_proxy'] = { 'current' => desired, 'previous' => previous.first }
@@ -50,8 +57,6 @@ module Empeira
         @persist.call
         changed || recovered || false
       end
-
-      private
 
       def recover(entry)
         execute(entry.fetch('current'), [entry['current'], entry['previous']].compact)

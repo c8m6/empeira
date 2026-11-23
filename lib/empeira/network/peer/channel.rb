@@ -1,5 +1,12 @@
 # frozen_string_literal: true
 
+require 'fileutils'
+require 'json'
+require 'pathname'
+require 'rbconfig'
+require 'socket'
+require 'timeout'
+
 module Empeira
   module Network
     module Peer

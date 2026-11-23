@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::VM::RootDisk do
+RSpec.describe Empeira::VM::RootDisk, :files_only do
   let(:ssh) { instance_double(Empeira::VM::Guest) }
   let(:record) { { 'hostname' => 'vm-host' } }
   let(:gib) { Empeira::VM::Disk::GIB }

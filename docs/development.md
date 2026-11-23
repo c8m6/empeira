@@ -24,6 +24,11 @@ To reproduce a CI test job, activate the corresponding Ruby, install the locked
 bundle and run `bundle exec rspec --exclude-pattern 'spec/integration/**/*_spec.rb'`.
 Runtime and VM compatibility remain separate manual gates.
 
+Mark examples that need only temporary files with `:files_only`; they retain an
+isolated home but skip Git initialization and the project marker. Project behavior
+continues to use a real isolated Git repository. Syntax checks compile all Ruby
+sources in one process per CI job, without executing guest helpers.
+
 Addon tests (`spec/addon_*_spec.rb`) use the existing loopback Git fixture,
 concurrent CLI subprocesses, a real PTY and the generated Bash completion. They
 exercise branches, tags and commit refs without external Git services or container

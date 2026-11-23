@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Configuration::SSHPreferences do
+RSpec.describe Empeira::Configuration::SSHPreferences, :files_only do
   let(:config) do
     { 'user' => 'global', 'identity' => '/global/key',
       'rules' => [{ 'hosts' => ['WEB-*', 'db-*'], 'user' => 'host-user', 'identity' => '/first/key' },

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Agent::Cache do
+RSpec.describe Empeira::Agent::Cache, :files_only do
   let(:root) { Pathname(@directory).join('cache/agents') }
   let(:cache) { described_class.new(root: root) }
   let(:request) do

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Execution::Runner do
+RSpec.describe Empeira::Execution::Runner, :files_only do
   subject(:runner) { described_class.new }
 
   it 'captures stdout, stderr and exit status independently' do

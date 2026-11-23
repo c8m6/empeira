@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Node::RpmConfiguration do
+RSpec.describe Empeira::Node::RpmConfiguration, :files_only do
   let(:root) { Pathname(@directory).join('guest') }
   let(:repos) { root.join('etc/yum.repos.d') }
   let(:dnf) { root.join('etc/dnf') }
