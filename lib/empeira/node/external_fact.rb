@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'digest'
+
 module Empeira
   module Node
     # Logical provider and the fixed native Hiera selector are present before the first catalog.

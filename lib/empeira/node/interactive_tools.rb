@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'json'
+require 'pathname'
+
 module Empeira
   module Node
     # Agent tools are exposed through owned interactive OS startup fragments.

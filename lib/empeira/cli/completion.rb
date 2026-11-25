@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative 'base'
 require_relative '../completion/catalog'
 require_relative '../completion/bash'
 

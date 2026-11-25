@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'timeout'
+
 module Empeira
   module VM
     # Shared guest execution/upload/readiness API; no host or guest SSH credentials.
