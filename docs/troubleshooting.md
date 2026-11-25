@@ -354,6 +354,11 @@ metadata failures never fall back to a full pull.
 `status` reports observed service state and network membership without starting
 diagnostic helpers. Use `empeira status --verify` to check live gateway firewall,
 forwarding and Docker bridge rules. Application readiness is checked by `up`.
+Running services describe observed state; only `Network policy: verified` confirms
+the live policy checks passed. Missing bridge preparation remains unverified until
+`up` reconciles it. A failed policy check marks infrastructure degraded without
+changing the observed running state of its services.
+An absent or unsafe runtime network cannot receive a verified policy result.
 After an egress edit or DNS change, run `empeira up`; nodes keep their identities.
 A failed hostname lookup leaves egress blocked. Check the host/corporate resolver
 and every A record first. An IPv6-only destination is unsupported, not silently allowed.

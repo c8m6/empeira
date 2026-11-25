@@ -148,7 +148,7 @@ module Empeira
         definitions = service_keys.to_h { |key| [key, identity(key)] }
         expected = @inventory.fetch('services').transform_values { |record| record['id'] }
         @observed = @runtime.inspect_services(definitions, expected_ids: expected)
-        report = @observed.to_h { |key, resource| [key.capitalize, readiness(key, resource, verify: verify)] }
+        report = @observed.to_h { |key, resource| [key.capitalize, readiness(key, resource)] }
         report.merge(summary(report, verify: verify))
       end
 
@@ -298,29 +298,25 @@ module Empeira
 
       def gateway_policy_status(report, verify:)
         return 'not checked; use empeira status --verify' unless verify
+        return 'unverified; gateway is not running' unless report['Gateway'] == 'running'
+        return 'unverified; workspace bridge preparation not recorded' unless @inventory['bridge_prepared']
 
-        report['Gateway'] == 'running' ? 'verified' : 'unverified'
+        reconcile_bridge('check')
+        result = @runtime.service_exec(@observed.fetch('gateway'), [Network::Gateway::EXECUTABLE, 'check',
+                                                                    '/empeira-gateway/gateway.json'], timeout: 3)
+        result.success? ? 'verified' : 'unverified; firewall/routing reconcile required'
+      rescue Providers::ExecutionError
+        'unverified; workspace bridge attachment reconcile required'
       end
 
-      def readiness(key, resource, verify:)
+      def readiness(key, resource)
         return 'missing' unless resource
 
         verify_networks!(key, resource)
         definition = @plan.definitions[key]
         return 'stale' if definition && resource.dig('labels', 'io.empeira.definition') != definition.fingerprint
 
-        return gateway_readiness(resource) if verify && key == 'gateway' && resource['state'] == 'running'
-
         resource['state']
-      end
-
-      def gateway_readiness(resource)
-        reconcile_bridge('check') if @inventory['bridge_prepared']
-        result = @runtime.service_exec(resource, [Network::Gateway::EXECUTABLE, 'check',
-                                                  '/empeira-gateway/gateway.json'], timeout: 3)
-        result.success? ? 'running' : 'unhealthy; firewall/routing reconcile required'
-      rescue Providers::ExecutionError
-        'unhealthy; workspace bridge attachment reconcile required'
       end
 
       def check_images(definitions: @plan.definitions)
@@ -340,13 +336,15 @@ module Empeira
 
         @health.wait('postgres', @observed)
         checkpoint = database_setup_checkpoint
-        return if @inventory['database_setup'] == checkpoint
+        return if @inventory['database_setup'] == checkpoint && @health.postgres_initialized
 
+        save if @inventory.delete('database_setup')
         result = @runtime.service_exec(@observed.fetch('postgres'),
-                                       ['psql', '-U', 'postgres', '-d', 'puppetdb', '-v', 'ON_ERROR_STOP=1',
+                                       ['psql', '-X', '-U', 'postgres', '-d', 'puppetdb', '-v', 'ON_ERROR_STOP=1',
                                         '-f', '/empeira/setup.sql'])
         raise Error, 'PostgreSQL roles and pg_trgm initialization failed' unless result.success?
 
+        @changed = true
         @inventory['database_setup'] = checkpoint
         save
       end

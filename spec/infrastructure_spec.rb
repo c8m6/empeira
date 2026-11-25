@@ -137,8 +137,17 @@ RSpec.describe Empeira::Infrastructure::Service do
   it 'keeps read-only status from creating state directories or taking an exclusive lock' do
     app = application
     expect(app.infrastructure.status['Infrastructure']).to eq('down')
+    expect(app.infrastructure.status(verify: true)['Network policy']).to start_with('unverified')
     expect(store(app).directory).not_to exist
     store(app).with_lock { expect(app.infrastructure.status['Infrastructure']).to eq('down') }
+  end
+
+  it 'reports running services with unverified policy as degraded infrastructure' do
+    app = application
+    app.infrastructure.up
+    plane = Empeira::ControlPlane::Controller.new(context: app.context, runtime: Object.new, store: store(app))
+    allow(plane).to receive(:status).and_return('Control plane' => 'running', 'Network policy' => 'unverified')
+    expect(app.infrastructure.status).to include('Control plane' => 'running', 'Infrastructure' => 'degraded')
   end
 
   it 'rejects browser for an uninitialized workspace without creating state or probing a runtime' do
@@ -263,6 +272,9 @@ RSpec.describe Empeira::Infrastructure::Service do
     app = application
     expect { app.infrastructure.up }.to raise_error(Empeira::Network::UnsupportedPolicy)
     expect(app.infrastructure.status['Network']).to eq('unsafe isolation')
+    plane = Empeira::ControlPlane::Controller.new(context: app.context, runtime: Object.new, store: store(app))
+    allow(plane).to receive(:status).and_return('Network policy' => 'verified')
+    expect(app.infrastructure.status(verify: true)['Network policy']).to start_with('unverified')
     expect(app.infrastructure.down.changed).to be(true)
     expect(runner.networks['podman']).to be_empty
   end

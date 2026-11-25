@@ -120,8 +120,11 @@ module Empeira
       end
 
       def health_report(status, runtime, state, verify:)
-        report = status.report.merge(control_plane(runtime).status(state: state, verify: verify))
-        if report['Infrastructure'] == 'up' && report['Control plane'] == 'degraded'
+        policy_check = verify && status.report['Network'] == 'isolated'
+        report = status.report.merge(control_plane(runtime).status(state: state, verify: policy_check))
+        report['Network policy'] = 'unverified; workspace network isolation not verified' if verify && !policy_check
+        if report['Infrastructure'] == 'up' &&
+           (report['Control plane'] == 'degraded' || /\Aunverified/.match?(report['Network policy']))
           report['Infrastructure'] = 'degraded'
         end
         report

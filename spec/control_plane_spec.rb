@@ -7,6 +7,7 @@ RSpec.describe Empeira::ControlPlane::Controller do
   include OpenVoxViewFixture
 
   let(:runtime) { ServiceRuntime.new }
+  let(:health) { instance_double(Empeira::ControlPlane::Health, wait: nil, ready?: true, postgres_initialized: true) }
   let(:locations) { Empeira::Platform::Locations.new(home: File.join(@directory, 'user-home'), environment: {}) }
 
   def context(config = {})
@@ -45,9 +46,7 @@ RSpec.describe Empeira::ControlPlane::Controller do
                    'component_fingerprints' => definition.component_fingerprints,
                    'created_at' => Time.now.utc.iso8601, 'reconciled_at' => Time.now.utc.iso8601)
     end
-    allow(Empeira::ControlPlane::Health).to receive(:new).and_return(
-      instance_double(Empeira::ControlPlane::Health, wait: nil, ready?: true)
-    )
+    allow(Empeira::ControlPlane::Health).to receive(:new).and_return(health)
     allow(Empeira::Runtime::MountProbe).to receive(:new).and_return(instance_double(Empeira::Runtime::MountProbe,
                                                                                     verify: nil))
   end
@@ -98,6 +97,45 @@ RSpec.describe Empeira::ControlPlane::Controller do
     mutate(plane, :up)
     state = @store.load
     state.fetch('control_plane').fetch('database_setup')['fingerprint'] = 'a' * 64
+    @store.with_lock { @store.write(state) }
+    runtime.calls.clear
+    mutate(plane, :up)
+    expect(runtime.calls.count { |kind, args| kind == :exec && args.include?('/empeira/setup.sql') }).to eq(1)
+  end
+
+  it 'repairs database setup lost inside the same volume despite an unchanged checkpoint' do
+    plane = controller
+    mutate(plane, :up)
+    checkpoint = @store.load.dig('control_plane', 'database_setup')
+    runtime.calls.clear
+    allow(health).to receive(:postgres_initialized).and_return(false)
+    expect(mutate(plane, :up)).to be(true)
+    expect(runtime.calls.count { |kind, args| kind == :exec && args.include?('/empeira/setup.sql') }).to eq(1)
+    expect(@store.load.dig('control_plane', 'database_setup')).to eq(checkpoint)
+  end
+
+  it 'invalidates the old checkpoint before repairing a partially reset database' do
+    plane = controller
+    mutate(plane, :up)
+    allow(health).to receive(:postgres_initialized).and_return(false)
+    allow(runtime).to receive(:service_exec).and_wrap_original do |original, resource, arguments, **options|
+      result = original.call(resource, arguments, **options)
+      arguments.include?('/empeira/setup.sql') ? result.with(exit_status: 1) : result
+    end
+    expect { mutate(plane, :up) }.to raise_error(Empeira::Error, /PostgreSQL roles/)
+    expect(@store.load.fetch('control_plane')).not_to have_key('database_setup')
+    allow(health).to receive(:postgres_initialized).and_return(true)
+    allow(runtime).to receive(:service_exec).and_call_original
+    runtime.calls.clear
+    expect(mutate(plane, :up)).to be(true)
+    expect(runtime.calls.count { |kind, args| kind == :exec && args.include?('/empeira/setup.sql') }).to eq(1)
+  end
+
+  it 'reinitializes a database whose checkpoint belongs to another volume' do
+    plane = controller
+    mutate(plane, :up)
+    state = @store.load
+    state.fetch('control_plane').fetch('database_setup')['id'] = 'previous-volume-id'
     @store.with_lock { @store.write(state) }
     runtime.calls.clear
     mutate(plane, :up)
@@ -341,9 +379,29 @@ RSpec.describe Empeira::ControlPlane::Controller do
       end
     end
     expect(plane.status).to include('Network policy' => 'not checked; use empeira status --verify')
-    expect(plane.status(verify: true)).to include('Workspace network' => 'unhealthy', 'Network policy' => 'unverified')
+    expect(plane.status(verify: true)).to include('Gateway' => 'running', 'Workspace network' => 'running',
+                                                  'Network policy' => 'unverified; firewall/routing reconcile required')
     expect { mutate(controller, :up) }.to raise_error(Empeira::Error, /Gateway/)
     expect(runtime.services.fetch('gateway').fetch('state')).to eq('stopped')
+  end
+
+  it 'verifies policy explicitly while keeping ordinary status free of diagnostic helpers' do
+    plane = controller
+    mutate(plane, :up)
+    runtime.calls.clear
+    expect(plane.status).to include('Gateway' => 'running', 'Workspace network' => 'running',
+                                    'Network policy' => 'not checked; use empeira status --verify')
+    expect(runtime.calls).to be_empty
+    expect(plane.status(verify: true)).to include('Network policy' => 'verified')
+    expect(runtime.calls).to include([:bridge, 'check'])
+    state = @store.load
+    state.fetch('control_plane').delete('bridge_prepared')
+    @store.with_lock { @store.write(state) }
+    expect(plane.status(verify: true)).to include(
+      'Gateway' => 'running', 'Network policy' => 'unverified; workspace bridge preparation not recorded'
+    )
+    mutate(plane, :up)
+    expect(plane.status(verify: true)).to include('Network policy' => 'verified')
   end
 
   it 'keeps bootstrap source exclusion and the status plan consistent' do
