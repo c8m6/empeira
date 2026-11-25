@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'ipaddr'
+require 'securerandom'
+
 module Empeira
   module Runtime
     module WorkspaceNetwork
@@ -43,12 +46,9 @@ module Empeira
 
       # Only the target's network namespace is shared. No host namespace, Docker
       # socket, target filesystem or persistent NET_ADMIN capability is exposed.
-      # rubocop:disable-next Metrics/AbcSize -- Bound the privilege and cleanup of a single namespace operation.
       def configure_workspace_route(resource, gateway:, image:)
-        labels = resource.fetch('labels')
-        unless labels['io.empeira.managed-by'] == 'empeira' && labels['io.empeira.workspace'] == context.workspace.id
-          raise Providers::OwnershipError, 'Cannot configure routing on a foreign container'
-        end
+        verify_route_owner!(resource)
+        return if resource.dig('labels', 'io.empeira.purpose') != 'dns' && current_workspace_route?(resource, gateway)
 
         helper = Empeira::Services::Definition.new(key: "route-#{SecureRandom.hex(16)}", workspace: context.workspace)
         arguments = ['run', '--rm', '--pull=never', '--name', helper.name,
@@ -62,8 +62,36 @@ module Empeira
           service_command(['rm', '--force', remaining.fetch('id')], operation: 'route helper cleanup')
         end
       end
-    end
 
-    Container.include(WorkspaceNetwork)
+      private
+
+      def verify_route_owner!(resource)
+        labels = resource.fetch('labels')
+        return if labels['io.empeira.managed-by'] == 'empeira' && labels['io.empeira.workspace'] == context.workspace.id
+
+        raise Providers::OwnershipError, 'Cannot configure routing on a foreign container'
+      end
+
+      def current_workspace_route?(resource, gateway)
+        result = service_exec(resource, ['cat', '/proc/net/route'], timeout: 3)
+        return false unless result.success?
+
+        routes = default_routes(result.stdout)
+        routes.one? && matching_gateway?(routes.first, gateway)
+      rescue Empeira::ExecutionError, ArgumentError
+        false
+      end
+
+      def default_routes(output)
+        output.lines.drop(1).map(&:split).select do |fields|
+          fields.size == 11 && fields[1] == '00000000' && fields[7] == '00000000'
+        end
+      end
+
+      def matching_gateway?(route, gateway)
+        expected = [IPAddr.new(gateway).to_i].pack('V').unpack1('H*')
+        route[2].casecmp?(expected) && Integer(route[3], 16).allbits?(3)
+      end
+    end
   end
 end

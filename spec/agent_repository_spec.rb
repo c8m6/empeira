@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe 'Native agent package acquisition' do
+RSpec.describe 'Native agent package acquisition', :files_only do
   let(:calls) { [] }
   let(:files) { {} }
   let(:success) { Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false) }
@@ -103,7 +103,7 @@ RSpec.describe 'Native agent package acquisition' do
   end
 end
 
-RSpec.describe Empeira::Agent::Versions do
+RSpec.describe Empeira::Agent::Versions, :files_only do
   it 'supports a software version, an explicit native version, epochs and suffix overrides without version ordering' do
     candidates = [{ 'version' => '1:8.20.0-1.el9' }]
     expect(described_class.select(candidates, '8.20.0')).to eq(candidates.first)

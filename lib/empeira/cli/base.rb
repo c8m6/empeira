@@ -7,7 +7,7 @@ module Empeira
   module CLI
     class Base < Thor
       check_unknown_options!
-      class_option :container_engine, type: :string, enum: Configuration::Schema::CONTAINER_ENGINES,
+      class_option :container_engine, type: :string, enum: Empeira::Runtime.registry.names,
                                       desc: 'Override runtime.container_engine'
 
       def self.exit_on_failure?

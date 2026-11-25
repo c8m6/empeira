@@ -84,6 +84,15 @@ RSpec.describe Empeira::CLI::Main do
       .to output(/Workspace:.*Empeira version:.*Infrastructure: down.*Infrastructure fingerprint:/m).to_stdout
   end
 
+  it 'forwards explicit policy verification to the infrastructure service' do
+    app = Empeira::Application.new(project_path: @directory)
+    infrastructure = instance_double(Empeira::Infrastructure::Service)
+    allow(Empeira::Application).to receive(:new).and_return(app)
+    allow(app).to receive(:infrastructure).and_return(infrastructure)
+    expect(infrastructure).to receive(:status).with(verify: true).and_return('Network policy' => 'verified')
+    expect { described_class.start(%w[status --verify]) }.to output(/Network policy: verified/).to_stdout
+  end
+
   it 'routes update all through the project-independent update service' do
     service = instance_double(Empeira::Updates::Service)
     allow(Empeira::Updates::Service).to receive(:new).and_return(service)

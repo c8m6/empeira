@@ -3,7 +3,7 @@
 require 'empeira/cli/progress'
 require 'stringio'
 
-RSpec.describe Empeira::CLI::ProgressRenderer do
+RSpec.describe Empeira::CLI::ProgressRenderer, :files_only do
   def event(percent, message, state = :active)
     Empeira::Progress::Event.new(percent: percent, message: message, state: state)
   end

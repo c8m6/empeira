@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Node::SSHIdentity do
+RSpec.describe Empeira::Node::SSHIdentity, :files_only do
   let(:home) { Pathname(@directory).join('personal home') }
   let(:key) { home.join('.ssh', 'test key') }
   let(:identity) { described_class.new(home: home) }

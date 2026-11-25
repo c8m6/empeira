@@ -47,7 +47,7 @@ module Empeira
         HieraMounts.new(config: data.fetch('hiera'), project: @project_path,
                         environment: data.dig('server', 'environment'))
         Eyaml.new(config: data.fetch('eyaml'), project: @project_path).mounts
-        ServerMounts.new(entries: data.dig('server', 'mounts'), project: @project_path)
+        ServerMounts.new(entries: data.dig('server', 'mounts'), project: @project_path, verify_tree: false)
         data
       end
 

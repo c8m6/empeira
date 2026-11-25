@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::VM::Disk do
+RSpec.describe Empeira::VM::Disk, :files_only do
   let(:base) { Pathname(@directory).join('base.qcow2') }
   let(:overlay) { Pathname(@directory).join('vms', 'host1', 'disk.qcow2') }
   let(:engine) { instance_double(Empeira::VM::Qemu, image_tool: 'qemu-img') }

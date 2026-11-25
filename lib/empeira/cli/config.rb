@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'base'
+
 module Empeira
   module CLI
     class Config < Base
@@ -14,7 +16,7 @@ module Empeira
 
       desc 'validate', 'Validate the effective configuration'
       def validate
-        application.context.configuration
+        ControlPlane::Plan.new(context: application.context).validate_server_mounts!
         say 'Configuration is valid.'
       end
     end

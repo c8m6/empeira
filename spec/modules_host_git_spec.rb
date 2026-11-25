@@ -2,7 +2,7 @@
 
 require_relative 'support/module_source'
 
-RSpec.describe Empeira::Modules::HostGit do
+RSpec.describe Empeira::Modules::HostGit, :files_only do
   let(:runner) { instance_double(Empeira::Execution::Runner) }
   let(:git) { described_class.new(runner: runner, project: Pathname(@directory)) }
   let(:success) { Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false) }
@@ -68,6 +68,7 @@ RSpec.describe Empeira::Modules::HostGit do
     File.write(wrapper, <<~RUBY)
       #!#{RbConfig.ruby}
       require #{File.expand_path('../lib/empeira', __dir__).inspect}
+      require 'json'
       exit 0 if ARGV.include?('-G')
       File.write(ENV.fetch('EMPEIRA_SSH_TRACE'), JSON.generate('arguments' => ARGV, 'agent' => ENV['SSH_AUTH_SOCK']))
       exit Empeira::Execution::Runner.new.stream('git', arguments: ['upload-pack', ENV.fetch('EMPEIRA_SSH_REPO')]).exit_status

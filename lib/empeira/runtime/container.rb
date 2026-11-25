@@ -10,6 +10,12 @@ module Empeira
     # Keep the common network lifecycle and its failure semantics in one adapter boundary.
     # rubocop:disable-next Metrics/ClassLength
     class Container < Interface
+      include Services
+      include DiagnosticExecution
+      include WorkspaceNetwork
+      include UpdateHelper
+      include AgentHelper
+
       def available?
         check_available!
         true

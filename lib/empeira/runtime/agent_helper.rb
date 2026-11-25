@@ -28,7 +28,5 @@ module Empeira
          '--entrypoint', 'sleep', image, 'infinity']
       end
     end
-
-    Container.include(AgentHelper)
   end
 end

@@ -33,6 +33,8 @@ module Empeira
         end
 
         resource ||= create_volume(definition)
+        return if expected == resource.fetch('id')
+
         @inventory.fetch('volumes')[definition.key] = { 'id' => resource.fetch('id') }
         @persist.call
       end

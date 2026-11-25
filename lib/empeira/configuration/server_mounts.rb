@@ -54,8 +54,9 @@ module Empeira
 
       attr_reader :entries
 
-      def initialize(entries:, project:)
+      def initialize(entries:, project:, verify_tree: true)
         self.class.validate!(entries)
+        @verify_tree = verify_tree
         @entries = entries.each_with_index.map do |entry, index|
           { 'source' => resolve(entry.fetch('source'), project, index),
             'target' => Pathname(entry.fetch('target')).cleanpath.to_s,
@@ -79,7 +80,7 @@ module Empeira
           raise ConfigurationError, "server.mounts[#{index}].source must resolve to a regular file or data directory"
         end
 
-        verify_data_tree!(source, index) if source.directory?
+        verify_data_tree!(source, index) if @verify_tree && source.directory?
         source.to_s
       rescue SystemCallError
         raise ConfigurationError, "server.mounts[#{index}].source must exist and allow canonical resolution",

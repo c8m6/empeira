@@ -2,7 +2,7 @@
 
 require 'pty'
 
-RSpec.describe Empeira::Node::PuppetCommand do
+RSpec.describe Empeira::Node::PuppetCommand, :files_only do
   before do
     allow(ENV).to receive(:[]).and_call_original
     %w[CI NO_COLOR].each { |key| allow(ENV).to receive(:[]).with(key).and_return(nil) }

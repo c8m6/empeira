@@ -2,7 +2,7 @@
 
 require 'open3'
 
-RSpec.describe Empeira::Node::Bootstrap do
+RSpec.describe Empeira::Node::Bootstrap, :files_only do
   it 'defines only the logical provider and fixed Hiera selector for both node providers' do
     %w[container vm].each do |provider|
       files = described_class.new(provider: provider).files

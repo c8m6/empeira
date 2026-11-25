@@ -3,6 +3,9 @@
 require 'base64'
 require 'securerandom'
 require 'io/wait'
+require 'json'
+require 'socket'
+require 'timeout'
 
 module Empeira
   module VM

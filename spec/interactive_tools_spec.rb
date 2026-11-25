@@ -2,7 +2,7 @@
 
 require_relative '../resources/nodes/interactive_tools'
 
-RSpec.describe Empeira::InteractiveToolsGuest do
+RSpec.describe Empeira::InteractiveToolsGuest, :files_only do
   let(:root) { Pathname(@directory).join('guest') }
   let(:binary) { root.join('opt/puppetlabs/bin') }
   let(:global) { root.join('etc/bash.bashrc') }
@@ -92,5 +92,16 @@ RSpec.describe Empeira::InteractiveToolsGuest do
     File.symlink(target, global)
     expect { reconcile }.to raise_error(/Unsafe or unowned/)
     expect(target.read).to eq('preserve')
+  end
+end
+
+RSpec.describe Empeira::Node::InteractiveTools, :files_only do
+  it 'checks retained guest files without rewriting an unchanged inventory entry' do
+    record = { 'interactive_tools' => { 'version' => 1 } }
+    result = Empeira::Execution::Result.new(stdout: '{"changed":false}', stderr: '', exit_status: 0, timed_out: false)
+    execute = double('guest execution')
+    expect(execute).to receive(:call).once.and_return(result)
+    tools = described_class.new(record: record, execute: execute, persist: -> { raise 'unexpected inventory write' })
+    expect(tools.reconcile).to be(false)
   end
 end

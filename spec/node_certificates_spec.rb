@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Node::Certificates do
+RSpec.describe Empeira::Node::Certificates, :files_only do
   let(:runtime) { instance_double(Empeira::Runtime::Container, copy_from: nil, copy_to: nil) }
   let(:node) { { 'id' => 'node-id' } }
   let(:server) { { 'id' => 'server-id' } }

@@ -178,7 +178,7 @@ RSpec.describe 'Additional service configuration' do
                     'created_at' => Time.now.utc.iso8601, 'reconciled_at' => Time.now.utc.iso8601)
       end
       allow(Empeira::ControlPlane::Health).to receive(:new).and_return(
-        instance_double(Empeira::ControlPlane::Health, wait: nil, ready?: true)
+        instance_double(Empeira::ControlPlane::Health, wait: nil, ready?: true, postgres_initialized: true)
       )
       allow(Empeira::Runtime::MountProbe).to receive(:new).and_return(
         instance_double(Empeira::Runtime::MountProbe, verify: nil)

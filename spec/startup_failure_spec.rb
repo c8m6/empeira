@@ -25,6 +25,21 @@ RSpec.describe Empeira::ControlPlane::StartupFailure do
 end
 
 RSpec.describe Empeira::ControlPlane::Health do
+  it 'observes setup in the existing PostgreSQL readiness query and clears stale results on failure' do
+    runtime = instance_double(Empeira::Runtime::Podman)
+    health = described_class.new(runtime: runtime, plan: Object.new)
+    resources = { 'postgres' => { 'id' => 'postgres-id', 'state' => 'running' } }
+    result = Empeira::Execution::Result.new(stdout: 'f', stderr: '', exit_status: 0, timed_out: false)
+    allow(runtime).to receive(:service_exec).and_return(result, result.with(stdout: 't'), result.with(exit_status: 1))
+    expect(health.ready?('postgres', resources)).to be(true)
+    expect(health.postgres_initialized).to be(false)
+    expect(health.ready?('postgres', resources)).to be(true)
+    expect(health.postgres_initialized).to be(true)
+    expect(health.ready?('postgres', resources)).to be(false)
+    expect(health.postgres_initialized).to be(false)
+    expect(runtime).to have_received(:service_exec).exactly(3).times
+  end
+
   it 'reports an observed proxy OOM during readiness without waiting for the entire timeout' do
     File.write(File.join(@directory, '.empeira.yaml'), YAML.dump('proxy' => { 'nodes' => { 'enabled' => true } }))
     app = Empeira::Application.new(project_path: @directory)

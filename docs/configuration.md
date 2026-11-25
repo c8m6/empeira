@@ -260,7 +260,9 @@ directories; broken source symlinks, control characters and commas are rejected.
 Targets must be absolute, are normalized, and cannot contain `..` segments or
 control characters/commas. `/` itself and system paths `/dev`, `/proc` and `/sys`
 cannot be mounted. Source data trees must not contain sockets, devices or other
-special files. Validation does not follow nested directory symlinks.
+special files. `config validate` and the `up` preflight check these trees without
+following nested directory symlinks. Other commands validate mount paths and
+structure without recursively scanning data that they do not mount.
 
 Mounts are read-only unless explicitly configured with `readonly: false`. Writable
 mounts allow the server to change host data, subject to host filesystem permissions.

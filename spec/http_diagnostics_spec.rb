@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Execution::Diagnostics do
+RSpec.describe Empeira::Execution::Diagnostics, :files_only do
   let(:url) { 'https://packages.example.org/apt/pool/agent.deb?version=1.2.3' }
 
   def http(body: 'First line\nSecond line', status: '404', reason: 'Missing artifact', **options)

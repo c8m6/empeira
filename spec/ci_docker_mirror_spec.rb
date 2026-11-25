@@ -2,7 +2,7 @@
 
 require_relative '../script/ci_docker_mirror'
 
-RSpec.describe CIDockerMirror do
+RSpec.describe CIDockerMirror, :files_only do
   it 'preserves runner settings and existing mirrors when adding the public cache' do
     original = { 'features' => { 'containerd-snapshotter' => true }, 'debug' => false,
                  'registry-mirrors' => ['https://cache.example.test'] }

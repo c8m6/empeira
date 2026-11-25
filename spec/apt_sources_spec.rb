@@ -2,7 +2,7 @@
 
 require_relative '../resources/nodes/apt_sources'
 
-RSpec.describe Empeira::AptSources do
+RSpec.describe Empeira::AptSources, :files_only do
   let(:root) { Pathname(@directory) }
   let(:sources) { root.join('etc/apt/sources.list.d') }
   let(:checker) { described_class.new(root) }

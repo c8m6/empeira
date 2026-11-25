@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Server::HTTP do
+RSpec.describe Empeira::Server::HTTP, :files_only do
   def result(stdout, stderr: '', status: 22)
     Empeira::Execution::Result.new(stdout: stdout, stderr: stderr, exit_status: status, timed_out: false)
   end

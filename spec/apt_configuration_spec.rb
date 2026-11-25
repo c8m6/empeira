@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Node::AptConfiguration do
+RSpec.describe Empeira::Node::AptConfiguration, :files_only do
   let(:root) { Pathname(@directory).join('guest') }
   let(:apt) { root.join('etc/apt') }
   let(:backup) { root.join('var/tmp/empeira-apt-before-bootstrap.tar') }

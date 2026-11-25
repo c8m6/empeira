@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'io/console'
+
 module Empeira
   module VM
     # A guest controlling PTY with local raw-mode restoration; no login or input logging.

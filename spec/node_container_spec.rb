@@ -75,7 +75,7 @@ RSpec.describe Empeira::Node::Container do
                   'peer_network' => { 'subnet' => '10.203.20.0/24' },
                   'created_at' => Time.now.utc.iso8601, 'reconciled_at' => Time.now.utc.iso8601)
       allow(Empeira::ControlPlane::Health).to receive(:new).and_return(
-        instance_double(Empeira::ControlPlane::Health, wait: nil, ready?: true)
+        instance_double(Empeira::ControlPlane::Health, wait: nil, ready?: true, postgres_initialized: true)
       )
       allow(Empeira::Runtime::MountProbe).to receive(:new).and_return(
         instance_double(Empeira::Runtime::MountProbe, verify: nil)
@@ -147,8 +147,7 @@ RSpec.describe Empeira::Node::Container do
       allow(installer).to receive(:install) { events << :agent }
       allow(runtime).to receive(:service_exec).and_wrap_original do |method, resource, arguments, **options|
         events << :base_packages if arguments.first == 'apt-get' && arguments.include?('git')
-        events << :configure if arguments.first == Empeira::Node::Certificates::PUPPET &&
-                                arguments.include?('config')
+        events << :configure if arguments[2] == Empeira::Node::AgentConfiguration::APPLY
         method.call(resource, arguments, **options)
       end
       allow(runtime).to receive(:stream_service).and_wrap_original do |method, *arguments, **options|

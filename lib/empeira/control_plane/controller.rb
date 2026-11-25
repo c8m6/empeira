@@ -34,8 +34,10 @@ module Empeira
         prepare_network_services
         @plan.environment.prepare
         @progress.stage(45, 'Starting PostgreSQL...')
-        prepare_postgres
+        reconcile('postgres') if @plan.database?
         @progress.stage(60, 'Starting configuration server...')
+        reconcile('server')
+        prepare_postgres
         prepare_server
         prepare_puppetdb
         @plan.additional_services.each_key { |key| reconcile(key) }
@@ -141,15 +143,13 @@ module Empeira
         cleanup_files
       end
 
-      # rubocop:disable-next Metrics/AbcSize -- One bounded observation includes the central network health.
-      def status(state: @store.load)
+      def status(state: @store.load, verify: false)
         load_state(state)
         definitions = service_keys.to_h { |key| [key, identity(key)] }
         expected = @inventory.fetch('services').transform_values { |record| record['id'] }
         @observed = @runtime.inspect_services(definitions, expected_ids: expected)
         report = @observed.to_h { |key, resource| [key.capitalize, readiness(key, resource)] }
-        report.merge(summary(report)).merge('Workspace network' =>
-          report.values.all? { |value| value == 'running' } ? 'healthy' : 'unhealthy')
+        report.merge(summary(report, verify: verify))
       end
 
       def browser_url
@@ -287,10 +287,26 @@ module Empeira
         @plan.definitions.keys | @inventory.fetch('services').keys
       end
 
-      def summary(report)
-        { 'Control plane' => report.values.all? { |value| value == 'running' } ? 'running' : 'degraded',
+      def summary(report, verify:)
+        running = report.values.all? { |value| value == 'running' }
+        { 'Control plane' => running ? 'running' : 'degraded',
           'Readiness' => 'not checked; empeira up verifies readiness',
+          'Workspace network' => running ? 'running' : 'unhealthy',
+          'Network policy' => gateway_policy_status(report, verify: verify),
           'Persistent volumes' => @inventory.fetch('volumes').size.to_s }
+      end
+
+      def gateway_policy_status(report, verify:)
+        return 'not checked; use empeira status --verify' unless verify
+        return 'unverified; gateway is not running' unless report['Gateway'] == 'running'
+        return 'unverified; workspace bridge preparation not recorded' unless @inventory['bridge_prepared']
+
+        reconcile_bridge('check')
+        result = @runtime.service_exec(@observed.fetch('gateway'), [Network::Gateway::EXECUTABLE, 'check',
+                                                                    '/empeira-gateway/gateway.json'], timeout: 3)
+        result.success? ? 'verified' : 'unverified; firewall/routing reconcile required'
+      rescue Providers::ExecutionError
+        'unverified; workspace bridge attachment reconcile required'
       end
 
       def readiness(key, resource)
@@ -300,18 +316,7 @@ module Empeira
         definition = @plan.definitions[key]
         return 'stale' if definition && resource.dig('labels', 'io.empeira.definition') != definition.fingerprint
 
-        return gateway_readiness(resource) if key == 'gateway' && resource['state'] == 'running'
-
         resource['state']
-      end
-
-      def gateway_readiness(resource)
-        reconcile_bridge('check') if @inventory['bridge_prepared']
-        result = @runtime.service_exec(resource, [Network::Gateway::EXECUTABLE, 'check',
-                                                  '/empeira-gateway/gateway.json'], timeout: 3)
-        result.success? ? 'running' : 'unhealthy; firewall/routing reconcile required'
-      rescue Providers::ExecutionError
-        'unhealthy; workspace bridge attachment reconcile required'
       end
 
       def check_images(definitions: @plan.definitions)
@@ -329,16 +334,27 @@ module Empeira
       def prepare_postgres
         return unless @plan.database?
 
-        reconcile('postgres')
         @health.wait('postgres', @observed)
+        checkpoint = database_setup_checkpoint
+        return if @inventory['database_setup'] == checkpoint && @health.postgres_initialized
+
+        save if @inventory.delete('database_setup')
         result = @runtime.service_exec(@observed.fetch('postgres'),
-                                       ['psql', '-U', 'postgres', '-d', 'puppetdb', '-v', 'ON_ERROR_STOP=1',
+                                       ['psql', '-X', '-U', 'postgres', '-d', 'puppetdb', '-v', 'ON_ERROR_STOP=1',
                                         '-f', '/empeira/setup.sql'])
         raise Error, 'PostgreSQL roles and pg_trgm initialization failed' unless result.success?
+
+        @changed = true
+        @inventory['database_setup'] = checkpoint
+        save
+      end
+
+      def database_setup_checkpoint
+        { 'id' => @inventory.fetch('volumes').fetch(@plan.volume('postgres-data').key).fetch('id'),
+          'fingerprint' => Digest::SHA256.file(@plan.files.path('database-setup.sql')).hexdigest }
       end
 
       def prepare_server
-        reconcile('server')
         refresh_eyaml_keys if @plan.eyaml_staged?
         Runtime::MountProbe.new(runtime: @runtime).verify(@observed.fetch('server'),
                                                           [@plan.repository_mounts, @plan.eyaml_mounts,
@@ -630,7 +646,6 @@ module Empeira
       def reconcile_proxy
         return unless @plan.proxy?
 
-        ensure_egress
         reconcile('proxy')
       end
 
@@ -645,7 +660,7 @@ module Empeira
       end
 
       def lockdown_existing_gateway
-        resource = @runtime.inspect_service(identity('gateway'), expected_id: recorded('gateway'))
+        resource = service_resource(identity('gateway'), expected_id: recorded('gateway'))
         return unless resource && resource['state'] == 'running'
 
         lockdown_gateway(resource)
@@ -714,7 +729,9 @@ module Empeira
 
       def record_gateway_policy
         fingerprint = Infrastructure::Definition.fingerprint(@gateway_plan)
-        @changed = true if @inventory['gateway_policy'] != fingerprint
+        return if @inventory['gateway_policy'] == fingerprint
+
+        @changed = true
         @inventory['gateway_policy'] = fingerprint
         save
       end
@@ -743,6 +760,8 @@ module Empeira
           resource = @runtime.create_network(definition: egress).resource
           @changed = true
         end
+        return if @inventory['egress'] == resource.id
+
         @inventory['egress'] = resource.id
         save
       end

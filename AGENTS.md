@@ -214,6 +214,8 @@ overlapping paths and tags/aliases. Avoid application-specific orchestration.
 Before infrastructure mutation, validate the project release requirement through
 `BuildInfo`, then take the shared nonblocking workspace lock. Read-only status
 uses no exclusive lock. Keep the lock inode stable; never delete it as recovery.
+Status reports observed resources without diagnostic helper containers; explicit
+`status --verify` additionally checks live gateway and bridge policy.
 Development builds cannot verify explicit release requirements. Absent/null
 requirements allow development; infrastructure never updates Empeira automatically.
 

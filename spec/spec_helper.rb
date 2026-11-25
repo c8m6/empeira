@@ -4,6 +4,9 @@ require 'empeira'
 require 'tmpdir'
 require 'fileutils'
 require 'rbconfig'
+require 'json'
+require 'yaml'
+require 'digest'
 
 module ProjectFixture
   def vm_guest(application)
@@ -38,7 +41,7 @@ RSpec.configure do |config|
       @directory = File.realpath(directory)
       user_home = File.join(@directory, 'user-home')
       FileUtils.mkdir_p(user_home)
-      initialize_project(@directory)
+      initialize_project(@directory) unless example.metadata[:files_only]
       example.run
     end
   ensure

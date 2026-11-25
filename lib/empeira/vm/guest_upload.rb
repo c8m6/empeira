@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'openssl'
+require 'base64'
+
 module Empeira
   module VM
     # Integrity-pinned binary uploads are atomically published by the guest adapter.

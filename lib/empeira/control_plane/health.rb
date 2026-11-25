@@ -2,8 +2,17 @@
 
 module Empeira
   module ControlPlane
+    # rubocop:disable-next Metrics/ClassLength -- Readiness and setup share one native PostgreSQL probe.
     class Health
       RUBY = '/opt/puppetlabs/puppet/bin/ruby'
+      POSTGRES_SETUP = <<~SQL
+        SELECT (SELECT count(*) FROM pg_roles WHERE rolname IN ('puppetdb', 'puppetdb_read')) = 2
+          AND EXISTS (SELECT FROM pg_extension WHERE extname = 'pg_trgm')
+          AND EXISTS (SELECT FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba
+                      WHERE d.datname = current_database() AND r.rolname = 'puppetdb');
+      SQL
+
+      attr_reader :postgres_initialized
 
       def initialize(runtime:, plan:)
         @runtime = runtime
@@ -12,17 +21,20 @@ module Empeira
 
       def wait(key, resources)
         deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @plan.config.dig('server', 'timeout')
+        interval = 0.25
         loop do
           return if ready?(key, resources)
 
           verify_proxy_running!(resources) if key == 'proxy'
-          if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+          remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          if remaining <= 0
             raise Error,
                   "#{key} did not become ready within server.timeout; inspect empeira status and owned service logs\n" \
                   "#{@failure}"
           end
 
-          sleep 2
+          sleep [interval, remaining].min
+          interval = [interval * 2, 2].min
         end
       end
 
@@ -34,7 +46,7 @@ module Empeira
         case key
         when 'server' then check(resource, [*tls_curl, 'https://server.empeira.internal:8140/status/v1/simple'],
                                  'running')
-        when 'postgres' then check(resource, ['psql', '-U', 'postgres', '-d', 'puppetdb', '-Atc', 'SELECT 1'], '1')
+        when 'postgres' then postgres_ready?(resource)
         when 'puppetdb-backend'
           check(resources['server'], [*http_curl, 'http://puppetdb-backend.empeira.internal:8080/pdb/query/v4/nodes'])
         when 'puppetdb' then puppetdb_ready?(resources['server'])
@@ -53,6 +65,19 @@ module Empeira
       end
 
       private
+
+      def postgres_ready?(resource)
+        @postgres_initialized = false
+        result = @runtime.service_exec(resource, ['psql', '-X', '-U', 'postgres', '-d', 'puppetdb',
+                                                  '-v', 'ON_ERROR_STOP=1', '-Atc', POSTGRES_SETUP])
+        @postgres_initialized = result.success? && result.stdout.strip == 't'
+        return true if result.success? && %w[t f].include?(result.stdout.strip)
+
+        @failure = Execution::Diagnostics.native(result, operation: 'Probe PostgreSQL setup', tool: 'psql')
+        false
+      rescue Empeira::ExecutionError
+        false
+      end
 
       def verify_proxy_running!(resources)
         resource = @runtime.inspect_service(@plan.definitions.fetch('proxy'),

@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe 'RubyGems self-update' do
+RSpec.describe 'RubyGems self-update', :files_only do
   let(:runner) { instance_double(Empeira::Execution::Runner) }
   let(:service) { Empeira::Updates::Service.new(runner: runner) }
   let(:root) { File.expand_path('..', __dir__) }

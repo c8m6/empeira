@@ -75,14 +75,14 @@ module Empeira
         Cleanup.new(context: @context, runner: @runner, runtimes: @runtimes, progress: @progress).destroy
       end
 
-      def status
+      def status(verify: false)
         status = Status.new(context: @context, build_info: @build_info, definition: definition)
         state = @store.load
         status.record(state)
         runtime = runtime_for(state&.fetch('runtime') || @context.container_engine)
         runtime.check_available!
         status.observe(observe(runtime, state))
-        health_report(status, runtime, state)
+        health_report(status, runtime, state, verify: verify)
       rescue Error => e
         status.report.merge('Infrastructure' => 'unknown', 'Diagnostic' => e.message)
       end
@@ -119,9 +119,12 @@ module Empeira
         raise Error, 'Nodes exist; destroy them before empeira down, or use empeira destroy for complete removal'
       end
 
-      def health_report(status, runtime, state)
-        report = status.report.merge(control_plane(runtime).status(state: state))
-        if report['Infrastructure'] == 'up' && report['Control plane'] == 'degraded'
+      def health_report(status, runtime, state, verify:)
+        policy_check = verify && status.report['Network'] == 'isolated'
+        report = status.report.merge(control_plane(runtime).status(state: state, verify: policy_check))
+        report['Network policy'] = 'unverified; workspace network isolation not verified' if verify && !policy_check
+        if report['Infrastructure'] == 'up' &&
+           (report['Control plane'] == 'degraded' || /\Aunverified/.match?(report['Network policy']))
           report['Infrastructure'] = 'degraded'
         end
         report
@@ -144,7 +147,7 @@ module Empeira
                  else
                    runtime.create_network(definition: definition.network)
                  end
-        persist(state, result.resource)
+        persist(state, result.resource) unless resource
         result
       end
 

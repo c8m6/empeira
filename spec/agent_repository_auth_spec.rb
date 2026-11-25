@@ -2,7 +2,7 @@
 
 require_relative 'support/agent_login_terminal'
 
-RSpec.describe 'Native repository login and subsequent host package download' do
+RSpec.describe 'Native repository login and subsequent host package download', :files_only do
   { 'APT' => ['ubuntu', '24.04'], 'DNF' => %w[rocky 9] }.each do |manager, (os, release)|
     context manager do
       let(:target) { Empeira::Agent::Target.new(os: os, release: release, architecture: 'amd64') }

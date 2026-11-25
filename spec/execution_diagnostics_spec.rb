@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Execution::Diagnostics do
+RSpec.describe Empeira::Execution::Diagnostics, :files_only do
   it 'keeps actionable SSH, DNS, ref and HTTP errors without credentials or private paths' do
     text = <<~OUTPUT
       Permission denied (publickey).

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'json'
 require_relative 'version_requirement'
 
 module Empeira
@@ -9,7 +8,12 @@ module Empeira
     attr_reader :version, :revision, :build_time
 
     def self.load(path: METADATA_PATH)
-      data = File.file?(path) ? JSON.parse(File.read(path)) : {}
+      data = if File.file?(path)
+               require 'json'
+               JSON.parse(File.read(path))
+             else
+               {}
+             end
       new(**data.transform_keys(&:to_sym))
     end
 

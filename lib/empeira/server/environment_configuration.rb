@@ -14,8 +14,10 @@ module Empeira
 
       # rubocop:disable-next Naming/PredicateMethod -- Reconciliation mutates the native server setting.
       def reconcile(resource)
-        return false if current(resource) == '0'
+        @current = current(resource)
+        return false if @current == '0'
 
+        @current = nil
         execute(resource, [PUPPET, 'config', 'set', 'environment_timeout', '0', '--section', 'server',
                            '--confdir', confdir])
         @runtime.stop_service(resource)
@@ -24,7 +26,7 @@ module Empeira
       end
 
       def verify!(resource)
-        return if current(resource) == '0' && effective(resource) == '0'
+        return if (@current || current(resource)) == '0' && effective(resource) == '0'
 
         raise Error, 'Puppetserver environment_timeout is not 0 after startup; the custom entrypoint or ' \
                      'server confdir/environment overrides the managed setting; inspect the server runtime contract'

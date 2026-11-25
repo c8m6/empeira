@@ -38,6 +38,7 @@ RSpec.describe Empeira::Infrastructure::Cleanup do
   [1, 2, 999].each do |version|
     it "removes positively identified resources from inventory schema #{version} without rewriting its schema" do
       state['schema_version'] = version
+      state['control_plane']['database_setup'] = { 'id' => 'owned-volume', 'fingerprint' => 'a' * 64 }
       add_node('owned.example.test')
       persist
       expect(runtime).not_to receive(:service_exec)

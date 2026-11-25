@@ -232,7 +232,7 @@ module Empeira
       end
 
       def valid_plane_checkpoints?(plane)
-        %w[proxy_reload dns_definition].all? { |key| valid_proxy_reload?(plane[key]) }
+        %w[proxy_reload dns_definition database_setup].all? { |key| valid_proxy_reload?(plane[key]) }
       end
 
       def valid_proxy_reload?(checkpoint)

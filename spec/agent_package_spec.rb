@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-RSpec.describe Empeira::Node::AgentPackage do
+RSpec.describe Empeira::Node::AgentPackage, :files_only do
   let(:target) { Empeira::Agent::Target.new(os: 'ubuntu', release: '24.04', architecture: 'amd64') }
   let(:calls) { [] }
   let(:files) { {} }

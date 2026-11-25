@@ -3,7 +3,7 @@
 require_relative 'support/http_fixture'
 require_relative 'support/agent_login_terminal'
 
-RSpec.describe 'Agent HTTPS acquisition and interactive authentication' do
+RSpec.describe 'Agent HTTPS acquisition and interactive authentication', :files_only do
   let(:input) { AgentLoginTerminal.new("yes\nfixture-user\nfixture-password\n") }
   let(:output) { AgentLoginTerminal.new }
   let(:path) { Pathname(@directory).join('package.deb') }

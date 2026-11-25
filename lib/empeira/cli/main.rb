@@ -40,6 +40,7 @@ module Empeira
       option :verbose, type: :boolean, desc: 'Include revision and build time'
       map '--version' => :version
       def version
+        require 'json' if options[:verbose]
         info = BuildInfo.load
         say(options[:verbose] ? JSON.pretty_generate(info.to_h) : "Empeira #{info.version}")
       end
@@ -54,8 +55,9 @@ module Empeira
       subcommand 'completion', Completion
 
       desc 'status', 'Inspect workspace infrastructure without changing state'
+      option :verify, type: :boolean, default: false, desc: 'Also verify live gateway and bridge policy'
       def status
-        application.infrastructure.status.each { |key, value| say "#{key}: #{value}" }
+        application.infrastructure.status(verify: options[:verify]).each { |key, value| say "#{key}: #{value}" }
       end
 
       desc 'up', 'Ensure isolated workspace infrastructure'
