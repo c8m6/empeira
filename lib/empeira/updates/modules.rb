@@ -27,10 +27,11 @@ module Empeira
 
       # rubocop:disable-next Metrics/AbcSize -- Preserve the ordered direct-sync and success-marker boundary.
       def install(request)
-        @progress.stage(0, 'Reading Puppetfile...')
+        @progress.stage(0, 'Preparing r10k helper image...')
         image = Empeira::Modules::Image.new(@context.configuration.dig('images', 'r10k'),
                                             registry: @context.configuration.dig('images', 'registry'))
         @runtime.ensure_image(image.reference, recipe: image.recipe, files: image.files)
+        @progress.stage(1, 'Reading Puppetfile...')
         @storage.prepare
         @state.prepare
         @state.invalidate

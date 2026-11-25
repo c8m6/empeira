@@ -38,6 +38,15 @@ RSpec.describe 'Update plane' do
     expect(store.load).to be_nil
   end
 
+  it 'labels the r10k helper image preparation before reading the Puppetfile' do
+    progress = Empeira::Progress.new
+    expect(progress).to receive(:stage).with(0, 'Preparing r10k helper image...').ordered
+    expect(runtime).to receive(:ensure_image).ordered
+    expect(progress).to receive(:stage).with(1, 'Reading Puppetfile...').ordered
+    Empeira::Updates::Modules.new(context: app.context, runtime: runtime, runner: app.runner, progress: progress)
+                             .synchronize
+  end
+
   it 'updates the same directory and leaves runtime inventory unchanged' do
     app.updates.update('modules')
     inode = root.join('sample').stat.ino
