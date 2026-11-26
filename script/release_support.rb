@@ -2,6 +2,7 @@
 
 require 'digest'
 require 'fileutils'
+require 'json'
 require 'rubygems/package'
 require 'tmpdir'
 require 'stringio'

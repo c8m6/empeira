@@ -383,19 +383,23 @@ and `dry_run` (default true). Dispatch it from `main`; a prerelease tag must mat
 its channel, for example `v0.1.0-alpha.1`. Other branches and existing tags/releases
 are rejected. Quality and real Docker/OpenVox gates must pass before the build.
 
-For GitHub integrations that cannot dispatch Actions directly, create or update
-`.github/release-request.json` in a PR with exactly these fields:
+For GitHub integrations that cannot dispatch Actions directly, the repository owner
+(`c8m6`, numeric account ID 35730763) can open an issue titled
+`Release request: v0.1.0-alpha.1` with a plain JSON body containing exactly:
 
 ```json
 {"tag":"v0.1.0-alpha.1","channel":"alpha","dry_run":true}
 ```
 
-Merging the request to `main` invokes the dedicated dispatcher, which validates
-the tag/channel and calls the same manual release workflow. Keep `dry_run: true`
-for the validation pass; only set `false` in a separate, explicitly approved
-publish request. Both passes run the existing release gates. An ordinary source
-change without a changed request file never triggers publishing. A release request
-PR is not itself a release or proof that its downstream workflow succeeded.
+The owner-only issue-opened dispatcher runs from the default branch and calls the
+same manual release workflow on `main`. Comments, edits, contributor issues and
+ordinary pushes cannot trigger releases. Title, tag, channel, boolean and owner
+identity are validated before dispatch. Keep `dry_run: true` for validation;
+open a new explicitly approved publish request with `dry_run: false` to publish.
+The existing release gates and duplicate-tag checks remain mandatory. The issue
+is an audit record, not a release or proof that publication succeeded. Check the
+downstream Manual release run and both distribution destinations. The former
+committed JSON request is no longer a release trigger.
 
 The build uses the existing `rake build_info` task in a temporary source staging
 directory, builds an installable gem, and checks its contents, license, normalized

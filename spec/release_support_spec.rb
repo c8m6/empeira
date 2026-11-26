@@ -124,6 +124,19 @@ RSpec.describe ReleaseSupport, :files_only do
     Bundler.with_unbundled_env { verify_installed_cli(path, dependency_home: thor_home) }
   end
 
+  it 'checks release availability in a fresh Ruby process without preloaded JSON' do
+    refs = File.join(@directory, 'refs.json')
+    releases = File.join(@directory, 'releases.json')
+    File.write(refs, '[[]]')
+    File.write(releases, '[[]]')
+    runner = Empeira::Execution::Runner.new
+    result = runner.run(RbConfig.ruby,
+                        arguments: [File.join(described_class::ROOT, 'script/release.rb'), 'check-available', refs, releases],
+                        environment: { 'EMPEIRA_BUILD_VERSION' => 'v1.2.3-alpha.1', 'EMPEIRA_RELEASE_CHANNEL' => 'alpha',
+                                       'RUBYOPT' => nil, 'RUBYLIB' => nil })
+    expect(result).to be_success, result.stderr
+  end
+
   it 'rejects workflow dispatch from any branch other than main without building or publishing' do
     runner = Empeira::Execution::Runner.new
     result = runner.run(RbConfig.ruby, arguments: [File.join(described_class::ROOT, 'script/release.rb'), 'validate'],
