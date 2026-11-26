@@ -3,13 +3,14 @@
 import atexit,base64,json,os,socket,subprocess,sys,tempfile,time,threading
 from pathlib import Path
 with tempfile.TemporaryDirectory() as root:
+    Path(root+'/.bashrc').write_text("PS1='PROBE_READY> '; PROMPT_COMMAND=''\n")
     path=root+'/port.sock'; server=socket.socket(socket.AF_UNIX);server.bind(path);server.listen(1)
     harness="""import os,runpy,socket,sys,stat,pwd,types
 sock=socket.socket(socket.AF_UNIX);sock.connect(sys.argv[2]);fd=sock.detach();os.set_blocking(fd,False)
 real_open=os.open;os.open=lambda path,*args,**kw: fd if path=='test-port' else real_open(path,*args,**kw)
 os.geteuid=lambda:0
 source=open(sys.argv[1]).read().replace("ROOT = '/run/empeira-management'", 'ROOT = '+repr(sys.argv[3]))
-source=source.replace("SHELL_RC = '/usr/local/libexec/empeira-management-shell-rc'", 'SHELL_RC = '+repr(os.path.join(os.path.dirname(sys.argv[1]), 'shell_rc.sh')))
+source=source.replace("SHELL_RC = '/usr/local/libexec/empeira-management-shell-rc'", 'SHELL_RC = '+repr(os.path.join(os.path.dirname(os.path.abspath(sys.argv[1])), 'shell_rc.sh')))
 stage_root=sys.argv[3]
 pwd.getpwuid=lambda uid:types.SimpleNamespace(pw_dir=os.path.dirname(stage_root))
 os.environ['RUNTIME_DIRECTORY']=stage_root
@@ -45,6 +46,20 @@ exec(compile(source,'guest_agent.py','exec'))
     def send(**kw):conn.sendall((json.dumps(dict(id=identity,**kw))+'\n').encode())
     def recv():
         response=json.loads(reader.readline());assert response['id']==identity;return response
+    def wait_pid(path,timeout):
+        deadline=time.monotonic()+timeout
+        content=''
+        while time.monotonic()<deadline:
+            try:content=Path(path).read_text()
+            except FileNotFoundError:pass
+            if content.endswith('\n') and content.strip().isdigit() and int(content.strip())>0:
+                return int(content.strip())
+            assert process.poll() is None, f'Adapter exited while waiting for {path}: {process.returncode}'
+            time.sleep(.01)
+        raise AssertionError(f'PID publication timed out: {path}, content={content!r}')
+    def pid_command(path):
+        # Keep the file observably empty before publishing a complete PID record.
+        return "import os,time;f=open("+repr(path)+",'w');time.sleep(.05);f.write(str(os.getpid())+'\\n');f.close();time.sleep(30)"
     send(type='hello',token='synthetic-instance');assert recv()['type']=='hello'
     send(type='exec',argv=[sys.executable,'-c',"import sys;sys.stdout.write('x'*300000);sys.stderr.write('y'*170000);sys.exit(6)"],timeout=5)
     out=bytearray();err=bytearray()
@@ -66,13 +81,9 @@ exec(compile(source,'guest_agent.py','exec'))
     assert Path(destination).read_bytes()==data and (os.stat(destination).st_mode&0o777)==0o600
     assert list(Path(root+'/stage').iterdir())==[]
     pid_path = root+'/owned-pid'
-    send(type='exec',argv=[sys.executable,'-c',"import os,time;open("+repr(pid_path)+",'w').write(str(os.getpid()));time.sleep(30)"],timeout=30)
+    send(type='exec',argv=[sys.executable,'-c',pid_command(pid_path)],timeout=30)
     assert recv()['type']=='started'
-    deadline=time.monotonic()+2
-    while not Path(pid_path).exists():
-        assert time.monotonic()<deadline
-        time.sleep(.01)
-    owned_pid=int(Path(pid_path).read_text())
+    owned_pid=wait_pid(pid_path,2)
     conn.shutdown(socket.SHUT_RDWR);reader.close();conn.close()
     deadline=time.monotonic()+2
     while True:
@@ -81,20 +92,16 @@ exec(compile(source,'guest_agent.py','exec'))
         assert time.monotonic()<deadline, 'Disconnected command was not reaped'
         time.sleep(.01)
     assert process.poll() is None, 'Idle adapter must keep waiting without a polling loop'
-    process.terminate();process.wait(timeout=5)
+    cleanup()
 
     stage_fault=root+'/fault-stage'
     process=subprocess.Popen([sys.executable,str(h),sys.argv[1],path,stage_fault],stderr=None)
     conn,_=server.accept();conn.settimeout(4);reader=conn.makefile('rb')
     send(type='hello',token='synthetic-instance');assert recv()['type']=='hello'
     pid_path=root+'/fault-owned-pid'
-    send(type='exec',argv=[sys.executable,'-c',"import os,time;open("+repr(pid_path)+",'w').write(str(os.getpid()));time.sleep(30)"],timeout=30)
+    send(type='exec',argv=[sys.executable,'-c',pid_command(pid_path)],timeout=30)
     assert recv()['type']=='started'
-    deadline=time.monotonic()+2
-    while not Path(pid_path).exists():
-        assert time.monotonic()<deadline
-        time.sleep(.01)
-    owned_pid=int(Path(pid_path).read_text())
+    owned_pid=wait_pid(pid_path,2)
     Path(stage_fault+'/force-io-failure').touch()
     send(type='cancel')
     assert process.wait(timeout=5)==1, 'Fatal transport I/O must trigger the systemd failure restart policy'
@@ -107,13 +114,15 @@ exec(compile(source,'guest_agent.py','exec'))
     conn,_=server.accept();conn.settimeout(5);reader=conn.makefile('rb')
     send(type='hello',token='synthetic-instance');assert recv()['type']=='hello'
     send(type='shell',size=[27,93],term='xterm-256color')
-    output=bytearray();credit=False
+    output=bytearray();credit=False;shell_operation='initial shell readiness'
     def shell_read(until):
         global credit
         deadline=time.monotonic()+5
         while not until():
             assert time.monotonic()<deadline,bytes(output)
-            frame=recv()
+            try:frame=recv()
+            except (TimeoutError,ValueError) as error:
+                raise AssertionError(f'PTY probe stalled during {shell_operation!r}; output={bytes(output[-4096:])!r}') from error
             if frame['type']=='ready':credit=True
             elif frame['type']=='stdout':output.extend(base64.b64decode(frame['data']))
             elif frame['type']=='exit':raise AssertionError(('Unexpected shell exit',frame,bytes(output)))
@@ -123,9 +132,12 @@ exec(compile(source,'guest_agent.py','exec'))
         shell_read(lambda:credit)
         send(type='input',data=base64.b64encode(data).decode());credit=False
     def shell_command(command,marker):
+        global shell_operation
+        shell_operation=command
         output.clear();shell_input(command.encode()+b'\n')
-        shell_read(lambda:marker in output)
-    shell_read(lambda:credit)
+        # Output alone may precede command completion; wait for Bash to accept the next input.
+        shell_read(lambda:marker in output and output.rfind(b'PROBE_READY> ')>output.find(marker))
+    shell_read(lambda:credit and b'PROBE_READY> ' in output)
     shell_command("stty size; printf 'INITIAL_DONE\\n'",b'27 93\r\n')
     send(type='resize',size=[39,111])
     shell_command("stty size; printf 'RESIZE_DONE\\n'",b'39 111\r\n')
@@ -134,9 +146,7 @@ exec(compile(source,'guest_agent.py','exec'))
     shell_command("test -t 0 && test -t 1 && printf 'PTY_%s\\n' VERIFIED",b'PTY_VERIFIED\r\n')
     foreground=root+'/foreground-pid'
     shell_input(("sh -c 'echo $$ > "+foreground+"; exec sleep 30'\n").encode())
-    deadline=time.monotonic()+3
-    while not Path(foreground).exists():assert time.monotonic()<deadline;time.sleep(.01)
-    owned_pid=int(Path(foreground).read_text())
+    owned_pid=wait_pid(foreground,3)
     shell_input(b'\x1a')
     shell_read(lambda:b'Stopped' in output)
     shell_input(b'fg\n');time.sleep(.1);shell_input(b'\x03')
@@ -152,11 +162,9 @@ exec(compile(source,'guest_agent.py','exec'))
     send(type='shell',size=[24,80],term='xterm');credit=False;output.clear();shell_read(lambda:credit)
     background=root+'/background-pid'
     shell_input(("sleep 30 & echo $! > "+background+"\n").encode())
-    deadline=time.monotonic()+3
-    while not Path(background).exists():assert time.monotonic()<deadline;time.sleep(.01)
-    owned_pid=int(Path(background).read_text());send(type='cancel')
+    owned_pid=wait_pid(background,3);send(type='cancel')
     while recv()['type']!='exit':pass
     stat_path=Path('/proc/'+str(owned_pid)+'/stat')
     assert not stat_path.exists() or stat_path.read_text().rpartition(') ')[2].startswith('Z '), 'Background job survived shell cancellation'
-    reader.close();conn.close();process.terminate();process.wait(timeout=5)
+    reader.close();conn.close();cleanup()
     print('large stdout/stderr, exit 6, missing command, closed-pipe timeout, cancel, disconnect reap, fatal I/O cleanup, binary upload and cleanup passed; PTY, resize, ANSI, Ctrl+C/D/Z, foreground and background cleanup passed')
