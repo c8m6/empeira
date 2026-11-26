@@ -231,6 +231,8 @@ module Empeira
             WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'puppetdb') \gexec
           SELECT format('CREATE ROLE puppetdb_read LOGIN PASSWORD %L', :'reader_password')
             WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'puppetdb_read') \gexec
+          ALTER ROLE puppetdb LOGIN;
+          ALTER ROLE puppetdb_read LOGIN;
           ALTER DATABASE puppetdb OWNER TO puppetdb;
           CREATE EXTENSION IF NOT EXISTS pg_trgm;
           GRANT ALL ON SCHEMA public TO puppetdb;

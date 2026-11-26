@@ -224,8 +224,12 @@ DNS, server, SQL and PuppetDB responses. Shared naming and peer backends preserv
 container/VM connectivity and isolation. Network capabilities and isolation must
 be verifiable; there is no host-network or software-emulation fallback.
 PostgreSQL and the configuration server start before waiting for database readiness.
-Database role/extension initialization is recorded against the retained volume and
-SQL revision; unchanged starts reuse it. Live service readiness remains checked.
+Database setup is recorded against the retained volume and SQL revision. The existing
+SQL readiness query also checks both login roles, the extension, database ownership,
+schema access, reader access to every public table/view and the writer's default
+reader grants. Drift invalidates the checkpoint and reruns setup; unchanged starts
+reuse it without an extra runtime call. Setup restores login and grants without
+resetting existing passwords or changing application-owned table/schema owners.
 See [networking](networking.md) for the privilege and trust boundaries.
 
 `browser` validates existing infrastructure and reconciles only Chromium and its

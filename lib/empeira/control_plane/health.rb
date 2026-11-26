@@ -5,11 +5,27 @@ module Empeira
     # rubocop:disable-next Metrics/ClassLength -- Readiness and setup share one native PostgreSQL probe.
     class Health
       RUBY = '/opt/puppetlabs/puppet/bin/ruby'
+      # Match Files#database_setup; OID-based checks also handle roles not created yet.
       POSTGRES_SETUP = <<~SQL
-        SELECT (SELECT count(*) FROM pg_roles WHERE rolname IN ('puppetdb', 'puppetdb_read')) = 2
-          AND EXISTS (SELECT FROM pg_extension WHERE extname = 'pg_trgm')
-          AND EXISTS (SELECT FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba
-                      WHERE d.datname = current_database() AND r.rolname = 'puppetdb');
+        SELECT EXISTS (
+          SELECT FROM pg_roles writer CROSS JOIN pg_roles reader CROSS JOIN pg_namespace n
+          WHERE writer.rolname = 'puppetdb' AND writer.rolcanlogin
+            AND reader.rolname = 'puppetdb_read' AND reader.rolcanlogin AND n.nspname = 'public'
+            AND EXISTS (SELECT FROM pg_extension WHERE extname = 'pg_trgm')
+            AND EXISTS (SELECT FROM pg_database WHERE datname = current_database() AND datdba = writer.oid)
+            AND has_schema_privilege(writer.oid, n.oid, 'USAGE')
+            AND has_schema_privilege(writer.oid, n.oid, 'CREATE')
+            AND has_schema_privilege(reader.oid, n.oid, 'USAGE')
+            AND NOT EXISTS (
+              SELECT FROM pg_class c WHERE c.relnamespace = n.oid AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                AND NOT has_table_privilege(reader.oid, c.oid, 'SELECT')
+            )
+            AND EXISTS (
+              SELECT FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+              WHERE d.defaclrole = writer.oid AND d.defaclnamespace = n.oid AND d.defaclobjtype = 'r'
+                AND a.grantee = reader.oid AND a.privilege_type = 'SELECT'
+            )
+        );
       SQL
 
       attr_reader :postgres_initialized

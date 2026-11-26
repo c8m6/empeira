@@ -24,6 +24,17 @@ To reproduce a CI test job, activate the corresponding Ruby, install the locked
 bundle and run `bundle exec rspec --exclude-pattern 'spec/integration/**/*_spec.rb'`.
 Runtime and VM compatibility remain separate manual gates.
 
+The PostgreSQL cache regression gate uses a disposable control plane. It checks
+managed setup drift inside rolled-back transactions, repairs a revoked reader
+grant through `up`, verifies live PuppetDB/policy readiness and checks that the
+next unchanged `up` skips setup:
+
+```bash
+EMPEIRA_INTEGRATION=1 EMPEIRA_REQUIRED_RUNTIMES=podman \
+  bundle exec rspec spec/integration/control_plane_spec.rb \
+  --example 'podman repairs PostgreSQL setup drift'
+```
+
 Mark examples that need only temporary files with `:files_only`; they retain an
 isolated home but skip Git initialization and the project marker. Project behavior
 continues to use a real isolated Git repository. Syntax checks compile all Ruby

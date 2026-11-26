@@ -85,6 +85,87 @@ RSpec.describe 'Real control-plane integration', :integration do
         expect(compile(service('server')).stdout).to include('live-v2')
       end
 
+      it 'repairs PostgreSQL setup drift in a cached volume and skips unchanged setup' do
+        app.infrastructure.up
+        postgres = service('postgres')
+        setup = Empeira::ControlPlane::Health::POSTGRES_SETUP
+        expect(postgres_sql(setup)).to eq('t')
+        verify_postgres_setup_drift(setup)
+        expect(postgres_sql("SELECT has_table_privilege('puppetdb_read', 'public.certnames', 'SELECT')"))
+          .to eq('t')
+        access = postgres_sql('BEGIN; SET ROLE puppetdb; CREATE TABLE public.cache_future (id integer); RESET ROLE; ' \
+                              "SELECT has_table_privilege('puppetdb_read', 'public.cache_future', 'SELECT'); ROLLBACK;")
+        expect(access).to eq('t')
+        postgres_sql('REVOKE SELECT ON public.certnames FROM puppetdb_read')
+        expect(postgres_sql(setup)).to eq('f')
+        allow(app.runner).to receive(:run).and_call_original
+        expect(app.infrastructure.up.changed).to be(true)
+        expect(postgres_sql(setup)).to eq('t')
+        expect(service('postgres').fetch('id')).to eq(postgres.fetch('id'))
+        expect(app.infrastructure.up.changed).to be(false)
+        expect(app.runner).to have_received(:run).with(anything, arguments: array_including('/empeira/setup.sql'),
+                                                                 timeout: anything).once
+        plan = Empeira::ControlPlane::Plan.new(context: app.context)
+        health = Empeira::ControlPlane::Health.new(runtime: runtime, plan: plan)
+        %w[postgres server puppetdb-backend puppetdb dns].each do |key|
+          expect(health.ready?(key, runtime.inspect_services(plan.definitions))).to be(true), key
+        end
+        expect(app.infrastructure.status(verify: true))
+          .to include('Infrastructure' => 'up', 'Network policy' => 'verified')
+      end
+
+      def postgres_sql(query)
+        result = runtime.service_exec(service('postgres'), ['psql', '-X', '-U', 'postgres', '-d', 'puppetdb',
+                                                            '-v', 'ON_ERROR_STOP=1', '-qAtc', query])
+        expect(result).to be_success, result.stderr
+        result.stdout.strip
+      end
+
+      # rubocop:disable-next Metrics/MethodLength -- Exercise each managed SQL invariant independently in one database.
+      def verify_postgres_setup_drift(setup)
+        # Rollback keeps each fault independent, including missing-role and empty-schema initialization.
+        faults = [
+          'DROP EXTENSION pg_trgm CASCADE', 'ALTER DATABASE puppetdb OWNER TO postgres',
+          'ALTER ROLE puppetdb NOLOGIN', 'ALTER ROLE puppetdb_read NOLOGIN',
+          'REVOKE USAGE ON SCHEMA public FROM puppetdb_read, PUBLIC',
+          'ALTER SCHEMA public OWNER TO postgres; REVOKE USAGE ON SCHEMA public FROM puppetdb, PUBLIC',
+          'ALTER SCHEMA public OWNER TO postgres; REVOKE CREATE ON SCHEMA public FROM puppetdb, PUBLIC',
+          'REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM puppetdb_read',
+          'ALTER DEFAULT PRIVILEGES FOR ROLE puppetdb IN SCHEMA public REVOKE SELECT ON TABLES FROM puppetdb_read',
+          'ALTER DEFAULT PRIVILEGES FOR ROLE puppetdb IN SCHEMA public REVOKE SELECT ON TABLES FROM puppetdb_read; ' \
+          'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABLES TO puppetdb_read',
+          'DROP OWNED BY puppetdb_read; DROP ROLE puppetdb_read',
+          'REASSIGN OWNED BY puppetdb TO postgres; DROP OWNED BY puppetdb; DROP ROLE puppetdb',
+          'DROP SCHEMA public CASCADE',
+          'CREATE TABLE public.cache_table (id integer)',
+          'CREATE TABLE public.cache_partitioned (id integer) PARTITION BY LIST (id)',
+          'CREATE VIEW public.cache_view AS SELECT 1 AS id',
+          'CREATE MATERIALIZED VIEW public.cache_materialized AS SELECT 1 AS id',
+          'CREATE FOREIGN DATA WRAPPER cache_fdw; CREATE SERVER cache_server FOREIGN DATA WRAPPER cache_fdw; ' \
+          'CREATE FOREIGN TABLE public.cache_foreign (id integer) SERVER cache_server'
+        ]
+        faults.each do |fault|
+          expect(postgres_sql("BEGIN; #{fault}; #{setup} ROLLBACK;")).to eq('f'), fault
+          verify_postgres_setup_repair(fault, setup) unless fault == 'DROP SCHEMA public CASCADE'
+        end
+        # An initialized database needs no application tables before PuppetDB's first migration.
+        empty = 'DROP SCHEMA public CASCADE; CREATE SCHEMA public; CREATE EXTENSION pg_trgm; ' \
+                'GRANT ALL ON SCHEMA public TO puppetdb; GRANT USAGE ON SCHEMA public TO puppetdb_read; ' \
+                'ALTER DEFAULT PRIVILEGES FOR ROLE puppetdb IN SCHEMA public GRANT SELECT ON TABLES TO puppetdb_read;'
+        expect(postgres_sql("BEGIN; #{empty} #{setup} ROLLBACK;")).to eq('t')
+      end
+
+      def verify_postgres_setup_repair(fault, setup)
+        postgres = service('postgres')
+        probe = File.join(@directory, 'postgres-setup-probe.sql')
+        File.write(probe, "BEGIN;\n#{fault};\n#{setup}\n\\i /empeira/setup.sql\n#{setup}\nROLLBACK;\n")
+        runtime.copy_to(postgres, probe, '/tmp/empeira-setup-probe.sql')
+        result = runtime.service_exec(postgres, ['psql', '-X', '-U', 'postgres', '-d', 'puppetdb',
+                                                 '-v', 'ON_ERROR_STOP=1', '-qAtf', '/tmp/empeira-setup-probe.sql'])
+        expect(result).to be_success, "#{fault}: #{result.stderr}"
+        expect(result.stdout.strip).to eq("f\nt"), fault
+      end
+
       it 'allows selected HTTP and HTTPS domains at private IPs while denying other domains and direct egress' do
         @fixture = ProxyFixture.new(app: app, runtime: runtime, directory: @directory)
         @fixture.start
