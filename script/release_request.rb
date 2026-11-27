@@ -23,7 +23,7 @@ tag, channel, dry_run = request.values_at('tag', 'channel', 'dry_run')
 abort 'Expected string tag and channel' unless tag.is_a?(String) && channel.is_a?(String)
 ReleaseSupport.validate!(tag, channel)
 abort 'Issue title must match the requested tag' unless issue['title'] == "Release request: #{tag}"
-abort 'dry_run must be a boolean' unless dry_run == true || dry_run == false
+abort 'dry_run must be a boolean' unless [true, false].include?(dry_run)
 
 File.open(ENV.fetch('GITHUB_OUTPUT'), 'a') do |out|
   out.puts "tag=#{tag}", "channel=#{channel}", "dry_run=#{dry_run}"

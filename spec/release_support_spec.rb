@@ -130,10 +130,10 @@ RSpec.describe ReleaseSupport, :files_only do
     File.write(refs, '[[]]')
     File.write(releases, '[[]]')
     runner = Empeira::Execution::Runner.new
-    result = runner.run(RbConfig.ruby,
-                        arguments: [File.join(described_class::ROOT, 'script/release.rb'), 'check-available', refs, releases],
-                        environment: { 'EMPEIRA_BUILD_VERSION' => 'v1.2.3-alpha.1', 'EMPEIRA_RELEASE_CHANNEL' => 'alpha',
-                                       'RUBYOPT' => nil, 'RUBYLIB' => nil })
+    script = File.join(described_class::ROOT, 'script/release.rb')
+    environment = { 'EMPEIRA_BUILD_VERSION' => 'v1.2.3-alpha.1', 'EMPEIRA_RELEASE_CHANNEL' => 'alpha',
+                    'RUBYOPT' => nil, 'RUBYLIB' => nil }
+    result = runner.run(RbConfig.ruby, arguments: [script, 'check-available', refs, releases], environment: environment)
     expect(result).to be_success, result.stderr
   end
 

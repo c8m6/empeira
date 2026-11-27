@@ -50,11 +50,9 @@ RSpec.describe 'Owner release request', :files_only do
     File.write(payload, JSON.generate(event))
     File.write(output, '')
     script = File.expand_path('../script/release_request.rb', __dir__)
-    result = Empeira::Execution::Runner.new.run(
-      RbConfig.ruby, arguments: [script],
-      environment: { 'GITHUB_EVENT_PATH' => payload, 'GITHUB_OUTPUT' => output, 'GITHUB_REF' => ref,
-                     'RUBYOPT' => nil, 'RUBYLIB' => nil }
-    )
+    environment = { 'GITHUB_EVENT_PATH' => payload, 'GITHUB_OUTPUT' => output, 'GITHUB_REF' => ref,
+                    'RUBYOPT' => nil, 'RUBYLIB' => nil }
+    result = Empeira::Execution::Runner.new.run(RbConfig.ruby, arguments: [script], environment: environment)
     [result, File.read(output)]
   end
 end
