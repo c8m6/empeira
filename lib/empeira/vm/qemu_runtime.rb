@@ -43,19 +43,15 @@ module Empeira
         process_alive?(record) && monitor_path(record.fetch('hostname')).socket?
       end
 
-      def stop(record)
+      def stop(record, immediate: false)
         unless running?(record)
           raise Error, 'QEMU process is alive but monitor is unavailable; VM disk retained' if process_alive?(record)
 
           return nil
         end
 
-        monitor_command(record, 'system_powerdown')
-        wait_for_shutdown(record)
-        if running?(record)
-          monitor_command(record, 'quit')
-          wait_for_shutdown(record, seconds: 5)
-        end
+        recover_management_sockets(record)
+        request_shutdown(record, immediate: immediate)
         raise Error, 'QEMU did not stop; VM overlay retained' if running?(record)
 
         File.unlink(monitor_path(record.fetch('hostname'))) if monitor_path(record.fetch('hostname')).exist?
@@ -106,6 +102,7 @@ module Empeira
         node_directory(hostname).join('serial.log')
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Verify both endpoint ownership and instance identity after connecting.
       def console(record)
         raise Error, 'VM is stopped; start it before attaching the console' unless running?(record)
 
@@ -116,7 +113,9 @@ module Empeira
           raise Providers::OwnershipError, 'VM console endpoint ownership is invalid'
         end
 
-        @runner.console(path, guidance: console_guidance(record.fetch('hostname')))
+        @runner.console(path, guidance: console_guidance(record.fetch('hostname')), verify: lambda {
+          raise Providers::OwnershipError, 'VM console instance changed before connection' unless running?(record)
+        })
       rescue Errno::ENOENT
         raise Error, 'VM console endpoint is missing'
       end
@@ -204,6 +203,17 @@ module Empeira
         pid
       end
 
+      def request_shutdown(record, immediate:)
+        unless immediate
+          monitor_command(record, 'system_powerdown')
+          wait_for_shutdown(record)
+        end
+        return unless running?(record)
+
+        monitor_command(record, 'quit')
+        wait_for_shutdown(record, seconds: 5)
+      end
+
       def wait_for_shutdown(record, seconds: 30)
         deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
         while (running?(record) || process_alive?(record)) && Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
@@ -251,6 +261,13 @@ module Empeira
         end
         record['management_socket'] = record['management_sockets'].fetch('0')
         verify_management_socket!(record, management_path(record.fetch('hostname')))
+      end
+
+      def recover_management_sockets(record)
+        return if record['management_socket']
+        return unless record['management_layout'] == Management::VERSION
+
+        capture_management_socket!(record)
       end
 
       def verify_management_socket!(record, path, expected: record['management_socket'])

@@ -48,15 +48,6 @@ module Empeira
         @nodes.select { |_, record| record['provider'] == 'vm' }
       end
 
-      def mutate(availability: true)
-        @build_info.require_compatible!(context.configuration.dig('requirements', 'empeira'))
-        @store.with_lock do
-          load_state
-          check_runtime!(availability: availability)
-          yield
-        end
-      end
-
       def load_state(state = @store.load)
         @state = state
         @nodes = state&.fetch('nodes', {}) || {}
@@ -80,6 +71,7 @@ module Empeira
         record = vm_records[name.downcase]
         raise Providers::NotFound, 'VM node does not exist in this workspace' unless record
 
+        @store.operation&.attach(record)
         record
       end
 
@@ -97,10 +89,18 @@ module Empeira
         server
       end
 
-      def reserve_vm(request, identity, accelerator)
+      def reserve_vm_instance(request, identity, accelerator)
+        reservation_phase(request.hostname) do
+          reject_vm_name!(request.hostname.downcase)
+          dns = peer_dns
+          reserve_instance(request.hostname) { reserve_vm(request, identity, accelerator, dns: dns) }
+        end
+      end
+
+      def reserve_vm(request, identity, accelerator, dns:)
         name = request.hostname.downcase
         reject_vm_name!(name)
-        record = vm_record(request, identity, accelerator, name)
+        record = vm_record(request, identity, accelerator, name, dns: dns)
         @nodes[name] = record
         save
         record
@@ -114,30 +114,33 @@ module Empeira
         raise Providers::AlreadyExists, 'Hostname is reserved or already exists in this workspace'
       end
 
-      def vm_record(request, identity, accelerator, name)
+      def vm_record(request, identity, accelerator, name, dns:)
         request.to_h.transform_keys(&:to_s).merge(
           'hostname' => name, 'engine' => 'qemu', 'accelerator' => accelerator,
           'architecture' => context.platform.architecture.to_s, 'base_image' => identity.to_h,
           'overlay' => "vms/#{name}/disk.qcow2", 'network' => @state.dig('resources', 'network', 'logical_identity'),
           'mac_address' => vm_mac(name),
-          'peer' => peer_lease,
+          'peer' => peer_lease(dns),
           'management_layout' => ::Empeira::VM::Management::VERSION, 'pid' => nil,
           'network_phase' => 'bootstrap', 'state' => 'preparing', 'provisioned' => false,
           'certificate_key' => nil, 'last_puppet_exit' => nil,
           'created_at' => Time.now.utc.iso8601
-        )
+        ).merge('lifecycle_revision' => SecureRandom.hex(16))
       end
 
-      # rubocop:disable-next Metrics/AbcSize -- Lease and shared DNS/gateway bindings are one identity.
-      def peer_lease
+      def peer_dns
         plan = ControlPlane::Plan.new(context: context)
         dns = @runtime.inspect_service(plan.definitions.fetch('dns'),
                                        expected_id: @state.dig('control_plane', 'services', 'dns', 'id'))
         address = dns&.dig('networks', plan.network, 'IPAddress')
         raise Error, 'CoreDNS is unavailable on the peer network' unless address
 
+        address
+      end
+
+      def peer_lease(dns)
         Network::Peer::Layout.new(@state.fetch('peer_network').fetch('subnet')).lease(@nodes)
-                             .merge('backend' => @peer.key, 'dns' => address,
+                             .merge('backend' => @peer.key, 'dns' => dns,
                                     'gateway' => Network::Gateway.address(@state.fetch('peer_network').fetch('subnet')))
       end
 

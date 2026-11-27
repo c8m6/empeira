@@ -69,6 +69,19 @@ RSpec.describe Empeira::Node::VM do
     runtime.cleanup_runtime_proxy_guests
   end
 
+  it 'keeps native DNS observation outside the inventory transaction' do
+    allow(runtime).to receive(:inspect_service).and_wrap_original do |original, definition, **options|
+      if definition.key == 'dns'
+        File.open(store.directory.join('mutation.lock'), File::RDWR) do |file|
+          expect(file.flock(File::LOCK_EX | File::LOCK_NB)).to be_truthy
+        end
+      end
+      original.call(definition, **options)
+    end
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime).run(request)
+  end
+
   def prepare_vm_components
     prepare_image_components
     prepare_disk_component
@@ -436,7 +449,8 @@ RSpec.describe Empeira::Node::VM do
                                                  .and_return(instance_double(Empeira::VM::RootDisk, verify!: nil))
     agent = instance_double(Empeira::VM::Agent, ensure_installed: nil)
     allow(Empeira::VM::Agent).to receive(:new).and_return(agent)
-    peer = instance_double(Empeira::Network::Peer::LinuxPodman, preflight: nil, prepare: nil, stop: nil,
+    peer = instance_double(Empeira::Network::Peer::LinuxPodman, preflight: nil, prepare_image: nil,
+                                                                prepare: nil, stop: nil,
                                                                 destroy: nil, healthy?: true, health: {},
                                                                 key: 'LinuxPodman',
                                                                 system_ssh_command: nil)
@@ -510,7 +524,7 @@ RSpec.describe Empeira::Node::VM do
     expect(provider.destroy(name: 'vm-host').changed).to be(true)
   end
 
-  it 'releases the workspace lock during console access and protects its VM instance until detach' do
+  it 'allows stop and destroy during console access' do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
     provider.run(request)
@@ -518,12 +532,12 @@ RSpec.describe Empeira::Node::VM do
     expect(qemu).to receive(:console) do
       expect { store.with_lock { nil } }.not_to raise_error
       expect(provider.list.first['state']).to eq('running')
-      expect { provider.stop(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::Locked)
-      expect { provider.destroy(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::Locked)
+      expect(provider.stop(name: 'vm-host').changed).to be(true)
+      expect(provider.destroy(name: 'vm-host').changed).to be(true)
       Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
     end
     expect(provider.console(name: 'vm-host')).to be_success
-    expect(provider.stop(name: 'vm-host').changed).to be(true)
+    expect(provider.list).to be_empty
   end
 
   it 'allows parallel SSH access to an incomplete running VM using managed defaults' do
@@ -533,7 +547,7 @@ RSpec.describe Empeira::Node::VM do
                                                                                            'bootstrap failed')
     expect { provider.run(request) }.to raise_error(Empeira::Error, /bootstrap failed/)
     result = Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
-    client = instance_double(Empeira::Node::UserSSH)
+    client = instance_double(Empeira::Node::UserSSH, prepare: nil)
     expect(Empeira::Node::UserSSH).to receive(:new).with(
       runner: app.runner, credentials: an_instance_of(Empeira::Node::SSHCredentials), proxy_command: nil,
       default_user: 'empeira', managed_identity: true, home: app.context.locations.home
@@ -542,8 +556,6 @@ RSpec.describe Empeira::Node::VM do
     allow(client).to receive(:session) do |record, **|
       calls += 1
       expect(record['provisioned']).to be(false)
-      expect { provider.stop(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::Locked)
-      expect { provider.destroy(name: 'vm-host') }.to raise_error(Empeira::Infrastructure::Locked)
       expect { store.with_lock { nil } }.not_to raise_error
       provider.ssh(name: 'vm-host', user: 'deploy', identity: '/some/key') if calls == 1
       result
@@ -554,7 +566,7 @@ RSpec.describe Empeira::Node::VM do
   end
 
   [Interrupt, IOError].each do |error|
-    it "releases the VM session guard after console #{error}" do
+    it "keeps destroy available after console #{error}" do
       engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
       provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
       provider.run(request)
@@ -565,12 +577,13 @@ RSpec.describe Empeira::Node::VM do
   end
 
   [IOError, Interrupt, SignalException].each do |error|
-    it "releases the VM session guard after SSH #{error}" do
+    it "keeps destroy available after SSH #{error}" do
       engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
       provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
       provider.run(request)
-      client = instance_double(Empeira::VM::SystemSSH)
-      allow(Empeira::VM::SystemSSH).to receive(:new).and_return(client)
+      client = instance_double(Empeira::Node::UserSSH)
+      preparer = instance_double(Empeira::VM::SystemSSH, prepare: [client, store.load.fetch('nodes').fetch('vm-host')])
+      allow(Empeira::VM::SystemSSH).to receive(:new).and_return(preparer)
       failure = error == SignalException ? SignalException.new('TERM') : error.new
       allow(client).to receive(:session).and_raise(failure)
       expect { provider.ssh(name: 'vm-host') }.to raise_error(error)
@@ -662,6 +675,18 @@ RSpec.describe Empeira::Node::VM do
     expect(store.load.fetch('nodes')).to be_empty
   end
 
+  it 'fences a start completion when stop overtakes guest readiness' do
+    engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
+    provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+    provider.run(request)
+    provider.stop(name: request.hostname)
+    other = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
+    guest = provider.instance_variable_get(:@guest)
+    allow(guest).to receive(:wait) { other.stop(name: request.hostname) }
+    expect { provider.start(name: request.hostname) }.to raise_error(Empeira::Infrastructure::Cancelled)
+    expect(store.load.fetch('nodes').fetch(request.hostname)).to include('state' => 'stopped', 'pid' => nil)
+  end
+
   it 'rejects a same-size corrupted VM base on restart even if its timestamps are preserved' do
     engine = instance_double(Empeira::VM::Qemu, preflight!: 'kvm', accelerator: 'kvm', image_tool: 'qemu-img')
     provider = described_class.new(context: app.context, runner: app.runner, backend: engine, runtime: runtime)
@@ -688,7 +713,7 @@ RSpec.describe Empeira::Node::VM do
     expect(provider.instance_variable_get(:@qemu)).to receive(:console).with(hash_including('hostname' => 'vm-host'))
     expect(provider.instance_variable_get(:@guest)).not_to receive(:stream)
     provider.console(name: 'vm-host')
-    client = instance_double(Empeira::Node::UserSSH)
+    client = instance_double(Empeira::Node::UserSSH, prepare: nil)
     allow(Empeira::Node::UserSSH).to receive(:new).and_return(client)
     expect(client).to receive(:session).with(hash_including('hostname' => 'vm-host'), user: 'deploy', identity: 'key')
     provider.ssh(name: 'vm-host', user: 'deploy', identity: 'key')
@@ -707,7 +732,7 @@ RSpec.describe Empeira::Node::VM do
     expect(provider.instance_variable_get(:@qemu)).not_to receive(:launch)
     expect(provider.instance_variable_get(:@qemu)).not_to receive(:launch)
     expect { provider.run(request) }.to raise_error(Empeira::UnavailableFeature, /xorriso missing/)
-    expect(store.load).to eq(previous)
+    expect(store.load.except('generation')).to eq(previous.except('generation'))
   end
 
   it 'rejects legacy VM inventory even when gateway creation never completed' do

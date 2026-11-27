@@ -22,10 +22,11 @@ module Empeira
         end
       end
 
-      def initialize(context:, runner:, qemu:)
+      def initialize(context:, runner:, qemu:, guard: nil)
         @context = context
         @runner = runner
         @qemu = qemu
+        @guard = guard
       end
 
       def run(record, arguments, timeout: 30)
@@ -102,6 +103,7 @@ module Empeira
 
       # rubocop:disable-next Metrics/MethodLength -- Completion and cancellation must share the same ensure boundary.
       def transfer(record)
+        @guard&.call
         Management.validate!(record)
         GuestChannel.new(record: record, qemu: @qemu).open do |channel|
           completed = false

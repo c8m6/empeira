@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'securerandom'
+require 'digest'
 
 module Empeira
   module Network
@@ -15,7 +16,7 @@ module Empeira
         @runtime = runtime
         @store = store
         @plan = ControlPlane::Plan.new(context: context)
-        @files = @plan.files
+        @files = ControlPlane::Files.new(context: context, directory: store.directory.join('bootstrap-proxy'))
       end
 
       def preflight!(state)
@@ -30,37 +31,98 @@ module Empeira
         egress.verify_isolation!(resource)
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Keep native resource creation and readiness separate from brief identity publication.
       def start(state, requirements, source:)
+        @generation = state['generation']
+        @client_key = client_key(reserved_client(state, source))
         preflight!(state)
-        cleanup(state)
-        reject_unrecorded!
         token = SecureRandom.hex(32)
-        prepare_policy(token, requirements, source)
         definition = @plan.bootstrap_proxy(dns: @dns)
         @runtime.ensure_image(definition.options.fetch('image'), recipe: definition.options['recipe'])
-        resource = create(state, definition)
-        address = connect_and_verify(resource, definition, state)
+        address = @store.operation.resource('bootstrap-proxy') do
+          add_client(requirements, source, token)
+          start_shared_proxy(definition)
+        end
         @url = "http://bootstrap:#{token}@#{address}:3128"
         wait_ready(state, address)
         address
       end
 
-      def cleanup(state)
-        return unless state.key?('bootstrap_proxy')
+      def cleanup(state, record: nil)
+        key = record ? client_key(record) : @client_key
+        return unless key
 
-        entry = state.fetch('bootstrap_proxy')
-        definition = Services::Definition.new(key: 'bootstrap-proxy', workspace: @context.workspace)
-        remove_owned(definition, entry.fetch('id'))
-        policy = @files.path('bootstrap-squid.conf')
-        File.unlink(policy) if File.exist?(policy) || File.symlink?(policy)
-        state.delete('bootstrap_proxy')
-        @store.write(state)
+        generation = @generation || state['generation']
+        @store.resource_lock('bootstrap-proxy').synchronize do
+          path = Pathname(@files.path("clients/#{key}.json"))
+          Infrastructure::OwnedFiles.remove(path, root: @store.directory)
+          current = @store.read_state
+          return unless current && current['generation'] == generation
+
+          @store.with_operation(destructive: true) { reconcile_clients(@store.load) }
+        end
         @url = nil
       rescue SystemCallError
         raise Error, 'Cannot remove bootstrap proxy credentials; cleanup is incomplete and Puppet was not run'
       end
 
       private
+
+      def reserved_client(state, source)
+        record = state.fetch('nodes').values.find do |entry|
+          (entry.dig('peer', 'ip') || entry.dig('definition', 'ip')) == source
+        end
+        return record if record
+
+        raise Infrastructure::StateError, 'Bootstrap client has no reserved node instance'
+      end
+
+      def add_client(requirements, source, token)
+        prepare_clients
+        policy = { 'source' => IPAddr.new(source).to_s, 'domains' => requirements.destinations,
+                   'authorization' => ["bootstrap:#{token}"].pack('m0') }
+        @files.write("clients/#{@client_key}.json", JSON.generate(policy), mode: 0o600)
+        write_policy
+      end
+
+      def start_shared_proxy(definition)
+        current = @store.load
+        resource = if current['bootstrap_proxy']
+                     @runtime.inspect_service(definition, expected_id: current.fetch('bootstrap_proxy').fetch('id'))
+                   else
+                     reject_unrecorded!
+                     create(current, definition)
+                   end
+        raise Error, 'Recorded bootstrap proxy is missing; run destroy to recover' unless resource
+        unless resource.dig('labels', 'io.empeira.definition') == definition.fingerprint
+          raise Error, 'Bootstrap proxy definition changed; destroy its incomplete nodes before retrying'
+        end
+        return connect_and_verify(resource, definition, current) unless resource['state'] == 'running'
+
+        @runtime.reload_service(resource)
+        verify_endpoint(resource)
+      end
+
+      # rubocop:disable-next Metrics/AbcSize -- Revoke only one source-bound client and preserve the other bootstrap grants.
+      def reconcile_clients(current)
+        definition = Services::Definition.new(key: 'bootstrap-proxy', workspace: @context.workspace)
+        return remove_empty_proxy(current, definition) if clients.empty?
+        return unless current['bootstrap_proxy']
+
+        @plan.subnet = current.fetch('peer_network').fetch('subnet')
+        @dns = service_address(current, 'dns')
+        write_policy
+        resource = @runtime.inspect_service(definition, expected_id: current.fetch('bootstrap_proxy').fetch('id'))
+        @runtime.reload_service(resource) if resource && resource['state'] == 'running'
+      end
+
+      def remove_empty_proxy(current, definition)
+        remove_owned(definition, current.fetch('bootstrap_proxy').fetch('id')) if current['bootstrap_proxy']
+        Infrastructure::OwnedFiles.remove(@files.directory, root: @store.directory)
+        Infrastructure::OwnedFiles.remove(Pathname(@plan.files.path('bootstrap-squid.conf')), root: @store.directory)
+        current.delete('bootstrap_proxy')
+        @store.write(current)
+      end
 
       def connect_and_verify(resource, definition, state)
         @runtime.start_service(resource)
@@ -105,14 +167,58 @@ module Empeira
         IPAddr.new(address).to_s
       end
 
-      def prepare_policy(token, requirements, source)
-        authorization = ["bootstrap:#{token}"].pack('m0')
-        config = { 'global' => requirements.destinations }
-        policy = ProxyPolicy.new(config, authorization: authorization)
-        content = policy.configuration.gsub('@EMPEIRA_DNS@', @dns)
-        IPAddr.new(source)
-        content = "acl provisioning_vm src #{source}/32\nhttp_access deny !provisioning_vm\n#{content}"
-        @files.write('bootstrap-squid.conf', content)
+      def client_key(record)
+        instance = Node::Inventory.instance(record)
+        Digest::SHA256.hexdigest(instance) if instance
+      end
+
+      def prepare_clients
+        [@files.directory, Pathname(@files.path('clients'))].each do |path|
+          Infrastructure::OwnedFiles.verify_removable!(path, root: @store.directory)
+          FileUtils.mkdir_p(path, mode: path == @files.directory ? 0o755 : 0o700)
+        end
+      end
+
+      # rubocop:disable-next Metrics/AbcSize -- Validate private client filenames and ownership before parsing their policies.
+      def clients
+        directory = Pathname(@files.path('clients'))
+        Infrastructure::OwnedFiles.verify_removable!(directory, root: @store.directory)
+        return {} unless directory.directory?
+
+        directory.children.sort.to_h do |path|
+          unless path.basename.to_s.match?(/\A[0-9a-f]{64}\.json\z/)
+            raise Infrastructure::StateError, 'Invalid bootstrap client identity'
+          end
+
+          Infrastructure::OwnedFiles.verify_removable!(path, root: @store.directory)
+          [path.basename('.json').to_s, JSON.parse(path.read)]
+        end
+      end
+
+      def write_policy
+        # Preserve all authenticated proxy restrictions; only the final source/auth/domain grants vary.
+        base = ProxyPolicy.new({ 'global' => [] }, authorization: 'unused').configuration.lines.reject do |line|
+          line.start_with?('acl clients ', 'http_access deny !clients', 'http_access deny all')
+        end.join
+        grants = clients.flat_map { |key, client| client_rules(key, client) }.join("\n")
+        @files.write('squid.conf',
+                     "#{base}#{grants}\nhttp_access deny all\n".gsub('@EMPEIRA_DNS@', @dns))
+      end
+
+      def client_rules(key, client)
+        source = IPAddr.new(client.fetch('source')).to_s
+        domains = client.fetch('domains')
+        authorization = client.fetch('authorization')
+        unless domains.all? do |domain|
+          ProxyPolicy.valid_domain?(domain)
+        end && authorization.match?(%r{\A[A-Za-z0-9+/=]+\z})
+          raise Infrastructure::StateError, 'Invalid bootstrap client policy'
+        end
+
+        name = "client_#{key}"
+        ["acl #{name}_source src #{source}/32",
+         "acl #{name}_identity req_header Proxy-Authorization ^Basic[[:space:]]#{Regexp.escape(authorization)}$",
+         *ProxyPolicy.domain_rules(domains, name: "#{name}_domains", condition: "#{name}_source #{name}_identity")]
       end
 
       def verify_endpoint(resource)
@@ -139,6 +245,7 @@ module Empeira
                                           expected_id: state.dig('control_plane', 'services', 'server', 'id'))
         deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 30
         loop do
+          @store.operation&.check!
           result = @runtime.service_exec(server, [Node::Certificates::RUBY, '-rsocket', '-e',
                                                   readiness_probe, address], timeout: 3)
           return if result.success?

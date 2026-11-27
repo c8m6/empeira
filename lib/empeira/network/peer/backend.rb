@@ -28,6 +28,11 @@ module Empeira
           self.class.name.split('::').last
         end
 
+        def prepare_image
+          @image = AdapterImage.new(context: context)
+          @image.ensure!(runtime)
+        end
+
         def preflight(state)
           raise Error, 'Old VM network state requires explicit teardown and recreation' unless state['peer_network']
 

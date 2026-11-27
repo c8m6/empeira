@@ -9,9 +9,9 @@ module Empeira
     class Files
       attr_reader :directory
 
-      def initialize(context:)
+      def initialize(context:, directory: nil)
         @context = context
-        @directory = context.locations.workspace(context.workspace).join('services')
+        @directory = directory || context.locations.workspace(context.workspace).join('services')
       end
 
       def path(name)

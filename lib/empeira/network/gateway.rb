@@ -49,10 +49,11 @@ module Empeira
         raise Error, "Gateway DNS resolution failed for additional resolver #{value}", cause: nil
       end
 
-      def initialize(context:, runtime:, state:)
+      def initialize(context:, runtime:, state:, store: Infrastructure::Store.new(context: context))
         @context = context
         @runtime = runtime
         @state = state
+        @store = store
       end
 
       def route(resource)
@@ -62,25 +63,34 @@ module Empeira
                                                                               .gateway_artifact.fetch(:image))
       end
 
-      def update_phase_plan(ip, bootstrap:)
+      def update_phase_plan(ip, bootstrap:, state: nil)
         files = ControlPlane::Files.new(context: @context)
         plan = JSON.parse(File.binread(files.path('gateway.json')))
-        plan['blocked'] = (plan.fetch('blocked') - [ip] + (bootstrap ? [ip] : [])).sort
+        plan['blocked'] = if state
+                            self.class.blocked_addresses(state)
+                          else
+                            (plan.fetch('blocked') - [ip] + (bootstrap ? [ip] : [])).sort
+                          end
         files.write('gateway.json', JSON.generate(plan))
       end
 
       # Bootstrap exclusion is changed inside the gateway, before a new node starts.
+      # rubocop:disable-next Metrics/AbcSize -- Serialize native firewall changes together with their fresh generated policy.
       def phase(record, bootstrap:)
-        identity = Services::Definition.new(key: 'gateway', workspace: @context.workspace)
-        resource = @runtime.inspect_service(identity,
-                                            expected_id: @state.dig('control_plane', 'services', 'gateway', 'id'))
-        raise Error, 'Gateway is unavailable; run empeira up' unless resource && resource['state'] == 'running'
+        @store.resource_lock('gateway-policy').synchronize do
+          @store.operation&.check!
+          current = @store.load
+          identity = Services::Definition.new(key: 'gateway', workspace: @context.workspace)
+          resource = @runtime.inspect_service(identity,
+                                              expected_id: @state.dig('control_plane', 'services', 'gateway', 'id'))
+          raise Error, 'Gateway is unavailable; run empeira up' unless resource && resource['state'] == 'running'
 
-        ip = record.dig('peer', 'ip') || record.dig('definition', 'ip')
-        result = @runtime.service_exec(resource, [EXECUTABLE, bootstrap ? 'block' : 'unblock', ip])
-        raise Error, 'Gateway bootstrap firewall reconcile failed' unless result.success?
+          ip = record.dig('peer', 'ip') || record.dig('definition', 'ip')
+          result = @runtime.service_exec(resource, [EXECUTABLE, bootstrap ? 'block' : 'unblock', ip])
+          raise Error, 'Gateway bootstrap firewall reconcile failed' unless result.success?
 
-        update_phase_plan(ip, bootstrap: bootstrap)
+          update_phase_plan(ip, bootstrap: bootstrap, state: current)
+        end
       end
     end
   end

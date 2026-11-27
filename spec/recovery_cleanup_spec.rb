@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'securerandom'
+
 require_relative 'support/service_runtime'
 
 RSpec.describe Empeira::Infrastructure::Cleanup do
@@ -49,6 +51,37 @@ RSpec.describe Empeira::Infrastructure::Cleanup do
       expect(cleanup.destroy.changed).to be(false)
       expect(store.directory.join('mutation.lock')).to exist
     end
+  end
+
+  it 'interrupts every native node before waiting for one resource phase to drain' do
+    first = add_node('one.example.test')
+    second = add_node('two.example.test')
+    persist
+    entered = Queue.new
+    release = Queue.new
+    removed = Queue.new
+    holder = Thread.new do
+      store.resource_lock('node/one.example.test').synchronize do
+        entered << true
+        release.pop
+      end
+    end
+    entered.pop
+    allow(runtime).to receive(:remove_service).and_wrap_original do |original, definition, **options|
+      result = original.call(definition, **options)
+      removed << true if definition.key == second.key
+      result
+    end
+    worker = Thread.new { cleanup.destroy }
+    expect(Timeout.timeout(5) { removed.pop }).to be(true)
+    expect(runtime.services).not_to have_key(first.key)
+    expect(runtime.services).not_to have_key(second.key)
+    release << true
+    holder.value
+    expect(worker.value.changed).to be(true)
+    expect(store.load).to be_nil
+  ensure
+    [holder, worker].compact.each(&:kill)
   end
 
   it 'preserves another node, shared resources and deferred certificate proof on node destroy' do

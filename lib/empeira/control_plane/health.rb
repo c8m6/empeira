@@ -14,15 +14,17 @@ module Empeira
 
       attr_reader :postgres_initialized
 
-      def initialize(runtime:, plan:)
+      def initialize(runtime:, plan:, guard: nil)
         @runtime = runtime
         @plan = plan
+        @guard = guard
       end
 
       def wait(key, resources)
         deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @plan.config.dig('server', 'timeout')
         interval = 0.25
         loop do
+          @guard&.call
           return if ready?(key, resources)
 
           verify_proxy_running!(resources) if key == 'proxy'

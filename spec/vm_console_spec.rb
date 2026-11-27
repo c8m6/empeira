@@ -50,6 +50,25 @@ RSpec.describe Empeira::Execution::Console do
     output&.close!
   end
 
+  it 'verifies the connected instance before forwarding input or connection guidance' do
+    path = File.join(@directory, 'console.sock')
+    server = UNIXServer.new(path)
+    input = StringIO.new('must not reach a replacement VM')
+    output = StringIO.new
+    verify = -> { raise Empeira::Providers::OwnershipError, 'VM instance changed' }
+    expect do
+      Empeira::Execution::Runner.new.console(path, input: input, output: output,
+                                                   guidance: 'Connected', verify: verify)
+    end.to raise_error(Empeira::Providers::OwnershipError, /instance changed/)
+    connection = server.accept
+    expect(connection.read).to eq('')
+    expect(input.pos).to eq(0)
+    expect(output.string).to eq('')
+  ensure
+    connection&.close
+    server&.close
+  end
+
   %w[INT TERM].each do |signal|
     it "restores an actual terminal and closes the socket on SIG#{signal}" do
       require 'pty'

@@ -21,8 +21,7 @@ module Empeira
         def prepare(record, state)
           check_record(record)
           verify_tap_absent!(record)
-          @image = AdapterImage.new(context: context)
-          @image.ensure!(runtime)
+          prepare_image unless @image
           resource = ensure_adapter(record, state)
           runtime.start_service(resource) unless resource['state'] == 'running'
           verify_adapter(record)
@@ -61,13 +60,15 @@ module Empeira
         end
 
         def healthy?(record)
-          health([record]).fetch(record.fetch('hostname'))
+          # Access validation uses the normal native-operation budget and retains
+          # native failures; the short status observation below may only report degradation.
+          attached?(record, link_inventory)
         end
 
         def health(records)
           return {} if records.empty?
 
-          links = JSON.parse(namespace('ip', '-j', 'link', 'show', timeout: 2))
+          links = link_inventory(timeout: 2)
           records.to_h { |record| [record.fetch('hostname'), attached?(record, links)] }
         rescue Error, JSON::ParserError
           records.to_h { |record| [record.fetch('hostname'), false] }
@@ -84,6 +85,15 @@ module Empeira
         end
 
         private
+
+        def link_inventory(timeout: 30)
+          links = JSON.parse(namespace('ip', '-j', 'link', 'show', timeout: timeout))
+          return links if links.is_a?(Array) && links.all?(Hash)
+
+          raise Error, 'Peer network returned malformed link inventory'
+        rescue JSON::ParserError
+          raise Error, 'Peer network returned malformed link inventory', cause: nil
+        end
 
         def verify_tap_absent!(record)
           links = JSON.parse(namespace('ip', '-j', 'link', 'show'))

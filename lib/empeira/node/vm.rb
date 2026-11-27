@@ -8,6 +8,7 @@ module Empeira
       include VMPreflight
       include VMPreparation
       include VMLifecycle
+      include Transaction
 
       def initialize(context:, runner:, backend:, runtime:, build_info: BuildInfo.load, progress: Progress.new)
         super(name: 'vm', context: context, runner: runner, backend: backend)
@@ -19,12 +20,10 @@ module Empeira
         prepare_components(context, runner, backend, runtime)
       end
 
-      # rubocop:disable-next Naming/PredicateMethod -- Reconciliation mutates guest resources.
       def reconcile_all(state:)
-        load_state(state)
-        vm_records.values.map do |record|
+        reconcile_instances(state, 'vm') do |record|
           record['provisioned'] && @qemu.running?(record) ? reconcile_guest(record) : false
-        end.any?
+        end
       end
 
       private
@@ -34,16 +33,20 @@ module Empeira
       end
 
       def reconcile_interfaces(record)
-        ::Empeira::VM::Interfaces.new(context: context, record: record, state: @state, guest: @guest,
-                                      persist: method(:save)).reconcile
+        guest_configuration(record) do
+          ::Empeira::VM::Interfaces.new(context: context, record: record, state: @state, guest: @guest,
+                                        persist: method(:save)).reconcile
+        end
       end
 
       def reconcile_guest(record)
-        fact_changed = reconcile_provider_fact(record)
-        proxy_changed = reconcile_runtime_proxy(record)
-        tools_changed = reconcile_interactive_tools(record)
-        interfaces_changed = reconcile_interfaces(record)
-        reconcile_command_mocks(record) || interfaces_changed || proxy_changed || tools_changed || fact_changed
+        guest_configuration(record) do
+          fact_changed = reconcile_provider_fact(record)
+          proxy_changed = reconcile_runtime_proxy(record)
+          tools_changed = reconcile_interactive_tools(record)
+          interfaces_changed = reconcile_interfaces(record)
+          reconcile_command_mocks(record) || interfaces_changed || proxy_changed || tools_changed || fact_changed
+        end
       end
 
       # rubocop:disable-next Naming/PredicateMethod -- Reconciliation mutates owned guest state and reports changes.
@@ -72,6 +75,7 @@ module Empeira
                          execute: ->(arguments) { @guest.run(record, arguments) }).reconcile
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Inject the same inventory ownership context into guest execution and acquisition.
       def prepare_components(context, runner, backend, runtime)
         @peer = Network::Peer::Backend.build(context: context, runtime: runtime, runner: runner, store: @store)
         @bootstrap_proxy = Network::BootstrapProxy.new(context: context, runtime: runtime, store: @store)
@@ -81,8 +85,10 @@ module Empeira
                                         workspace_directory: context.locations.workspace(context.workspace))
         @qemu = ::Empeira::VM::QemuRuntime.new(engine: backend, runner: runner, context: context)
         @cloud = ::Empeira::VM::CloudInit.new(context: context, runner: runner)
-        @guest = ::Empeira::VM::Guest.new(context: context, runner: runner, qemu: @qemu)
-        @agent = ::Empeira::VM::Agent.new(context: context, guest: @guest, runtime: runtime, progress: @progress)
+        @guest = ::Empeira::VM::Guest.new(context: context, runner: runner, qemu: @qemu,
+                                          guard: -> { @store.operation&.check! })
+        @agent = ::Empeira::VM::Agent.new(context: context, guest: @guest, runtime: runtime, progress: @progress,
+                                          store: @store)
       end
     end
   end

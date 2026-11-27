@@ -7,7 +7,7 @@ module Empeira
       private
 
       def network_gateway
-        Network::Gateway.new(context: context, runtime: @runtime, state: @state)
+        Network::Gateway.new(context: context, runtime: @runtime, state: @state, store: @store)
       end
 
       def finish_network_bootstrap(record)
@@ -45,24 +45,39 @@ module Empeira
         server&.dig('labels', 'io.empeira.definition') == plan.definitions.fetch('server').fingerprint
       end
 
-      def reserve(request)
-        reject_name!(request.hostname.downcase)
-        plan = ControlPlane::Plan.new(context: context)
+      def reserve_container(request)
+        reservation_phase(request.hostname) do
+          reject_name!(request.hostname.downcase)
+          inputs = reservation_inputs(request)
+          reserve_instance(request.hostname) { reserve(request, inputs) }
+        end
+      end
 
-        image = Image.new(config: context.configuration, request: request, architecture: @runtime.architecture)
-        definition = node_definition(request, image, plan)
-        record = node_record(request, definition, image)
+      def reservation_inputs(request)
+        plan = ControlPlane::Plan.new(context: context)
+        architecture = @runtime.architecture
+        { plan: plan, architecture: architecture, init: node_init, dns: dns_address(plan),
+          image: Image.new(config: context.configuration, request: request, architecture: architecture),
+          ssh: ssh_options, ssh_record: ssh_record }
+      end
+
+      def reserve(request, inputs)
+        reject_name!(request.hostname.downcase)
+        image = inputs.fetch(:image)
+        definition = node_definition(request, image, inputs)
+        record = node_record(request, definition, image, inputs)
         @nodes[record.fetch('hostname')] = record
         save
         [record, definition, image]
       end
 
-      def node_record(request, definition, image)
+      def node_record(request, definition, image, inputs)
         request.to_h.transform_keys(&:to_s).merge(
           'hostname' => request.hostname.downcase, 'runtime' => context.container_engine,
-          'architecture' => @runtime.architecture, **ssh_record,
+          'architecture' => inputs.fetch(:architecture), **inputs.fetch(:ssh_record),
           'image' => image.reference, 'id' => nil, 'network_phase' => 'bootstrap', 'provisioned' => false,
           'created_at' => Time.now.utc.iso8601,
+          'lifecycle_revision' => SecureRandom.hex(16),
           'definition' => definition.options
         )
       end
@@ -82,14 +97,15 @@ module Empeira
         raise Providers::AlreadyExists, 'Hostname is reserved or already exists in this workspace'
       end
 
-      def node_definition(request, image, plan)
-        init = node_init
+      def node_definition(request, image, inputs)
+        init = inputs.fetch(:init)
+        plan = inputs.fetch(:plan)
         Definition.new(hostname: request.hostname.downcase, workspace: context.workspace,
-                       network: plan.network, dns: dns_address(plan), image: image.reference,
+                       network: plan.network, dns: inputs.fetch(:dns), image: image.reference,
                        memory: request.memory, cpus: request.cpus, init: init,
                        **peer_options,
                        command: init == 'systemd' ? ['/sbin/init'] : %w[/usr/sbin/sshd -D -e],
-                       **ssh_options(request),
+                       **inputs.fetch(:ssh),
                        environment: plan.node_proxy_environment)
       end
 
@@ -105,8 +121,7 @@ module Empeira
         init
       end
 
-      def ssh_options(request)
-        ssh_credentials(request.hostname.downcase).prepare_hosts
+      def ssh_options
         { entrypoint: '/usr/local/libexec/empeira-node-start',
           ports: @runtime.node_ssh_publication? ? ['127.0.0.1::22/tcp'] : [],
           mounts: [] }
@@ -121,10 +136,6 @@ module Empeira
         address
       end
 
-      def ssh_credentials(hostname)
-        SSHCredentials.new(context: context, runner: @runner, provider: 'container', hostname: hostname)
-      end
-
       def configure(resource, record)
         AgentConfiguration.apply(record: record, environment: context.configuration.dig('server', 'environment'),
                                  execute: ->(arguments) { @runtime.service_exec(resource, arguments) })
@@ -133,7 +144,7 @@ module Empeira
 
       def refresh_dns
         plan = ControlPlane::Plan.new(context: context)
-        ControlPlane::Discovery.new(plan: plan, runtime: @runtime, state: @state).refresh
+        ControlPlane::Discovery.new(plan: plan, runtime: @runtime, state: @state, store: @store).refresh
       end
     end
   end

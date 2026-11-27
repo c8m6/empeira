@@ -10,6 +10,7 @@ module Empeira
       include ContainerAgentBootstrap
       include ContainerState
       include ContainerGuest
+      include Transaction
 
       attr_reader :context
 
@@ -31,15 +32,19 @@ module Empeira
         mutate do
           @progress.stage(10, 'Checking control plane and reserving hostname...')
           server = ready_server
-          record, definition, image = reserve(request)
+          record, definition, image = reserve_container(request)
+          @store.operation.attach(record, lifecycle: true)
           prepare_image(image, record)
           resource = create_node(definition, record)
           @progress.stage(65, 'Preparing node certificate...')
-          certificates = Certificates.new(runtime: @runtime, server: server)
-          certificates.clean_retired(@state, record.fetch('hostname')) { save } if @state['retired_certificates']
-          certificates.enroll(resource, record) { save }
+          certificates = Certificates.new(runtime: @runtime, server: server, guard: @store.operation.method(:check!))
+          instance_phase(record) do
+            certificates.clean_retired(@state, record.fetch('hostname')) { save } if @state['retired_certificates']
+            certificates.enroll(resource, record) { save }
+          end
           reconcile_guest(resource, record)
           complete_provisioning(record)
+          @store.operation.attach(record)
           @progress.stage(85, 'Running Puppet agent...')
           InitialPuppetRuns.new(count: context.configuration.dig('node_defaults', 'puppet_runs'), progress: @progress)
                            .run { agent_run(resource, record, initial: true) }
@@ -47,30 +52,23 @@ module Empeira
         end
       end
 
-      def destroy_all(state:)
-        @state = state
-        @nodes = state.fetch('nodes', {})
-        @nodes.each { |name, record| remove_node(name, certificates: false) if record['provider'] == 'container' }
-      end
-
-      # rubocop:disable-next Naming/PredicateMethod -- Reconciliation mutates guest resources.
       def reconcile_all(state:)
-        @state = state
-        @nodes = state.fetch('nodes', {})
-        container_records.values.map do |record|
+        reconcile_instances(state, 'container') do |record|
           resource = observed(record)
-          network_gateway.route(resource) if resource && resource['state'] == 'running'
+          instance_phase(record) { network_gateway.route(resource) } if resource && resource['state'] == 'running'
           next false unless record['provisioned'] && resource && resource['state'] == 'running'
 
           reconcile_guest(resource, record)
-        end.any?
+        end
       end
 
       private
 
       def complete_provisioning(record)
-        record['provisioned'] = true
-        save
+        instance_phase(record) do
+          record['provisioned'] = true
+          save
+        end
       end
 
       def reconcile_command_mocks(resource, record)
@@ -91,16 +89,19 @@ module Empeira
       # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Ordered bootstrap cleanup precedes normal guest policy.
       def create_node(definition, record)
         @progress.stage(45, 'Creating isolated container node...')
-        resource = @runtime.create_service(definition)
-        record['id'] = resource.fetch('id')
-        record['image_id'] = resource['image_id']
-        save
-        network_gateway.phase(record, bootstrap: true)
-        @runtime.start_service(resource)
-        resource = observed(record)
-        network_gateway.route(resource)
-        record['ssh_port'] = SSHEndpoint.port(resource) if record['ssh_transport'] == 'loopback'
-        save
+        resource = instance_phase(record) do
+          resource = @runtime.create_service(definition)
+          record['id'] = resource.fetch('id')
+          record['image_id'] = resource['image_id']
+          save
+          network_gateway.phase(record, bootstrap: true)
+          @runtime.start_service(resource)
+          resource = observed(record)
+          network_gateway.route(resource)
+          record['ssh_port'] = SSHEndpoint.port(resource) if record['ssh_transport'] == 'loopback'
+          save
+          resource
+        end
         apply_bootstrap(resource, record)
         finish_network_bootstrap(record)
         prepare_guest_environment(resource, record)

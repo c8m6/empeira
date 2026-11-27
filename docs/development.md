@@ -300,7 +300,7 @@ The real VM lifecycle regression verifies the default managed SSH login and expl
 overrides, then exercises retained disk and console recovery. A second case injects
 a permanent guest error at the final APT backup removal: the restored archive must
 remain verifiable, Puppet must stay blocked, and SSH/console access must release the
-workspace lock while preventing concurrent stop of that instance. The injected error
+inventory transaction and remain interruptible by a concurrent stop. The injected error
 does not reproduce an unexplained historical SSH disconnect.
 The lifecycle case also verifies a 32 GiB thin overlay, unchanged base checksum,
 grown root partition/filesystem, package installation and `df -h /`. After changing

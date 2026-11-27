@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'net/http'
+
 RSpec.describe Empeira::Agent::Cache, :files_only do
   let(:root) { Pathname(@directory).join('cache/agents') }
   let(:cache) { described_class.new(root: root) }
@@ -47,6 +49,29 @@ RSpec.describe Empeira::Agent::Cache, :files_only do
     end
     expect(downloads.size).to eq(1)
     expect(root.glob('entries/*/metadata.json').size).to eq(1)
+  end
+
+  it 'allows cold-cache clients to consume together after one acquisition' do
+    entered = Queue.new
+    release = Queue.new
+    identity = request
+    clients = 2.times.map do
+      Thread.new do
+        described_class.new(root: root).with_artifact(identity, enabled: true,
+                                                                acquire: lambda { |directory|
+                                                                  downloaded(directory, identity, nil)
+                                                                }) do
+          entered << true
+          release.pop
+        end
+      end
+    end
+    2.times { expect(Timeout.timeout(5) { entered.pop }).to be(true) }
+    expect(downloads.size).to eq(1)
+    2.times { release << true }
+    clients.each(&:value)
+  ensure
+    clients&.each(&:kill)
   end
 
   it 'validates configured pins on hits and rejects a wrong pin on reacquisition' do

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require 'securerandom'
 require 'tempfile'
 require 'time'
 
@@ -23,28 +24,21 @@ module Empeira
         @directory = context.locations.workspace(context.workspace)
       end
 
-      # rubocop:disable-next Metrics/MethodLength -- Stable lock ownership, acquisition and release share an ensure boundary.
-      def with_lock
+      def with_lock(&)
         verify_paths!(inventory: false)
         FileUtils.mkdir_p(directory, mode: 0o700)
         verify_paths!(inventory: false)
-        File.open(directory.join('mutation.lock'), File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |lock|
-          verify_lock!(lock)
-          unless lock.flock(File::LOCK_EX | File::LOCK_NB)
-            raise Locked, "Another Empeira mutation owns workspace #{@workspace_id}. Wait and retry."
-          end
-
-          begin
-            yield
-          ensure
-            lock.flock(File::LOCK_UN)
-          end
-        end
+        ResourceLock.new(directory: directory, resource: 'inventory', filename: 'mutation.lock').synchronize(&)
       rescue SystemCallError
-        raise StateError, 'Cannot access workspace mutation lock', cause: nil
+        raise StateError, 'Cannot access workspace inventory lock', cause: nil
       end
 
       def load
+        state = read_state
+        operation ? operation.observe(state) : state
+      end
+
+      def read_state
         verify_paths!
         data = JSON.parse(File.read(path))
         validate!(data)
@@ -58,6 +52,10 @@ module Empeira
       end
 
       def write(data)
+        operation ? operation.persist(data) : write_state(data)
+      end
+
+      def write_state(data)
         verify_paths!
         validate!(data)
         Tempfile.create(['state-', '.json'], directory) do |file|
@@ -72,20 +70,51 @@ module Empeira
       end
 
       def clear
+        operation&.check!(allow_cancelled: true)
         verify_paths!
         File.unlink(path) if path.exist?
       rescue SystemCallError
         raise StateError, 'Cannot clear infrastructure state. Run status before retrying.', cause: nil
       end
 
-      private
-
-      def verify_lock!(lock)
-        metadata = lock.stat
-        return if metadata.file? && metadata.uid == Process.uid && metadata.mode.nobits?(0o077)
-
-        raise StateError, 'Workspace mutation lock ownership is invalid'
+      def resource_lock(name)
+        verify_paths!(inventory: false)
+        ResourceLock.new(directory: directory.join('locks'), resource: name)
       end
+
+      def operation
+        scopes = Thread.current[:empeira_inventory_operations]
+        entry = scopes && scopes[self]
+        entry.last if entry && entry.first == Process.pid
+      end
+
+      def with_operation(destructive: false, generation: nil)
+        scopes = Thread.current[:empeira_inventory_operations] ||= {}.compare_by_identity
+        previous = scopes[self]
+        scope = Operation.new(store: self, state: operation_state, destructive: destructive, generation: generation)
+        scopes[self] = [Process.pid, scope]
+        yield scope
+      rescue Error
+        scope.check! if scope&.generation
+        raise
+      ensure
+        if scopes
+          previous ? scopes[self] = previous : scopes.delete(self)
+        end
+      end
+
+      def operation_state
+        with_lock do
+          current = read_state
+          if current && !current['generation']
+            current['generation'] = SecureRandom.hex(16)
+            write_state(current)
+          end
+          current
+        end
+      end
+
+      private
 
       def verify_paths!(inventory: true)
         [@state_root, directory.dirname, directory].each do |entry|
@@ -164,10 +193,18 @@ module Empeira
           valid_definition?(data) && valid_extensions?(data)
       end
 
+      # rubocop:disable-next Metrics/CyclomaticComplexity -- Validate every optional inventory extension before accepting the envelope.
       def valid_extensions?(data)
         valid_timestamps?(data) && valid_control_plane?(data) &&
           (!data.key?('nodes') || Node::Inventory.valid?(data['nodes'])) && valid_peer_network?(data) &&
-          valid_bootstrap_proxy?(data['bootstrap_proxy']) && RecoveryInventory.valid_retired_certificates?(data)
+          valid_bootstrap_proxy?(data['bootstrap_proxy']) && RecoveryInventory.valid_retired_certificates?(data) &&
+          valid_operation_state?(data)
+      end
+
+      def valid_operation_state?(data)
+        (!data.key?('generation') || (data['generation'].is_a?(String) &&
+          data['generation'].match?(/\A[0-9a-f]{32}\z/))) &&
+          [data['destroying'], data['stopping']].all? { |value| [nil, true, false].include?(value) }
       end
 
       def valid_peer_network?(data)

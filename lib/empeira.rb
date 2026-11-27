@@ -97,13 +97,15 @@ module Empeira
   end
 
   module Infrastructure
+    autoload :Cancelled, "#{__dir__}/empeira/infrastructure/operation"
     autoload :Cleanup, "#{__dir__}/empeira/infrastructure/cleanup"
     autoload :Definition, "#{__dir__}/empeira/infrastructure/definition"
     autoload :Locked, "#{__dir__}/empeira/infrastructure/store"
     autoload :OwnedFiles, "#{__dir__}/empeira/infrastructure/owned_files"
+    autoload :Operation, "#{__dir__}/empeira/infrastructure/operation"
     autoload :RecoveryInventory, "#{__dir__}/empeira/infrastructure/recovery_inventory"
+    autoload :ResourceLock, "#{__dir__}/empeira/infrastructure/resource_lock"
     autoload :Service, "#{__dir__}/empeira/infrastructure/service"
-    autoload :SessionLock, "#{__dir__}/empeira/infrastructure/session_lock"
     autoload :StateError, "#{__dir__}/empeira/infrastructure/store"
     autoload :Status, "#{__dir__}/empeira/infrastructure/status"
     autoload :Store, "#{__dir__}/empeira/infrastructure/store"
@@ -154,6 +156,7 @@ module Empeira
   end
 
   module Node
+    autoload :Transaction, "#{__dir__}/empeira/node/transaction"
     autoload :AgentConfiguration, "#{__dir__}/empeira/node/agent_configuration"
     autoload :AgentInstallation, "#{__dir__}/empeira/node/agent_installer"
     autoload :AgentInstaller, "#{__dir__}/empeira/node/agent_installer"
@@ -192,7 +195,6 @@ module Empeira
     autoload :SSHEndpoint, "#{__dir__}/empeira/node/ssh_endpoint"
     autoload :SSHIdentity, "#{__dir__}/empeira/node/ssh_identity"
     autoload :Service, "#{__dir__}/empeira/node/service"
-    autoload :SessionLock, "#{__dir__}/empeira/node/session_lock"
     autoload :UserSSH, "#{__dir__}/empeira/node/user_ssh"
     autoload :VM, "#{__dir__}/empeira/node/vm"
     autoload :VMBootstrap, "#{__dir__}/empeira/node/vm_bootstrap"
@@ -285,7 +287,6 @@ module Empeira
     autoload :QemuRuntime, "#{__dir__}/empeira/vm/qemu_runtime"
     autoload :Removal, "#{__dir__}/empeira/vm/removal"
     autoload :RootDisk, "#{__dir__}/empeira/vm/root_disk"
-    autoload :SessionLock, "#{__dir__}/empeira/vm/session_lock"
     autoload :SystemSSH, "#{__dir__}/empeira/vm/system_ssh"
   end
 end

@@ -27,7 +27,8 @@ module Empeira
 
       def install_agent(resource, _record, requirements, execute)
         installer = AgentInstaller.build(context: context, runtime: @runtime, requirements: requirements,
-                                         execute: execute, copy: guest_copy(resource, execute), progress: @progress)
+                                         execute: execute, copy: guest_copy(resource, execute),
+                                         progress: @progress, store: @store)
         installer.install(proxy_url: @bootstrap_proxy.url)
       end
 

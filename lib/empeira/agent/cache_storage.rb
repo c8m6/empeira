@@ -25,11 +25,12 @@ module Empeira
         raise Error, 'Agent cache contains an unsafe or foreign entry; refusing access' unless valid
       end
 
-      def lock(key)
+      def lock(key, shared: false)
         path = @root.join('locks', key)
         File.open(path, File::RDWR | File::CREAT | File::NOFOLLOW, 0o600) do |file|
           owned!(path)
-          file.flock(File::LOCK_EX)
+          file.close_on_exec = true
+          file.flock(shared ? File::LOCK_SH : File::LOCK_EX)
           yield
         ensure
           file.flock(File::LOCK_UN)

@@ -47,15 +47,6 @@ module Empeira
         Providers::Result.new(resource: resource, changed: changed)
       end
 
-      def mutate(availability: true)
-        @build_info.require_compatible!(context.configuration.dig('requirements', 'empeira'))
-        @store.with_lock do
-          load_state
-          check_runtime!(availability: availability)
-          yield
-        end
-      end
-
       def load_state
         @state = @store.load
         @nodes = @state&.fetch('nodes', {}) || {}
@@ -75,7 +66,9 @@ module Empeira
       end
 
       def fetch(name)
-        @nodes.fetch(name.downcase) { raise Providers::NotFound, 'Node does not exist in this workspace' }
+        record = @nodes.fetch(name.downcase) { raise Providers::NotFound, 'Node does not exist in this workspace' }
+        @store.operation&.attach(record)
+        record
       end
 
       def definition(record)

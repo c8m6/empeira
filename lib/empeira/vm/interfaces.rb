@@ -5,7 +5,7 @@ require 'securerandom'
 module Empeira
   module VM
     # Intent is saved before netlink changes; uncertain transport outcomes are inspected on retry.
-    # rubocop:disable-next Metrics/ClassLength -- One locked transaction owns device and parent recovery.
+    # rubocop:disable-next Metrics/ClassLength -- One guest-configuration resource transaction owns device and parent recovery.
     class Interfaces
       PARENT = Configuration::VMInterfaces::PARENT
 

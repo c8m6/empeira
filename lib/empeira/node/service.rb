@@ -47,7 +47,7 @@ module Empeira
         Infrastructure::Store.new(context: @context).load&.fetch('nodes', {})&.keys || []
       end
 
-      # The infrastructure caller already holds the workspace mutation lock.
+      # Each provider reconciles captured instances through its own brief inventory transactions.
       # rubocop:disable-next Naming/PredicateMethod -- Reconciliation mutates guest resources.
       def reconcile(state:)
         return false unless state

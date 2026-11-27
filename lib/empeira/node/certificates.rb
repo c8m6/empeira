@@ -7,9 +7,10 @@ module Empeira
       CA = '/opt/puppetlabs/bin/puppetserver'
       RUBY = '/opt/puppetlabs/puppet/bin/ruby'
 
-      def initialize(runtime:, server:)
+      def initialize(runtime:, server:, guard: nil)
         @runtime = runtime
         @server = server
+        @guard = guard
       end
 
       def enroll(node, record)
@@ -84,6 +85,7 @@ module Empeira
       end
 
       def execute(resource, arguments, operation)
+        @guard&.call
         result = @runtime.service_exec(resource, arguments, timeout: 60)
         unless result.success?
           diagnostic = Execution::Diagnostics.native(result, operation: operation,
@@ -91,6 +93,7 @@ module Empeira
           raise Error, "#{operation} failed; node state retained for diagnosis\n#{diagnostic}", cause: nil
         end
 
+        @guard&.call
         result
       end
     end

@@ -17,7 +17,7 @@ configuration, definitions, fingerprints or inventory.
 flowchart TD
     CLI[CLI and completion] --> App[Application and context]
     App --> Config[Configuration and version gate]
-    App --> State[Inventory and mutation lock]
+    App --> State[Inventory transactions and resource locks]
     App --> Plane[Control-plane lifecycle]
     App --> Nodes[Node lifecycle]
     Plane --> Runtime[Docker / Podman]
@@ -116,7 +116,7 @@ The QEMU monitor verifies workspace/node/instance identity before management.
 A 0700 host directory and 0600 Unix socket restrict access; recorded device/inode
 identity rejects replaced sockets. Sessions also verify the instance identity and
 operation ID. No management NIC, host port, additional privileged host helper or
-SSH credentials are needed. Existing workspace locks and VM session guards apply.
+SSH credentials are needed. Execution pins the node instance; stop and destroy remain available during commands.
 `node puppet` uses this targeted path without server readiness or full guest
 reconciliation.
 
@@ -165,9 +165,45 @@ and recovery context. Runtime migration is explicit: destroy with the owning eng
 then change configuration. `down` preserves CA and database storage; `destroy`
 removes them. Both preserve control code, modules and caches.
 
-All mutations share a nonblocking filesystem `flock` and version gate. Read-only
-status takes no exclusive lock. The lock inode stays stable; never delete its file
-as stale-lock recovery. Unsupported state has no automatic migration.
+Mutations validate the version requirement and use brief inventory read-modify-write
+transactions. The inventory `flock` waits only for an active transaction. Long
+provisioning, downloads, Puppet and user sessions do not hold it. Each operation
+pins the workspace incarnation and immutable node instance (container MAC/ID or VM
+peer token). Snapshot writes merge only changed fields into the latest inventory;
+old incarnations and deleted/replaced instances cannot write back.
+`up` pins both the incarnation observed before validation and the published intent;
+removal between these phases cannot restart the old infrastructure operation.
+
+Node reservation and native creation/publication use a lock for that hostname.
+Initial reservation also pins the infrastructure resource phase while observing
+DNS and platform capabilities; the inventory transaction then allocates and
+publishes the lease without executing native commands. Container SSH known-hosts
+directories are prepared only when access to an existing instance is requested.
+Destroy first marks the instance as deleting and interrupts its native resource,
+then completes the short resource phase and removes verified files, helpers and
+bindings before releasing the hostname/IP. Stop invalidates a pending start or
+provisioning revision. Workspace destroy invalidates the entire incarnation before
+teardown. Failed cleanup retains ownership records and reports an error. A later
+`up` creates a fresh incarnation only after successful workspace removal.
+
+Shared configuration has separate locks for discovery, gateway policy and the
+bootstrap proxy. Discovery always derives hosts and client grants from a fresh
+inventory. Previously observed container resources are reused only while their
+native IDs still match that inventory. The single bootstrap Squid aggregates private, source-bound credentials
+per immutable node instance; finishing one client revokes only its grant. Control
+plane initialization serializes its dependency graph independently of nodes;
+readiness waits release the native resource phase so destroy can interrupt it.
+Per-instance guest configuration locks protect owned file/device intents, never
+Puppet execution or user sessions. Image/module updates have artifact-specific locks. Agent cache readers share a
+validated artifact; acquisition/publication excludes writers without serializing
+package installation. VirtIO locks protect individual protocol slots only.
+
+Read-only status takes no exclusive lock. Lock inodes remain stable across destroy;
+never delete them as stale-lock recovery. Existing schema-2 inventories acquire
+additive incarnation metadata on their first mutation. Do not mix CLI processes
+from older revisions with this implementation during an upgrade: those processes
+do not enforce incarnation checks. Unsupported schemas still
+fail closed for ordinary operations; ownership-based recovery remains available.
 
 ## Definitions and live code
 
@@ -175,7 +211,7 @@ Canonical SHA-256 fingerprints cover relevant managed definitions, independently
 of application versions, YAML formatting and unrelated node defaults. Component
 fingerprints allow selective service reconciliation while preserving owned storage.
 Each `up` batches service and volume observations and reuses them only within that
-locked transaction. Starts, replacements and network attachments are inspected
+control-plane reconciliation. Starts, replacements and network attachments are inspected
 again; destructive operations verify fresh ownership and recorded IDs. Later CLI
 invocations never inherit these observations. Local image inspection results are
 shared by availability, reviewed-recipe, ID and architecture checks within one
@@ -189,7 +225,7 @@ reload Squid after readiness without replacing its container; unchanged policy
 and bindings do not trigger HUP. The existing inventory records a validated
 proxy ID and small-file digest only after native reload success; failed reloads
 are retried even if generated files are already current. Gateway lockdown is
-reused only while the same instance remains locked in that transaction. Policy apply clears that checkpoint
+reused only while the same instance remains owned in that reconciliation. Policy apply clears that checkpoint
 before execution so every uncertain outcome attempts fresh lockdown. Firewall
 policy and namespace routing are still reconciled on every `up`.
 Node access verifies network ownership and isolation with one bounded native network inspection; membership counts are collected separately
@@ -278,7 +314,7 @@ resize and normal guest job control; cancellation kills the owned session groups
 Container exec uses native numeric-root execution and a guest Ruby supervisor with a
 private completion receipt so native-client errors cannot impersonate guest exits.
 
-Recovery uses the same workspace lock/inventory and existing runtime, QEMU monitor
+Recovery uses the same inventory transactions and existing runtime, QEMU monitor
 and peer teardown adapters. It reads ownership fields without operational schema,
 version, guest, base-image or current configuration gates. Every mutation still
 checks native identity and safe paths. Resource records are removed only after confirmed

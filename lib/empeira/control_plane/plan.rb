@@ -183,7 +183,8 @@ module Empeira
                               configuration: 'authenticated bootstrap policy',
                               ports: [],
                               command: ['-N', '-f', '/empeira-bootstrap/squid.conf'],
-                              mounts: [bind(files.path('bootstrap-squid.conf'), '/empeira-bootstrap/squid.conf'),
+                              mounts: [bind(context.locations.workspace(context.workspace).join('bootstrap-proxy'),
+                                            '/empeira-bootstrap'),
                                        'type=tmpfs,dst=/var/log/squid', 'type=tmpfs,dst=/var/spool/squid'])
         service('bootstrap-proxy', **options)
       end

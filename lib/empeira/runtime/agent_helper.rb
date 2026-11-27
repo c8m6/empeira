@@ -4,20 +4,36 @@ module Empeira
   module Runtime
     # Reuses helper ownership and observed default-network verification, without host bind mounts.
     module AgentHelper
-      def with_agent_helper(image:)
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Publish helper intent and native identity before execution and always remove the owned helper.
+      def with_agent_helper(image:, operation: nil)
         identity = Empeira::Services::Definition.new(key: "agent-#{SecureRandom.hex(16)}", workspace: context.workspace)
+        resource = nil
+        create = lambda do
+          operation&.helper(identity, nil)
+          resource = create_agent_helper(identity, image)
+          operation&.helper(identity, resource.fetch('id'))
+          update_command(['start', resource.fetch('id')], operation: 'agent helper start')
+          verify_helper_network!(identity, resource.fetch('id'))
+          resource
+        end
+        resource = operation ? operation.node_phase(&create) : create.call
+        yield resource
+      ensure
+        if identity
+          remove_update_helper(identity, resource&.fetch('id'))
+          operation&.forget_helper(identity)
+        end
+      end
+
+      private
+
+      def create_agent_helper(identity, image)
         update_command(agent_helper_arguments(identity, image), operation: 'agent helper creation')
         resource = inspect_service(identity)
         raise Providers::ExecutionError, 'Agent helper creation could not be verified' unless resource
 
-        update_command(['start', resource.fetch('id')], operation: 'agent helper start')
-        verify_helper_network!(identity, resource.fetch('id'))
-        yield resource
-      ensure
-        remove_update_helper(identity, resource&.fetch('id')) if identity
+        resource
       end
-
-      private
 
       def agent_helper_arguments(identity, image)
         ['create', '--name', identity.name, '--network', update_helper_network,

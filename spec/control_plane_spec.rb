@@ -404,15 +404,39 @@ RSpec.describe Empeira::ControlPlane::Controller do
     expect(plane.status(verify: true)).to include('Network policy' => 'verified')
   end
 
+  it 'does not launch a verification helper after workspace teardown was requested' do
+    plane = controller
+    mutate(plane, :up)
+    runtime.calls.clear
+    allow(@store).to receive(:resource_lock).and_wrap_original do |original, resource|
+      if resource == 'bridge-policy'
+        state = @store.load
+        state['destroying'] = true
+        @store.write(state)
+      end
+      original.call(resource)
+    end
+    expect(plane.status(verify: true)).to include(
+      'Network policy' => 'unverified; infrastructure reconciliation in progress'
+    )
+    expect(runtime.calls).to be_empty
+  end
+
   it 'keeps bootstrap source exclusion and the status plan consistent' do
     plane = controller
     mutate(plane, :up)
     current = @contexts.fetch(plane)
     gateway = Empeira::Network::Gateway.new(context: current, runtime: runtime, state: @store.load)
-    record = { 'definition' => { 'ip' => '172.20.0.96' } }
+    state = @store.load
+    record = rewrite_node_records.fetch('container-node')
+    record['network_phase'] = 'bootstrap'
+    state['nodes'] = { 'container-node' => record }
+    @store.write(state)
     gateway.phase(record, bootstrap: true)
     path = Empeira::ControlPlane::Files.new(context: current).path('gateway.json')
     expect(JSON.parse(File.read(path)).fetch('blocked')).to eq(['172.20.0.96'])
+    state.fetch('nodes').fetch('container-node')['network_phase'] = 'runtime'
+    @store.write(state)
     gateway.phase(record, bootstrap: false)
     expect(JSON.parse(File.read(path)).fetch('blocked')).to be_empty
   end
