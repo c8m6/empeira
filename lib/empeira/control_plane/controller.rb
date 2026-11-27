@@ -573,6 +573,7 @@ module Empeira
         require_started!(key, @observed.fetch(key))
         attach_browser_ui_if_needed(key, definition, id)
         verify_networks!(key, @observed.fetch(key))
+        verify_address!(key, @observed.fetch(key), definition)
         @service_snapshot[key] = @observed.fetch(key) if @service_snapshot
       end
 
@@ -654,7 +655,17 @@ module Empeira
 
       def address_changed?(resource, definition)
         expected = definition.options['runtime_ip']
-        expected && resource.dig('networks', @plan.network, 'IPAddress') != expected
+        observed = resource.dig('networks', @plan.network, 'IPAddress')
+        # Native runtimes can clear observed addresses until a retained container starts.
+        return false if %w[created configured exited stopped].include?(resource['state']) && observed.to_s.empty?
+
+        expected && observed != expected
+      end
+
+      def verify_address!(key, resource, definition)
+        return unless address_changed?(resource, definition)
+
+        raise Error, "#{key} did not acquire its reserved workspace address #{definition.options.fetch('runtime_ip')}"
       end
 
       def image_changed?(resource, definition)

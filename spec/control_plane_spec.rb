@@ -885,6 +885,91 @@ RSpec.describe Empeira::ControlPlane::Controller do
     end } }
   end
 
+  context 'when retained containers lose their observed addresses while stopped' do
+    let(:network) { Empeira::ControlPlane::Plan.new(context: context).network }
+
+    before do
+      mutate(controller, :up)
+      @retained = @store.load
+      @retained['nodes'] = rewrite_node_records
+      @store.with_lock { @store.write(@retained) }
+      @ids = runtime.services.transform_values { |resource| resource.fetch('id') }
+      @addresses = runtime.services.transform_values { |resource| resource.dig('networks', network, 'IPAddress') }
+      allow(runtime).to receive(:start_service).and_wrap_original do |start, resource|
+        key = resource.dig('labels', 'io.empeira.purpose')
+        resource.dig('networks', network)['IPAddress'] = @addresses.fetch(key)
+        start.call(resource)
+      end
+      runtime.calls.clear
+    end
+
+    [nil, ''].each do |address|
+      it "resumes the same DNS and gateway with a stopped address of #{address.inspect}" do
+        runtime.services.each_value do |resource|
+          resource['state'] = 'exited'
+          resource.dig('networks', network)['IPAddress'] = address
+        end
+
+        expect(mutate(controller, :up)).to be(true)
+        expect(runtime.services.transform_values { |resource| resource.fetch('id') }).to eq(@ids)
+        expect(@store.load.fetch('nodes')).to eq(@retained.fetch('nodes'))
+        expect(@store.load.dig('control_plane', 'volumes')).to eq(@retained.dig('control_plane', 'volumes'))
+        expect(runtime.calls.none? { |kind, _| %i[remove create].include?(kind) }).to be(true)
+        expect(mutate(controller, :up)).to be(false)
+      end
+    end
+
+    %w[dns gateway].each do |key|
+      [nil, '', '172.20.0.250'].each do |address|
+        it "rejects #{key} when startup reports reserved address #{address.inspect}" do
+          resource = runtime.services.fetch(key)
+          resource['state'] = 'exited'
+          resource.dig('networks', network)['IPAddress'] = ''
+          @addresses[key] = address
+
+          expect { mutate(controller, :up) }
+            .to raise_error(Empeira::Error, /#{key} did not acquire its reserved workspace address/)
+          expect(runtime.services.fetch(key).fetch('id')).to eq(@ids.fetch(key))
+          expect(@store.load.fetch('nodes')).to eq(@retained.fetch('nodes'))
+          expect(runtime.calls.none? { |kind, _| %i[remove create].include?(kind) }).to be(true)
+        end
+      end
+    end
+
+    %w[running paused restarting unknown].each do |status|
+      it "does not defer a missing DNS address in state #{status}" do
+        resource = runtime.services.fetch('dns')
+        resource['state'] = status
+        resource.dig('networks', network)['IPAddress'] = ''
+
+        expect { mutate(controller, :up) }
+          .to raise_error(Empeira::Error, /DNS replacement would invalidate existing node resolver bindings/)
+        expect(runtime.calls.none? { |kind, _| %i[remove create start].include?(kind) }).to be(true)
+      end
+    end
+
+    it 'still rejects an observed wrong DNS address while stopped' do
+      resource = runtime.services.fetch('dns')
+      resource['state'] = 'exited'
+      resource.dig('networks', network)['IPAddress'] = '172.20.0.250'
+
+      expect { mutate(controller, :up) }
+        .to raise_error(Empeira::Error, /DNS replacement would invalidate existing node resolver bindings/)
+      expect(runtime.calls.none? { |kind, _| %i[remove create start].include?(kind) }).to be(true)
+    end
+
+    it 'still rejects a changed DNS image while stopped with no observed address' do
+      resource = runtime.services.fetch('dns')
+      resource['state'] = 'exited'
+      resource.dig('networks', network)['IPAddress'] = ''
+      changed = controller('images' => { 'dns' => { 'repository' => 'example/dns', 'tag' => 'changed' } })
+
+      expect { mutate(changed, :up) }
+        .to raise_error(Empeira::Error, /DNS replacement would invalidate existing node resolver bindings/)
+      expect(runtime.calls.none? { |kind, _| %i[remove create start].include?(kind) }).to be(true)
+    end
+  end
+
   it 'adds, changes and removes DNS rewrites without replacing services or restarting either node provider' do
     config = helper_services('api-layer', 'other-api')
     mutate(controller(config), :up)
