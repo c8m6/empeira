@@ -351,6 +351,20 @@ Only DNS changes. The original HTTP Host, TLS SNI, protocol, port and certificat
 checks remain the application's responsibility. Gateway grants and proxy allowlists
 are unchanged; a client using an HTTP proxy remains subject to that proxy's policy.
 
+### Recovery after a host or container-engine restart
+
+Start the container engine, then run `empeira up` in the existing workspace.
+Stopped containers can report an empty IP address even when their reserved
+address is unchanged. Empeira resumes the owned DNS and gateway containers and
+verifies their reserved addresses after startup, before continuing reconciliation.
+Existing node resolver bindings, container identities, CA and retained volumes
+are preserved. A missing or incorrect address after startup fails reconciliation.
+Changed DNS images or container definitions still require the existing explicit
+replacement workflow; an empty stopped-container address alone does not require
+destroying nodes.
+
+### Server and database services
+
 The server is `server.empeira.internal:8140`. PostgreSQL and OpenVoxDB are internal,
 with retained volumes and random private database credentials. Readiness verifies
 real SQL and database-backed PuppetDB queries.

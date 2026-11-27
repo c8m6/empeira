@@ -104,6 +104,18 @@ For workflow changes, parse `.github/workflows/*.yml` and run `actionlint` when
 available. Review action pins, triggers and permissions as well as YAML syntax.
 See [contributing](../CONTRIBUTING.md) for review, commit and label conventions.
 
+The manual DNS recovery gate stops the owned DNS and gateway containers with a
+managed Ubuntu 24.04 container node retained, then runs `up`. It verifies unchanged service
+and node identities, reserved IP addresses, CA and volume records, working node
+DNS and a subsequent Puppet run. This exercises native stopped-container recovery;
+it does not reboot the host or cover VM guest restart. Select `docker` to repeat
+the same gate with Docker:
+
+```bash
+EMPEIRA_DNS_RECOVERY_INTEGRATION=1 EMPEIRA_DNS_RECOVERY_RUNTIME=podman \
+  bundle exec rspec spec/integration/dns_recovery_spec.rb
+```
+
 ### Ruby compatibility
 
 Ruby 3.1 is the minimum. Ruby 3.1, 3.2, 3.3, 3.4 and 4.0 run the complete
