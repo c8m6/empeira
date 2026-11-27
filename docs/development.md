@@ -46,6 +46,12 @@ files, covering login/non-login behavior, PATH preservation, duplicate preventio
 and ownership failures. The manual runtime management gate also checks installed
 agent commands on retained guests after restart.
 
+`spec/ssh_transport_spec.rb` exercises the agent-independent Bash byte relay over
+loopback TCP, including native macOS Bash 3.2. It verifies binary output, remote
+and local EOF, and termination cleanup while both streams remain open. Relay
+completion uses an explicit signal because Bash 3.2 defers `CHLD` traps during
+`wait`; the tests retain bounded waits rather than increasing their timeouts.
+
 The manual runtime management gate checks real VirtIO execution while Puppet sets
 root shadow to `!`, replaces sudoers, removes the regular `empeira` account and
 changes, restarts and disables system SSH. It verifies subsequent `node puppet`,
