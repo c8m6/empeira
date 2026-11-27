@@ -7,4 +7,4 @@ gem 'r10k', '5.0.3'
 # These pins are reviewed independently of the CLI's minimum Ruby version.
 # The disposable helper and its acceptance gate use Ruby 3.4.
 gem 'fast_gettext', '~> 3.1.0'
-gem 'multi_json', '1.18.0'
+gem 'multi_json', '1.21.2'
