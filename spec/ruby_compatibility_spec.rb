@@ -56,12 +56,15 @@ RSpec.describe 'Ruby compatibility contract', :files_only do
     end
     expect(Empeira::Providers::Resource.new('fixture', 'owner', :running))
       .to eq(Empeira::Providers::Resource.new(name: 'fixture', owner: 'owner', state: :running))
+  end
 
-    empty = Data.define
-    expect(empty.new).to be_frozen
-    expect(empty.new.to_h).to eq({})
-    expect(empty.new).to eq(empty.new)
-    expect(empty.new.hash).to eq(empty.new.hash)
-    expect(empty.new.deconstruct).to eq([])
+  it 'freezes the memberless network policy even on Ruby 3.2' do
+    policy = Empeira::Network::Policy.new
+    expect(policy).to be_frozen
+    expect(policy.to_h).to eq({})
+    expect(policy).to eq(Empeira::Network::Policy.new)
+    expect(policy.hash).to eq(Empeira::Network::Policy.new.hash)
+    expect(policy.deconstruct).to eq([])
+    expect { policy.instance_variable_set(:@isolated, false) }.to raise_error(FrozenError)
   end
 end
