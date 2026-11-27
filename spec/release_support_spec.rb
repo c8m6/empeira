@@ -119,7 +119,7 @@ RSpec.describe ReleaseSupport, :files_only do
       described_class.verify!(path, **inputs, tag: 'v1.2.4-alpha.1')
     end.to raise_error(ArgumentError, /version/)
     expect(File.exist?(metadata) ? File.binread(metadata) : nil).to eq(original)
-    expect(Gem::Package.new(path).spec.runtime_dependencies.map(&:name)).to eq(['thor'])
+    expect(Gem::Package.new(path).spec.runtime_dependencies.map(&:name)).to eq(%w[base64 thor])
     thor_home = Gem::Specification.find_by_name('thor').base_dir
     Bundler.with_unbundled_env { verify_installed_cli(path, dependency_home: thor_home) }
   end

@@ -4,8 +4,7 @@ source 'https://rubygems.org'
 
 gem 'r10k', '5.0.3'
 
-# r10k's newer fast_gettext 4.x dependency requires Ruby >= 3.2.
-# Keep the module helper usable with the oldest supported Ruby (3.1).
+# These pins are reviewed independently of the CLI's minimum Ruby version.
+# The disposable helper and its acceptance gate use Ruby 3.4.
 gem 'fast_gettext', '~> 3.1.0'
-# Newer multi_json requires Ruby >= 3.2.
 gem 'multi_json', '1.18.0'

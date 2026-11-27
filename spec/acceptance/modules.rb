@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative 'support/module_source'
+require_relative '../support/module_source'
 
 RSpec.describe 'Puppetfile installer contract' do
   let(:source) { ModuleSource.new(@directory).start }
@@ -14,11 +14,10 @@ RSpec.describe 'Puppetfile installer contract' do
     work.join('request.json').write(JSON.generate('overrides' => overrides,
                                                   'sources' => work.join('sources').to_s,
                                                   'cache' => work.join('cache').to_s))
-    worker = File.expand_path('../resources/modules/worker.rb', __dir__)
     environment = { 'HOME' => work.to_s, 'http_proxy' => '', 'https_proxy' => '',
                     'HTTP_PROXY' => '', 'HTTPS_PROXY' => '', 'GIT_ALLOW_PROTOCOL' => 'file' }
     runner = Empeira::Execution::Runner.new
-    plan = runner.run(RbConfig.ruby, arguments: [worker, work.to_s, 'plan'], timeout: 30, environment: environment)
+    plan = run_worker('plan', environment)
     return plan unless plan.success?
 
     sources = work.join('sources')
@@ -27,7 +26,18 @@ RSpec.describe 'Puppetfile installer contract' do
     acquired = Empeira::Modules::HostGit.new(runner: runner, project: Pathname(@directory)).prepare(entries,
                                                                                                     directory: sources)
     work.join('acquired.json').write(JSON.generate(acquired))
-    runner.run(RbConfig.ruby, arguments: [worker, work.to_s, 'sync'], timeout: 30, environment: environment)
+    run_worker('sync', environment)
+  end
+
+  def run_worker(mode, environment)
+    worker = File.expand_path('../../resources/modules/worker.rb', __dir__)
+    bundle = { 'BUNDLE_GEMFILE' => File.join(File.dirname(worker), 'Gemfile'),
+               'BUNDLE_PATH' => ENV.fetch('EMPEIRA_MODULE_BUNDLE_PATH'),
+               'BUNDLER_VERSION' => Bundler::VERSION, 'BUNDLE_FROZEN' => 'true' }
+    Bundler.with_unbundled_env do
+      Empeira::Execution::Runner.new.run(RbConfig.ruby, arguments: [worker, work.to_s, mode],
+                                                        timeout: 30, environment: environment.merge(bundle))
+    end
   end
 
   after { source.close }
