@@ -70,7 +70,7 @@ No source checkout or Bundler is needed for a gem installation. Install Git,
 a supported container runtime and any optional VM tools separately; see
 [installation](docs/installation.md) for host prerequisites, exact-version
 installation and Bash completion. Developers can also
-[run from source](docs/installation.md#source-installation-and-project-opt-in).
+[run from source](docs/installation.md#run-from-source).
 
 ## Quickstart
 
