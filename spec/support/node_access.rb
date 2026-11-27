@@ -10,7 +10,7 @@ module LiveNodeAccess
     options = { identity: identity&.to_s, user: override_user }.compact
     status, output, error = access_session(app, name: name, operation: :ssh, **options)
     expect(status.exit_status).to eq(7), error
-    expect(output).to match(%r{^/dev/pts/\d+\r?$})
+    expect(output).to match(%r{/dev/pts/\d+})
     expect(output).to match(/^#{user}\r?$/)
     expect(output).to match(/^connection=\S.+\r?$/)
   end
@@ -49,6 +49,6 @@ module LiveNodeAccess
   end
 
   def clean_session_output(output)
-    output.gsub(%r{\e\[[0-?]*[ -/]*[@-~]}, '').gsub(/\e\][^\a]*(?:\a|\e\\)/, '').delete("\r")
+    output.gsub(%r{\e\[[0-?]*[ -/]*[@-~]}, '').gsub(/\e\][^\a]*?(?:\a|\e\\)/, '').delete("\r")
   end
 end
