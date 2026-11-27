@@ -2,7 +2,7 @@
 
 module Empeira
   module Infrastructure
-    # Keep version gating and the single workspace mutation boundary together.
+    # Coordinate shared control-plane resources without locking running node workloads.
     # rubocop:disable-next Metrics/ClassLength
     class Service
       def initialize(context:, runner:, runtimes:, build_info:, store: Store.new(context: context),
@@ -18,56 +18,74 @@ module Empeira
       # rubocop:disable-next Metrics/AbcSize -- Read-only artifact validation precedes runtime mutation.
       def up
         require_compatible!
-        @store.with_lock do
+        initial = @store.operation_state
+        runtime = mutation_runtime(initial)
+        plane = control_plane(runtime)
+        plane.validate
+        allocate_network(runtime, initial)
+        intent = initialize_intent(expected: initial)
+        @store.with_operation(generation: intent.fetch('generation')) do |operation|
           @progress.stage(5, 'Checking runtime and workspace ownership...')
-          state = @store.load
-          runtime = mutation_runtime(state)
-          resource = observe(runtime, state)
-          verify_current!(state, resource)
-          plane = control_plane(runtime)
-          plane.preflight
-          @progress.stage(15, 'Preparing isolated network...')
-          result = ensure_network(runtime, state, resource)
-          changed = plane.up
+          result, changed = reconcile_control_plane(runtime, plane, operation)
+          operation.check!
           changed = reconcile_nodes || changed
+          operation.check!
 
           Providers::Result.new(resource: result.resource, changed: result.changed || changed)
         end
       end
 
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Validate shared service ownership before the serialized browser resource reconciliation.
       def browser
         require_compatible!
         state = @store.load
         raise Error, browser_workspace_error unless state
 
-        @store.with_lock do
-          state = @store.load
-          raise Error, browser_workspace_error unless state
+        @store.with_operation do |operation|
+          @store.resource_lock("control-plane/#{operation.generation}").synchronize do
+            operation.check!
+            state = @store.load
+            raise Error, browser_workspace_error unless state
 
-          @progress.stage(5, 'Checking runtime and workspace ownership...')
-          runtime = mutation_runtime(state)
-          resource = observe(runtime, state)
-          raise Error, browser_network_error unless resource
+            @progress.stage(5, 'Checking runtime and workspace ownership...')
+            runtime = mutation_runtime(state)
+            resource = observe(runtime, state)
+            raise Error, browser_network_error unless resource
 
-          verify_current!(state, resource)
-          control_plane(runtime).browser
+            verify_current!(state, resource)
+            control_plane(runtime).browser
+          end
         end
       end
 
-      # rubocop:disable-next Metrics/AbcSize -- Keep version checks and retained-storage teardown in one lock boundary.
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Quiesce creation before removing the dependent control-plane resources and retained state.
       def down
         require_compatible!
-        @store.with_lock do
-          @progress.stage(5, 'Checking runtime and workspace ownership...')
-          state = @store.load
-          runtime = mutation_runtime(state)
-          resource = observe(runtime, state)
-          require_no_nodes!(state)
+        return Providers::Result.new(resource: nil, changed: false) unless @store.load
 
-          changed = control_plane(runtime).down
-          result = runtime.remove_network(definition: definition.network, expected_id: resource&.id)
-          retain_storage
-          Providers::Result.new(resource: result.resource, changed: result.changed || changed)
+        @store.with_operation(destructive: true) do |operation|
+          @store.resource_lock("control-plane/#{operation.generation}").synchronize do
+            @progress.stage(5, 'Checking runtime and workspace ownership...')
+            state = @store.load
+            runtime = mutation_runtime(state)
+            resource = observe(runtime, state)
+            @store.resource_lock('bridge-policy').synchronize do
+              @store.with_lock do
+                state = @store.load
+                require_no_nodes!(state)
+                state['stopping'] = true
+                @store.write(state)
+              end
+            end
+
+            changed = control_plane(runtime).down
+            result = operation.resource('infrastructure-phase') do
+              value = runtime.remove_network(definition: definition.network, expected_id: resource&.id)
+              value
+            end
+            retain_storage
+            Providers::Result.new(resource: result.resource, changed: result.changed || changed)
+          end
         end
       end
 
@@ -89,6 +107,21 @@ module Empeira
 
       private
 
+      def reconcile_control_plane(runtime, plane, operation)
+        @store.resource_lock("control-plane/#{operation.generation}").synchronize do
+          operation.check!
+          plane.preflight
+          result = operation.resource('infrastructure-phase') do
+            state = @store.load
+            resource = observe(runtime, state)
+            verify_current!(state, resource)
+            @progress.stage(15, 'Preparing isolated network...')
+            ensure_network(runtime, state, resource)
+          end
+          [result, plane.up]
+        end
+      end
+
       def definition
         @definition ||= Definition.new(context: @context)
       end
@@ -104,13 +137,6 @@ module Empeira
       def reconcile_nodes
         Node::Service.new(context: @context, runner: @runner, runtimes: @runtimes,
                           build_info: @build_info, progress: @progress).reconcile(state: @store.load)
-      end
-
-      def destroy_nodes(runtime, state)
-        Node::Container.new(context: @context, runner: @runner, backend: runtime).destroy_all(state: state)
-        engine = VM.registry.build('qemu', context: @context, runner: @runner)
-        Node::VM.new(context: @context, runner: @runner, backend: engine, runtime: runtime)
-                .destroy_all(state: state)
       end
 
       def require_no_nodes!(state)
@@ -155,9 +181,10 @@ module Empeira
         retained = @store.load
         if retained&.dig('control_plane', 'volumes')&.any?
           retained['resources']['network']['id'] = nil
+          retained.delete('stopping')
           @store.write(retained)
         else
-          @store.clear
+          @store.with_lock { @store.clear }
         end
       end
 
@@ -221,19 +248,35 @@ module Empeira
       end
 
       # The inventory envelope is deliberately written atomically in one operation.
-      # rubocop:disable-next Metrics/AbcSize
+      # rubocop:disable-next Metrics/AbcSize, Metrics/CyclomaticComplexity -- Validate identity and atomically merge snapshot changes while retaining provider record references.
       def persist(previous, resource)
         now = Time.now.utc.iso8601
-        @store.write(
+        state = previous || @store.load || {}
+        state.merge!(
           'schema_version' => Store::SCHEMA_VERSION, 'workspace' => @context.workspace.id,
           'runtime' => @context.container_engine,
           'resources' => { 'network' => { 'logical_identity' => definition.network.identity,
                                           'name' => definition.network.backend_name, 'id' => resource&.id } },
           'fingerprint' => definition.fingerprint, 'definition' => definition.metadata,
-          'component_fingerprints' => definition.component_fingerprints, 'peer_network' => @peer_network,
+          'component_fingerprints' => definition.component_fingerprints,
           'created_at' => previous&.fetch('created_at') || now, 'reconciled_at' => now,
-          **previous.to_h.slice('nodes', 'retired_certificates', 'control_plane')
+          'generation' => state['generation'] || SecureRandom.hex(16)
         )
+        state['peer_network'] = @peer_network if @peer_network
+        @store.write(state)
+      end
+
+      def initialize_intent(expected:)
+        @store.with_lock do
+          current = @store.load
+          if expected && (!current || current['generation'] != expected['generation'])
+            raise Cancelled, 'Operation cancelled: its workspace was destroyed or recreated during validation'
+          end
+          next current if current
+
+          persist(nil, nil)
+          @store.load
+        end
       end
     end
   end

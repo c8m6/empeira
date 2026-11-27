@@ -5,7 +5,8 @@ require_relative 'support/runtime_execution'
 RSpec.describe 'Project Empeira version requirements' do
   # These examples isolate the existing network/version contracts from service orchestration.
   before do
-    plane = instance_double(Empeira::ControlPlane::Controller, up: false, down: false, status: {}, preflight: nil)
+    plane = instance_double(Empeira::ControlPlane::Controller, up: false, down: false, status: {}, preflight: nil,
+                                                               validate: nil)
     allow(Empeira::ControlPlane::Controller).to receive(:new).and_return(plane)
   end
   def app(requirement, version: '0.4.0')

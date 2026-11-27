@@ -87,10 +87,12 @@ RSpec.describe Empeira::VM::QemuRuntime, :files_only do
     allow(runtime).to receive(:running?).and_return(true)
     runner = runtime.instance_variable_get(:@runner)
     expect(runner).not_to receive(:run)
-    expect(runner).to receive(:console).with(runtime.console_path('host1'), guidance: include(
+    guidance = include(
       "Connected to VM serial console.\nPress Ctrl+] to detach. The VM will keep running.\n",
       'No console password is configured. Use empeira node ssh host1 instead.'
-    ))
+    )
+    expect(runner).to receive(:console).with(runtime.console_path('host1'), verify: an_instance_of(Proc),
+                                                                            guidance: guidance)
     runtime.console(record)
     server.close
     runtime.cleanup(record.merge('pid' => nil))

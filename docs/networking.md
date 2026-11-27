@@ -86,7 +86,7 @@ implemented. On WSL2, keep source checkouts on the Linux filesystem.
 
 ### Address lifetime and recovery
 
-Under the workspace lock, Empeira selects an unused private /24 after checking
+During serialized control-plane allocation, Empeira selects an unused private /24 after checking
 host routes and runtime networks. Gateway/DNS/proxy addresses, VM/container leases
 and runtime infrastructure allocation use separate pools. There is no fixed global
 subnet or user IP/MAC setting. Unknown overlap or ownership fails closed.

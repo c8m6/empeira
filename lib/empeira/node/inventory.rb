@@ -4,6 +4,15 @@ module Empeira
   module Node
     # rubocop:disable-next Metrics/ModuleLength -- Provider inventories share one explicit ownership envelope.
     module Inventory
+      def self.instance(record)
+        if record['provider'] == 'vm'
+          record.dig('peer',
+                     'token')
+        else
+          record.dig('definition', 'mac_address') || record['id']
+        end
+      end
+
       def self.valid?(nodes)
         return false unless nodes.is_a?(Hash)
 
@@ -25,7 +34,21 @@ module Empeira
         CommandMocks.valid_inventory?(record.fetch('command_mocks', {})) &&
           (!record.key?('runtime_proxy') || RuntimeProxy.valid_inventory?(record['runtime_proxy'])) &&
           (!record.key?('interactive_tools') || InteractiveTools.valid_inventory?(record['interactive_tools'])) &&
-          valid_fact_revision?(record)
+          valid_fact_revision?(record) && valid_concurrency?(record)
+      end
+
+      def self.valid_concurrency?(record)
+        revision = record['lifecycle_revision']
+        (revision.nil? || (revision.is_a?(String) && revision.match?(/\A[0-9a-f]{32}\z/))) &&
+          [nil, true, false].include?(record['deleting']) &&
+          valid_helpers?(record.fetch('helpers', {}))
+      end
+
+      def self.valid_helpers?(helpers)
+        helpers.is_a?(Hash) && helpers.all? do |key, value|
+          key.is_a?(String) && key.match?(/\Aagent-[0-9a-f]{32}\z/) &&
+            value.is_a?(Hash) && value.keys == ['id'] && valid_id?(value['id'])
+        end
       end
 
       def self.valid_fact_revision?(record)

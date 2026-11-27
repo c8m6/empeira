@@ -4,14 +4,17 @@ require 'fileutils'
 
 module Empeira
   module Node
-    # rubocop:disable-next Metrics/ModuleLength -- Node lifecycle and cleanup share the workspace lock.
+    # rubocop:disable-next Metrics/ModuleLength -- Node lifecycle pins instance identity around native resource phases.
     module VMLifecycle
+      # rubocop:disable-next Metrics/AbcSize -- Keep native resource creation and readiness separate from brief identity publication.
       def start(name:)
         mutate do
           record = fetch_vm(name)
           unless record['provisioned']
             raise Error, 'VM bootstrap is incomplete; inspect logs, then destroy and recreate the node'
           end
+
+          record = claim_lifecycle(name)
 
           validate_interfaces(record)
           ready_server
@@ -25,11 +28,18 @@ module Empeira
         end
       end
 
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Invalidate pending lifecycle work and interrupt the native instance before waiting for its resource phase.
       def stop(name:)
-        mutate do
+        mutate(destructive: true) do
           record = fetch_vm(name)
-          session_lock(record).exclusive do
-            changed = !!@qemu.stop(record)
+          cancel_lifecycle(record)
+          changed = record['pid'] && @qemu.stop(record, immediate: true)
+          instance_phase(record) do
+            cancel_lifecycle(record)
+            load_state
+            record = fetch_vm(name)
+            stopped = @qemu.stop(record, immediate: true)
+            changed = !!(stopped || changed)
             @peer.stop(record)
             record['state'] = 'stopped'
             record['pid'] = nil
@@ -42,13 +52,6 @@ module Empeira
       def destroy(name:)
         Infrastructure::Cleanup.new(context: context, runner: @runner, runtime: @runtime,
                                     progress: @progress).node(name)
-      end
-
-      def destroy_all(state:)
-        load_state(state)
-        @runtime.check_available!
-        @bootstrap_proxy.cleanup(@state)
-        vm_records.each_key { |name| remove_vm(name, certificates: false) }
       end
 
       def puppet(name:)
@@ -75,9 +78,14 @@ module Empeira
       end
 
       def ssh(name:, user: nil, identity: nil, port: nil)
-        interactive_vm(name) do |record|
-          ::Empeira::VM::SystemSSH.new(context: context, runner: @runner, runtime: @runtime, qemu: @qemu)
-                                  .session(record, user: user, identity: identity, port: port)
+        client, record = mutate do
+          current = booted_vm(name)
+          ssh = ::Empeira::VM::SystemSSH.new(context: context, runner: @runner, runtime: @runtime,
+                                             qemu: @qemu, store: @store)
+          ssh.prepare(current, user: user, identity: identity, port: port)
+        end
+        Execution::Terminal.with_interrupts do
+          @progress.streaming { client.session(record, user: user, identity: identity) }
         end
       end
 
@@ -93,23 +101,14 @@ module Empeira
       private
 
       def interactive_vm(name)
-        lock = nil
         record = mutate do
-          current = booted_vm(name)
-          lock = session_lock(current).acquire(shared: true)
-          current
+          booted_vm(name)
         end
         Execution::Terminal.with_interrupts { @progress.streaming { yield record } }
-      ensure
-        lock&.close
-      end
-
-      def session_lock(record)
-        ::Empeira::VM::SessionLock.new(context: context, record: record)
       end
 
       def boot_existing(record)
-        session_lock(record).exclusive { resume_vm(record) }
+        resume_vm(record)
       end
 
       # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Retained VM restart has ordered, visible milestones.
@@ -119,13 +118,16 @@ module Empeira
         @progress.stage(30, 'Checking VM network prerequisites...')
         @peer.preflight(@state)
         @progress.stage(40, 'Preparing VM network...')
-        @peer.prepare(record, @state)
-        attachment = Network::Peer::Attachment.new(backend: @peer, record: record, state: @state)
-        begin
-          @progress.stage(55, 'Starting virtual machine...')
-          record['pid'] = @qemu.launch(record: record, overlay: overlay, seed: seed, network: attachment)
-        ensure
-          save if record['pid']
+        @peer.prepare_image
+        instance_phase(record) do
+          @peer.prepare(record, @state)
+          attachment = Network::Peer::Attachment.new(backend: @peer, record: record, state: @state)
+          begin
+            @progress.stage(55, 'Starting virtual machine...')
+            record['pid'] = @qemu.launch(record: record, overlay: overlay, seed: seed, network: attachment)
+          ensure
+            save if record['pid']
+          end
         end
         @progress.stage(80, 'Waiting for VM management readiness...')
         @guest.wait(record, progress: @progress)
@@ -166,42 +168,6 @@ module Empeira
         end
 
         record
-      end
-
-      def remove_vm(name, certificates: true)
-        record = vm_records[name]
-        return unless record
-
-        session_lock(record).exclusive { remove_vm_instance(name, record, certificates: certificates) }
-      end
-
-      def remove_vm_instance(name, record, certificates:)
-        @qemu.stop(record)
-        @peer.destroy(record, @state)
-        @qemu.cleanup(record)
-        clean_vm_certificate(record) if certificates && record['certificate_key']
-        remove_vm_disk(record)
-        remove_vm_directory(record)
-        @nodes.delete(name)
-        save
-        record
-      end
-
-      def clean_vm_certificate(record)
-        Certificates.new(runtime: @runtime, server: ready_server).clean(record)
-      end
-
-      def remove_vm_disk(record)
-        base = base_for(record)
-        overlay = vm_directory(record).join('disk.qcow2')
-        @disk.remove(hostname: record.fetch('hostname'), base: base) if overlay.exist? || overlay.symlink?
-      end
-
-      def remove_vm_directory(record)
-        directory = vm_directory(record)
-        return unless directory.exist? || directory.symlink?
-
-        FileUtils.remove_entry_secure(directory)
       end
 
       def vm_directory(record)

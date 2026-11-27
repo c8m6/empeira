@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'base64'
+
 module Empeira
   module Agent
     Artifact = Data.define(:path, :metadata) do

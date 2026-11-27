@@ -6,8 +6,9 @@ require 'socket'
 module Empeira
   module Execution
     class Console
-      def attach(path, input:, output:, guidance: nil)
+      def attach(path, input:, output:, guidance: nil, verify: nil)
         UNIXSocket.open(path) do |socket|
+          verify&.call
           output.write(guidance) if guidance
           output.flush
           Terminal.with_interrupts do

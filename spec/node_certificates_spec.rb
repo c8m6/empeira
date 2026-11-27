@@ -16,6 +16,19 @@ RSpec.describe Empeira::Node::Certificates, :files_only do
     JSON.generate(state => [{ 'name' => 'test-node', 'state' => state }])
   end
 
+  it 'stops between CA calls when its node operation is cancelled' do
+    checks = 0
+    guard = lambda do
+      checks += 1
+      raise Empeira::Infrastructure::Cancelled, 'Node removed' if checks == 2
+    end
+    selected = described_class.new(runtime: runtime, server: server, guard: guard)
+    expect(runtime).to receive(:service_exec).once.and_return(result('{}'))
+    expect(runtime).not_to receive(:copy_from)
+    expect { selected.enroll(node, record) { nil } }.to raise_error(Empeira::Infrastructure::Cancelled)
+    expect(record).not_to have_key('certificate_key')
+  end
+
   it 'refuses an existing CA identity before generating or signing a node key' do
     expect(runtime).to receive(:service_exec).once.with(server, array_including('list'), timeout: 60)
                                              .and_return(result(ca_entry('signed')))

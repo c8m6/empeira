@@ -16,12 +16,18 @@ module Empeira
         @identity = SSHIdentity.new(home: home)
       end
 
-      def session(record, user: nil, identity: nil)
+      def prepare(record, user: nil, identity: nil)
         @credentials.prepare_hosts
         username = username_for(user)
         transport = SSHClient.new(credentials: @credentials, proxy_command: @proxy_command)
-        arguments = ['-tt', '-l', username, *options(record, transport), *authentication_options(identity)]
-        @runner.stream('ssh', arguments: [*arguments, record.fetch('hostname')])
+        @arguments = ['-tt', '-l', username, *options(record, transport), *authentication_options(identity),
+                      record.fetch('hostname')]
+        self
+      end
+
+      def session(record, user: nil, identity: nil)
+        prepare(record, user: user, identity: identity) unless @arguments
+        @runner.stream('ssh', arguments: @arguments)
       end
 
       def username_for(user)

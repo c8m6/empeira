@@ -6,7 +6,8 @@ module Empeira
     class Agent
       PUPPET = Node::Certificates::PUPPET
 
-      def initialize(context:, guest:, runtime: nil, progress: Progress.new)
+      def initialize(context:, guest:, runtime: nil, progress: Progress.new, store: nil)
+        @store = store
         @context = context
         @guest = guest
         @runtime = runtime
@@ -49,7 +50,7 @@ module Empeira
         copy = ->(source, destination, mode) { @guest.copy_to(record, source, destination, mode: mode) }
         @runtime ||= Runtime.registry.build(@context.container_engine, context: @context, runner: Execution::Runner.new)
         installer = Node::AgentInstaller.build(context: @context, runtime: @runtime, requirements: requirements,
-                                               execute: execute, copy: copy, progress: @progress)
+                                               execute: execute, copy: copy, progress: @progress, store: @store)
         installer.install(proxy_url: proxy_url)
         execute!(record, [PUPPET, '--version'], 'VM Puppet agent verification')
       end

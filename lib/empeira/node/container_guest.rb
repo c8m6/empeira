@@ -6,9 +6,11 @@ module Empeira
       private
 
       def reconcile_guest(resource, record)
-        fact_changed = reconcile_provider_fact(resource, record)
-        environment_changed = prepare_guest_environment(resource, record)
-        reconcile_command_mocks(resource, record) || environment_changed || fact_changed
+        guest_configuration(record) do
+          fact_changed = reconcile_provider_fact(resource, record)
+          environment_changed = prepare_guest_environment(resource, record)
+          reconcile_command_mocks(resource, record) || environment_changed || fact_changed
+        end
       end
 
       # rubocop:disable-next Naming/PredicateMethod -- Reconciliation mutates owned guest state and reports changes.

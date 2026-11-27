@@ -4,7 +4,8 @@ module Empeira
   module Agent
     # One source-resolution and acquisition path for both providers and both install methods.
     class Acquisition
-      def initialize(context:, runtime:, progress: Progress.new)
+      def initialize(context:, runtime:, progress: Progress.new, store: nil)
+        @store = store
         @context = context
         @runtime = runtime
         @progress = progress
@@ -16,6 +17,7 @@ module Empeira
         acquire = ->(directory) { fetch(directory, request) }
         cache.with_artifact(request, enabled: @context.configuration.dig('agent', 'cache', 'enabled'),
                                      acquire: acquire, pin: package_pin) do |artifact|
+          @store&.operation&.check!
           @progress.heartbeat('Installing the resolved local agent package...')
           yield artifact
         end
@@ -62,7 +64,8 @@ module Empeira
         @download = Download.new(authentication: @authentication)
         @progress.heartbeat('Resolving and acquiring the agent package...')
         image = helper_image
-        @runtime.with_agent_helper(image: image.reference) do |resource|
+        options = @store ? { operation: @store.operation } : {}
+        @runtime.with_agent_helper(image: image.reference, **options) do |resource|
           resolver = native_source(resource, directory)
           path, metadata, selected = acquire_package(resolver, directory, request)
           describe(path, metadata, selected, resolver, request)
@@ -105,7 +108,9 @@ module Empeira
                   download: @download, authentication: @authentication, directory: directory)
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Verify cancellation, target architecture and native image identity before helper creation.
       def helper_image
+        @store&.operation&.check!
         preflight!(@requirements)
         request = Struct.new(:os, :version).new(@target.os, @target.release)
         image = Node::Image.new(config: @context.configuration, request: request, architecture: @target.architecture)

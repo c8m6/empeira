@@ -121,7 +121,11 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     allow(app.runner).to receive(:console).and_wrap_original do |original, path, **options|
       expect { store.with_lock { nil } }.not_to raise_error
       expect(app.nodes.list).to include(hash_including('hostname' => 'incomplete-vm', 'state' => 'incomplete'))
-      expect { app.nodes.stop(name: 'incomplete-vm') }.to raise_error(Empeira::Infrastructure::Locked)
+      verify = options.fetch(:verify)
+      options[:verify] = lambda do
+        verify.call
+        expect(app.nodes.stop(name: 'incomplete-vm').changed).to be(true)
+      end
       input = Tempfile.new('console-detach')
       input.write("\x1d")
       input.rewind
@@ -133,7 +137,7 @@ RSpec.describe 'Real accelerated VM nodes', :integration do
     end
     expect(app.nodes.console(name: 'incomplete-vm')).to be_success
     allow(app.runner).to receive(:console).and_call_original
-    expect { app.nodes.puppet(name: 'incomplete-vm') }.to raise_error(Empeira::Error, /bootstrap is incomplete/)
+    expect { app.nodes.puppet(name: 'incomplete-vm') }.to raise_error(Empeira::Error, /bootstrap is incomplete|stopped/)
     app.nodes.destroy(name: 'incomplete-vm')
   end
 

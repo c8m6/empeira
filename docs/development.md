@@ -46,6 +46,12 @@ files, covering login/non-login behavior, PATH preservation, duplicate preventio
 and ownership failures. The manual runtime management gate also checks installed
 agent commands on retained guests after restart.
 
+`spec/ssh_transport_spec.rb` exercises the agent-independent Bash byte relay over
+loopback TCP, including native macOS Bash 3.2. It verifies binary output, remote
+and local EOF, and termination cleanup while both streams remain open. Relay
+completion uses an explicit signal because Bash 3.2 defers `CHLD` traps during
+`wait`; the tests retain bounded waits rather than increasing their timeouts.
+
 The manual runtime management gate checks real VirtIO execution while Puppet sets
 root shadow to `!`, replaces sudoers, removes the regular `empeira` account and
 changes, restarts and disables system SSH. It verifies subsequent `node puppet`,
@@ -300,7 +306,7 @@ The real VM lifecycle regression verifies the default managed SSH login and expl
 overrides, then exercises retained disk and console recovery. A second case injects
 a permanent guest error at the final APT backup removal: the restored archive must
 remain verifiable, Puppet must stay blocked, and SSH/console access must release the
-workspace lock while preventing concurrent stop of that instance. The injected error
+inventory transaction and remain interruptible by a concurrent stop. The injected error
 does not reproduce an unexplained historical SSH disconnect.
 The lifecycle case also verifies a 32 GiB thin overlay, unchanged base checksum,
 grown root partition/filesystem, package installation and `df -h /`. After changing

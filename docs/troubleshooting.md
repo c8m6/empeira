@@ -124,10 +124,12 @@ Puppet. **Ctrl-] detaches**. Empeira does not reset credentials to repair a fail
 Stopped nodes need `node start`. Investigate changed SSH host keys instead of
 turning off checking. Destroy/recreate removes a disposable node's private known-hosts entry.
 
-VM sessions release the workspace mutation lock. Status and independent workspace
-operations remain available, and multiple VM SSH sessions may coexist. Stop, destroy
-or restart of that same VM conflicts with the shared instance guard: detach with
-**Ctrl-]** for console sessions, or exit SSH, then retry. Do not delete lock files.
+Status and independent node operations remain available during provisioning and
+interactive access. Stop and destroy intentionally interrupt active sessions and
+Puppet runs. An old operation reporting cancellation after deletion is expected;
+it cannot write through a reused hostname. Do not delete lock files. If cleanup
+reports remaining ownership data, investigate the native diagnostic and retry the
+same destroy operation after fixing the cause.
 
 ## Proxy destination denied
 

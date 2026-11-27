@@ -16,8 +16,7 @@ module Empeira
         def prepare(record, state)
           check_record(record)
           channel(record).prepare
-          @image = AdapterImage.new(context: context)
-          @image.ensure!(runtime)
+          prepare_image unless @image
           resource = ensure_adapter(record, state)
           runtime.start_service(resource) unless resource['state'] == 'running'
           verify_adapter(record)

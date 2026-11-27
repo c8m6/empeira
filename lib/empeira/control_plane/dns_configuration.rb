@@ -2,7 +2,7 @@
 
 module Empeira
   module ControlPlane
-    # Validate and observe the actual CoreDNS generation under the workspace lock.
+    # Validate and observe the actual CoreDNS generation during serialized control-plane reconciliation.
     # rubocop:disable-next Metrics/ClassLength -- Candidate validation and rollback form one transaction.
     class DNSConfiguration
       VALIDATOR = 'dns-validation'

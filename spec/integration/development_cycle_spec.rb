@@ -115,13 +115,14 @@ RSpec.describe 'Real Puppet development cycle', :integration do
         expect(store.load).not_to have_key('bootstrap_proxy')
       end
 
-      # rubocop:disable-next Metrics/AbcSize -- Bracket the owned temporary proxy in one locked transaction.
+      # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Pin the real client instance while the proxy owns its own short policy transaction.
       def with_package_proxy
         proxy = Empeira::Network::BootstrapProxy.new(context: app.context, runtime: runtime, store: store)
         version = app.context.configuration.dig('node_defaults', 'version')
         requirements = Empeira::VM::BootstrapRequirements.new(context: app.context, os: 'ubuntu', version: version)
-        store.with_lock do
+        store.with_operation do |operation|
           state = store.load
+          operation.attach(state.fetch('nodes').fetch('cache-node'))
           begin
             proxy.preflight!(state)
             plan = Empeira::ControlPlane::Plan.new(context: app.context)

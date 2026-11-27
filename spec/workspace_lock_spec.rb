@@ -6,15 +6,31 @@ RSpec.describe Empeira::Infrastructure::Store do
     described_class.new(context: Empeira::Application.new(project_path: project, locations: locations).context)
   end
 
-  it 'excludes competing mutations and releases after success' do
+  it 'allows nested short transactions without replacing the lock inode' do
+    path = store.directory.join('mutation.lock')
     store.with_lock do
-      expect do
-        store.with_lock do
-          raise 'must not enter'
-        end
-      end.to raise_error(Empeira::Infrastructure::Locked, /Wait and retry/)
+      inode = path.stat.ino
+      store.with_lock { expect(path.stat.ino).to eq(inode) }
     end
     expect { store.with_lock { true } }.not_to raise_error
+  end
+
+  it 'queues another thread until the inventory transaction commits' do
+    ready = Queue.new
+    entered = Queue.new
+    worker = nil
+    store.with_lock do
+      worker = Thread.new do
+        ready << true
+        store.with_lock { entered << true }
+      end
+      ready.pop
+      expect(entered).to be_empty
+    end
+    expect(Timeout.timeout(5) { entered.pop }).to be(true)
+    worker.join
+  ensure
+    worker&.kill
   end
 
   it 'releases locks after exceptions and interrupts' do
@@ -47,8 +63,12 @@ RSpec.describe Empeira::Infrastructure::Store do
                                        timeout: 10)
   end
 
-  it 'excludes another OS process and allows a later process after release' do
-    store.with_lock { expect(child_lock.exit_status).to eq(9) }
+  it 'holds the native inventory flock and allows a later process after release' do
+    store.with_lock do
+      File.open(store.directory.join('mutation.lock'), File::RDWR) do |file|
+        expect(file.flock(File::LOCK_EX | File::LOCK_NB)).to be(false)
+      end
+    end
     expect(child_lock).to be_success
   end
 

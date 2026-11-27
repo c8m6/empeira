@@ -97,7 +97,7 @@ module Empeira
 
       def update_artifacts(target)
         @build_info.require_compatible!(@context.configuration.dig('requirements', 'empeira'))
-        Infrastructure::Store.new(context: @context).with_lock do
+        Infrastructure::Store.new(context: @context).resource_lock("update/#{target}").synchronize do
           runtime = @runtimes.build(@context.container_engine, context: @context, runner: @runner)
           runtime.check_available!
           if target == 'modules'

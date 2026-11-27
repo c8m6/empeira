@@ -15,15 +15,13 @@ module Empeira
         root = @store.directory
         path = root.join('vms', record.fetch('hostname'))
         Infrastructure::OwnedFiles.verify_removable!(path, root: root)
-        SessionLock.new(context: @context, record: record).exclusive do
-          engine = VM.registry.build('qemu', context: @context, runner: @runner)
-          qemu = QemuRuntime.new(engine: engine, runner: @runner, context: @context)
-          peer = Network::Peer::Backend.build(context: @context, runtime: @runtime, runner: @runner, store: @store)
-          qemu.stop(record)
-          peer.destroy(record, state)
-          qemu.cleanup(record)
-          Infrastructure::OwnedFiles.remove(path, root: root)
-        end
+        engine = VM.registry.build('qemu', context: @context, runner: @runner)
+        qemu = QemuRuntime.new(engine: engine, runner: @runner, context: @context)
+        peer = Network::Peer::Backend.build(context: @context, runtime: @runtime, runner: @runner, store: @store)
+        qemu.stop(record, immediate: true)
+        peer.destroy(record, state)
+        qemu.cleanup(record)
+        Infrastructure::OwnedFiles.remove(path, root: root)
       end
     end
   end

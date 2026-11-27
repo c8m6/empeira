@@ -5,7 +5,7 @@ RSpec.describe Empeira::VM::SystemSSH do
   let(:runtime) { instance_double(Empeira::Runtime::Podman) }
   let(:qemu) { instance_double(Empeira::VM::QemuRuntime, running?: true) }
   let(:peer) { instance_double(Empeira::Network::Peer::LinuxPodman) }
-  let(:client) { instance_double(Empeira::Node::UserSSH) }
+  let(:client) { instance_double(Empeira::Node::UserSSH, prepare: nil) }
   let(:record) { { 'hostname' => 'node.example.test', 'ssh_port' => 32_123 } }
   subject(:system) { described_class.new(context: app.context, runner: app.runner, runtime: runtime, qemu: qemu) }
 

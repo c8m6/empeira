@@ -6,7 +6,7 @@ require 'securerandom'
 module Empeira
   module Network
     module Peer
-      # Addresses belong to node instances, under the existing workspace mutation lock.
+      # Addresses belong to node instances, reserved in brief inventory transactions.
       class Layout
         attr_reader :subnet
 

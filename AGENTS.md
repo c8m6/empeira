@@ -20,6 +20,8 @@ The product is Empeira, the CLI is `empeira`, and the project marker is
 Do not create planning, scratch, progress or temporary Markdown files unless
 requested. Project documentation and this file are exempt.
 
+Empeira protects the consistency of its own infrastructure state and managed resources, not the lifetime of user workloads. Independent operations must not be serialized unnecessarily. Destructive operations must remain available and take precedence over ongoing provisioning and execution. Native provider and application concurrency mechanisms must be preferred over redundant locking. Every Empeira-specific lock must have a concrete technical justification and the smallest practical scope.
+
 ## Licensing and dependencies
 
 Project-owned code and documentation use `AGPL-3.0-or-later`. Prefer Ruby's
@@ -195,10 +197,9 @@ separate private VM serial console with unchanged guest login. Container
 `node ssh` defaults to the existing `empeira` account and managed key, including
 incomplete running nodes. Preserve independent `--user`/`--identity` overrides.
 Authentication failure never injects users/keys or falls back to shell. Verify owned
-endpoints and use private node known-hosts. VM interactive access releases the
-workspace mutation lock and holds a shared instance guard; conflicting VM lifecycle
-operations fail until sessions detach. Container SSH follows the same handoff, pinned
-to the observed container ID; container stop/removal honor that shared guard.
+endpoints and use private node known-hosts. Interactive access pins the observed instance without a workload lifetime guard.
+Stop and destroy remain available during sessions and provisioning. VirtIO slot
+locks protect framing on each individual channel; they never protect workload lifetime.
 Console password applies once, is redacted and removed from temporary seed material, never restored after Puppet changes it.
 Private console sockets support macOS path limits and are removed with the node.
 
@@ -212,8 +213,11 @@ overlapping paths and tags/aliases. Avoid application-specific orchestration.
 ## Persistent state and lifecycle
 
 Before infrastructure mutation, validate the project release requirement through
-`BuildInfo`, then take the shared nonblocking workspace lock. Read-only status
-uses no exclusive lock. Keep the lock inode stable; never delete it as recovery.
+`BuildInfo`, use brief inventory transactions and resource-specific locks. Read-only status
+uses no exclusive lock. Keep lock inodes stable; never delete them as recovery.
+Pin workspace incarnations and immutable node identities across long operations.
+Destruction invalidates pending work before native teardown; old operations must
+never recreate resources or write through a reused hostname.
 Status reports observed resources without diagnostic helper containers; explicit
 `status --verify` additionally checks live gateway and bridge policy.
 Development builds cannot verify explicit release requirements. Absent/null
@@ -251,7 +255,7 @@ artifact operations; `update all` includes every target and fails before mutatio
 when a required target is unavailable. Do not implement package replacement or
 hidden continuation flags without a concrete packaging handoff design.
 
-Updates share the version gate/lock but never require infrastructure inventory,
+Updates share the version gate and artifact-specific locks but never require infrastructure inventory,
 networks or services. Disposable owned helpers use the runtime default bridge,
 minimal mounts and observed-membership verification; remove them after success,
 failure or interruption when the engine is reachable. Host Git uses normal user

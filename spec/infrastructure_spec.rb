@@ -6,7 +6,7 @@ RSpec.describe Empeira::Infrastructure::Service do
   # These examples isolate the existing network/version contracts from service orchestration.
   before do
     plane = instance_double(Empeira::ControlPlane::Controller, up: false, down: false, destroy: nil,
-                                                               status: {}, preflight: nil,
+                                                               status: {}, preflight: nil, validate: nil,
                                                                browser: 'https://127.0.0.1:32124/')
     allow(Empeira::ControlPlane::Controller).to receive(:new).and_return(plane)
   end
@@ -22,19 +22,32 @@ RSpec.describe Empeira::Infrastructure::Service do
     Empeira::Infrastructure::Store.new(context: app.context)
   end
 
-  it 'includes node-resource reconciliation in up under the existing workspace lock' do
+  it 'reconciles nodes without retaining the inventory transaction' do
     app = application
     nodes = instance_double(Empeira::Node::Service)
     allow(Empeira::Node::Service).to receive(:new).and_return(nodes)
     allow(nodes).to receive(:reconcile) do |state:|
       expect(state['workspace']).to eq(app.context.workspace.id)
-      expect { store(app).with_lock { raise 'must remain locked' } }.to raise_error(Empeira::Infrastructure::Locked)
+      expect { store(app).with_lock { nil } }.not_to raise_error
       true
     end
     expect(app.infrastructure.up.changed).to be(true)
     expect(app.infrastructure.up.changed).to be(true)
     allow(nodes).to receive(:reconcile).and_return(false)
     expect(app.infrastructure.up.changed).to be(false)
+  end
+
+  it 'does not recreate a workspace destroyed while up validates its existing incarnation' do
+    app = application
+    service = app.infrastructure
+    service.up
+    allow(service).to receive(:initialize_intent).and_wrap_original do |original, **options|
+      application.infrastructure.destroy
+      original.call(**options)
+    end
+    expect { service.up }.to raise_error(Empeira::Infrastructure::Cancelled)
+    expect(store(app).load).to be_nil
+    expect(runner.networks.fetch('podman')).to be_empty
   end
 
   it 'persists runtime, resource identity and fingerprints across service/application instances' do
@@ -162,7 +175,7 @@ RSpec.describe Empeira::Infrastructure::Service do
     app = application
     app.infrastructure.up
     mutations = runner.mutations.dup
-    plane = instance_double(Empeira::ControlPlane::Controller)
+    plane = instance_double(Empeira::ControlPlane::Controller, validate: nil)
     allow(Empeira::ControlPlane::Controller).to receive(:new).and_return(plane)
     expect(Empeira::Node::Service).not_to receive(:new)
     expect(plane).to receive(:browser).and_return('https://127.0.0.1:32124/')
@@ -248,7 +261,7 @@ RSpec.describe Empeira::Infrastructure::Service do
     writes = 0
     allow(persistent).to receive(:write).and_wrap_original do |method, *args|
       writes += 1
-      raise Empeira::Infrastructure::StateError, 'synthetic write failure' if writes == 2
+      raise Empeira::Infrastructure::StateError, 'synthetic write failure' if writes == 3
 
       method.call(*args)
     end
@@ -344,11 +357,11 @@ RSpec.describe Empeira::Infrastructure::Service do
   it 'checks local artifacts before runtime mutation without constructing an updater' do
     app = application
     expect(Empeira::Updates::Modules).not_to receive(:new)
-    plane = instance_double(Empeira::ControlPlane::Controller)
+    plane = instance_double(Empeira::ControlPlane::Controller, validate: nil)
     allow(Empeira::ControlPlane::Controller).to receive(:new).and_return(plane)
     expect(plane).to receive(:preflight).with(no_args).ordered do
       expect(runner.mutations).to be_empty
-      expect(store(app).load).to be_nil
+      expect(store(app).load.dig('resources', 'network', 'id')).to be_nil
     end
     expect(plane).to receive(:up).with(no_args).ordered do
       expect(runner.mutations.size).to eq(1)
@@ -359,9 +372,9 @@ RSpec.describe Empeira::Infrastructure::Service do
 
   it 'fails missing artifact validation before network mutation' do
     app = application
-    plane = instance_double(Empeira::ControlPlane::Controller)
+    plane = instance_double(Empeira::ControlPlane::Controller, validate: nil)
     allow(Empeira::ControlPlane::Controller).to receive(:new).and_return(plane)
-    allow(plane).to receive(:preflight).and_raise(Empeira::Error, 'Run: empeira update modules')
+    allow(plane).to receive(:validate).and_raise(Empeira::Error, 'Run: empeira update modules')
     expect(plane).not_to receive(:up)
     expect { app.infrastructure.up }.to raise_error(Empeira::Error, /update modules/)
     expect(runner.mutations).to be_empty

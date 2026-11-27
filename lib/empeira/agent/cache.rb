@@ -24,8 +24,15 @@ module Empeira
 
         prepare
         key = fingerprint(request)
-        lock(key) do
-          artifact = load(key, request, pin) || acquire_cached(key, request, pin, acquire)
+        lock(key, shared: true) do
+          artifact = load(key, request, pin)
+          return use.call(artifact) if artifact
+        end
+        populate(key, request, pin, acquire)
+        lock(key, shared: true) do
+          artifact = load(key, request, pin)
+          raise CacheCorruption, 'Agent cache artifact changed before installation' unless artifact
+
           use.call(artifact)
         end
       rescue SystemCallError, IOError
@@ -44,6 +51,17 @@ module Empeira
       end
 
       private
+
+      def populate(key, request, pin, acquire)
+        # Queue misses separately: a waiting downloader must recheck with a shared
+        # lock instead of waiting for another node's package installation.
+        lock("acquire-#{key}") do
+          present = lock(key, shared: true) { load(key, request, pin) }
+          next if present
+
+          lock(key) { load(key, request, pin, repair: true) || acquire_cached(key, request, pin, acquire) }
+        end
+      end
 
       def fingerprint(value)
         self.class.fingerprint(value)
@@ -65,7 +83,7 @@ module Empeira
         end
       end
 
-      def load(key, request, pin)
+      def load(key, request, pin, repair: false)
         reference = @root.join('refs', "#{key}.json")
         return unless reference.exist? || reference.symlink?
 
@@ -74,7 +92,7 @@ module Empeira
         validate!(artifact, request, pin)
         artifact
       rescue JSON::ParserError, KeyError, Errno::ENOENT, CacheCorruption
-        reference.delete if reference.exist?
+        reference.delete if repair && reference.exist?
         nil
       end
 

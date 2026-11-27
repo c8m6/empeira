@@ -3,24 +3,43 @@
 module Empeira
   module ControlPlane
     class Discovery
-      def initialize(plan:, runtime:, state:)
+      def initialize(plan:, runtime:, state:, store: Infrastructure::Store.new(context: plan.context))
         @plan = plan
         @runtime = runtime
         @state = state
+        @store = store
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Read current leases and publish DNS, proxy grants and reload checkpoint as one resource update.
       def refresh(services: nil, node_resources: nil, reload_proxy: true, force_proxy_reload: false)
-        nodes = @state.fetch('nodes', {})
-        definitions = node_definitions(nodes)
-        expected = nodes.select { |_, record| record['provider'] == 'container' }
-                        .transform_values { |record| record['id'] }
-        resources = inspect(definitions, expected, services, node_resources)
-        resources.merge!(lease_resources(nodes))
-        @plan.files.hosts(resources, @plan.network)
-        refresh_proxy(resources, nodes, reload: reload_proxy, force: force_proxy_reload)
+        @store.resource_lock('discovery').synchronize do
+          reload_snapshot = refresh_snapshot?
+          nodes = @state.fetch('nodes', {}).reject { |_, record| record['deleting'] }
+          definitions = node_definitions(nodes)
+          expected = nodes.select { |_, record| record['provider'] == 'container' }
+                          .transform_values { |record| record['id'] }
+          resources = inspect(definitions, expected, services, node_resources)
+          resources.merge!(lease_resources(nodes))
+          @plan.files.hosts(resources, @plan.network)
+          changed = refresh_proxy(resources, nodes, reload: reload_proxy, force: force_proxy_reload)
+          @store.write(@state) if reload_snapshot
+          changed
+        end
       end
 
       private
+
+      def refresh_snapshot?
+        return false unless @state['generation']
+
+        current = @store.load
+        unless current && current['generation'] == @state['generation'] && !current['destroying']
+          raise Infrastructure::Cancelled, 'Discovery update belongs to a removed workspace incarnation'
+        end
+
+        @state = current
+        true
+      end
 
       def node_definitions(nodes)
         nodes.select { |_, record| record['provider'] == 'container' }.transform_values do |record|
@@ -55,9 +74,15 @@ module Empeira
         definitions.empty? ? {} : @runtime.inspect_services(definitions, expected_ids: expected)
       end
 
+      def reusable_nodes?(observed, expected)
+        observed && observed.keys.sort == expected.keys.sort && expected.all? do |name, id|
+          id && observed[name]&.fetch('id', nil) == id
+        end
+      end
+
       def inspect(definitions, expected, services, node_resources)
         if services
-          nodes = node_resources || inspect_nodes(definitions, expected)
+          nodes = reusable_nodes?(node_resources, expected) ? node_resources : inspect_nodes(definitions, expected)
           return services.merge(nodes.compact)
         end
         @plan.browser_enabled = @state.dig('control_plane', 'services')&.key?('browser')

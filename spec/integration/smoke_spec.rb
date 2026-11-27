@@ -71,13 +71,13 @@ RSpec.describe 'Real runtime smoke', :integration do
         expect(server).to include('state' => 'running')
         expect(server.dig('networks', plan.network, 'IPAddress')).to match(/\A\d+\.\d+\.\d+\.\d+\z/)
         verify_additional_service(plan, server)
-        verify_bootstrap_proxy
         expect(@events.any? do |event|
           event.state == :warning && event.message.include?('hieradata_unavailable')
         end).to be(true)
 
         personal = personal_ssh_application(app, locations: locations, login: @login, pattern: 'smoke-*')
         personal.run_node(hostname: 'smoke-node', provider: 'container')
+        verify_bootstrap_proxy
         expect([0, 2]).to include(personal.nodes.puppet(name: 'smoke-node').exit_status)
         inventory = Empeira::Infrastructure::Store.new(context: personal.context).load
         expect(JSON.generate(inventory)).not_to include('lab-key', 'unconfigured-login', @login.identity.to_s)
@@ -166,21 +166,23 @@ RSpec.describe 'Real runtime smoke', :integration do
       end
 
       # rubocop:disable-next Metrics/AbcSize -- Exercise the actual gateway lifecycle in one locked smoke check.
+      # rubocop:disable-next Metrics/MethodLength -- Exercise proxy grants for a real reserved instance and always revoke them.
       def verify_bootstrap_proxy
         store = Empeira::Infrastructure::Store.new(context: app.context)
         proxy = Empeira::Network::BootstrapProxy.new(context: app.context, runtime: runtime, store: store)
         requirements = Empeira::VM::BootstrapRequirements.new(context: app.context, os: 'ubuntu', version: '24.04')
-        store.with_lock do
+        store.with_operation do |operation|
           state = store.load
+          record = state.fetch('nodes').fetch('smoke-node')
+          operation.attach(record)
           begin
             proxy.preflight!(state)
-            lease = Empeira::Network::Peer::Layout.new(state.fetch('peer_network').fetch('subnet')).lease({})
-            address = proxy.start(state, requirements, source: lease.fetch('ip'))
+            address = proxy.start(state, requirements, source: record.fetch('definition').fetch('ip'))
             verify_bootstrap_denial(address)
           ensure
             proxy.cleanup(state)
           end
-          expect(state).not_to have_key('bootstrap_proxy')
+          expect(store.load).not_to have_key('bootstrap_proxy')
         end
       end
     end

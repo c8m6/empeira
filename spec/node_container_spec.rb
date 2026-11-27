@@ -90,6 +90,41 @@ RSpec.describe Empeira::Node::Container do
     allow(Empeira::Node::Certificates).to receive(:new).and_return(certificates)
   end
 
+  it 'allows teardown intent during DNS preparation and finishes it before destroy returns' do
+    entered = Queue.new
+    release = Queue.new
+    intercepted = false
+    allow(runtime).to receive(:inspect_service).and_wrap_original do |original, definition, **options|
+      if definition.key == 'dns' && !intercepted
+        intercepted = true
+        entered << true
+        release.pop
+      end
+      original.call(definition, **options)
+    end
+    creator = Thread.new do
+      provider.run(request)
+    rescue Empeira::Infrastructure::Cancelled => e
+      e
+    end
+    Timeout.timeout(5) { entered.pop }
+    remover = Thread.new do
+      Empeira::Infrastructure::Cleanup.new(context: app.context, runner: app.runner, runtime: runtime).destroy
+    end
+    Timeout.timeout(5) { Thread.pass until store.load['destroying'] }
+    expect(remover).to be_alive
+    release << true
+    expect(creator.value).to be_a(Empeira::Infrastructure::Cancelled)
+    expect(remover.value).to be_a(Empeira::Providers::Result)
+    expect(store.load).to be_nil
+    expect(runtime.services).to be_empty
+    expect(runtime.networks).to be_empty
+    expect(store.directory.join('containers')).not_to exist
+  ensure
+    release&.push(true)
+    [creator, remover].compact.each { |thread| thread.kill.join }
+  end
+
   context 'with the normal workspace proxy enabled' do
     let(:app) do
       File.write(File.join(@directory, '.empeira.yaml'),
@@ -333,7 +368,7 @@ RSpec.describe Empeira::Node::Container do
     provider.run(request)
     record = store.load.fetch('nodes').fetch('test-node')
     expect(record).to include('ssh_host' => '127.0.0.1', 'ssh_port' => 32_124, 'ssh_transport' => 'loopback')
-    client = instance_double(Empeira::Node::UserSSH, session: runtime.stream_service(nil, []))
+    client = instance_double(Empeira::Node::UserSSH, prepare: nil, session: runtime.stream_service(nil, []))
     allow(Empeira::Node::UserSSH).to receive(:new).and_return(client)
     expect(client).to receive(:session).with(hash_including('id' => record['id']), user: nil, identity: nil)
     provider.ssh(name: 'test-node')
@@ -355,7 +390,7 @@ RSpec.describe Empeira::Node::Container do
     record = store.load.fetch('nodes').fetch('test-node')
     expect(runtime).to receive(:ssh_proxy_command).with(hash_including('id' => record['id']), port: 2222)
                                                   .and_call_original
-    client = instance_double(Empeira::Node::UserSSH)
+    client = instance_double(Empeira::Node::UserSSH, prepare: nil)
     allow(Empeira::Node::UserSSH).to receive(:new).with(
       hash_including(proxy_command: ['ruby', 'managed-ssh-proxy', 'docker', record['id'], '2222'])
     ).and_return(client)
@@ -365,20 +400,18 @@ RSpec.describe Empeira::Node::Container do
   end
 
   %w[test-node other-node].each do |second|
-    it "allows overlapping SSH to #{second} while retaining lifecycle exclusion" do
+    it "allows overlapping SSH to #{second} without retaining lifecycle guards" do
       provider.run(request)
       if second != 'test-node'
         provider.run(Empeira::Node::RunRequest.from_config(hostname: second, provider: 'container',
                                                            config: app.context.configuration))
       end
-      client = instance_double(Empeira::Node::UserSSH)
+      client = instance_double(Empeira::Node::UserSSH, prepare: nil)
       allow(Empeira::Node::UserSSH).to receive(:new).and_return(client)
       calls = 0
-      allow(client).to receive(:session) do |record, **|
+      allow(client).to receive(:session) do |_record, **|
         calls += 1
         expect { store.with_lock { nil } }.not_to raise_error
-        expect { provider.stop(name: record.fetch('hostname')) }.to raise_error(Empeira::Infrastructure::Locked)
-        expect { provider.destroy(name: record.fetch('hostname')) }.to raise_error(Empeira::Infrastructure::Locked)
         provider.ssh(name: second) if calls == 1
         runtime.stream_service(nil, [])
       end
@@ -389,7 +422,7 @@ RSpec.describe Empeira::Node::Container do
     end
   end
 
-  it 'releases the acquired instance guard when SSH preparation fails' do
+  it 'keeps destroy available when SSH preparation fails' do
     provider.run(request)
     expect { provider.ssh(name: 'test-node', port: 0) }.to raise_error(Empeira::ConfigurationError)
     expect { store.with_lock { nil } }.not_to raise_error
@@ -397,9 +430,9 @@ RSpec.describe Empeira::Node::Container do
   end
 
   [IOError, Interrupt, SignalException].each do |error|
-    it "releases SSH workspace and instance locks after #{error}" do
+    it "keeps destroy available after SSH #{error}" do
       provider.run(request)
-      client = instance_double(Empeira::Node::UserSSH)
+      client = instance_double(Empeira::Node::UserSSH, prepare: nil)
       allow(Empeira::Node::UserSSH).to receive(:new).and_return(client)
       failure = error == SignalException ? SignalException.new('TERM') : error.new
       allow(client).to receive(:session).and_raise(failure)
@@ -407,6 +440,65 @@ RSpec.describe Empeira::Node::Container do
       expect { store.with_lock { nil } }.not_to raise_error
       expect(provider.destroy(name: 'test-node').changed).to be(true)
     end
+  end
+
+  it 'rejects a reservation invalidated between its resource check and inventory transaction' do
+    actor = provider.instance_variable_get(:@store)
+    locks = 0
+    allow(actor).to receive(:with_lock).and_wrap_original do |original, &operation|
+      locks += 1
+      if locks == 2
+        store.with_lock do
+          current = store.load
+          current['destroying'] = true
+          store.write(current)
+        end
+      end
+      original.call(&operation)
+    end
+    expect { provider.run(request) }.to raise_error(Empeira::Infrastructure::Cancelled)
+    expect(store.load.fetch('nodes', {})).to be_empty
+    definition = Empeira::Node::Definition.new(hostname: request.hostname, workspace: app.context.workspace)
+    expect(runtime.services).not_to have_key(definition.key)
+  end
+
+  it 'cancels stale provisioning after destroy and immediate hostname reuse' do
+    replacement = described_class.new(context: app.context, runner: app.runner, backend: runtime)
+    previous = nil
+    allow(provider).to receive(:apply_bootstrap) do |_resource, record|
+      previous = Empeira::Node::Inventory.instance(record)
+      expect(replacement.destroy(name: request.hostname).changed).to be(true)
+      replacement.run(request)
+    end
+    expect { provider.run(request) }.to raise_error(Empeira::Infrastructure::Cancelled)
+    current = store.load.fetch('nodes').fetch(request.hostname)
+    expect(Empeira::Node::Inventory.instance(current)).not_to eq(previous)
+    expect(current['provisioned']).to be(true)
+    expect(replacement.list.first['state']).to eq('running')
+  end
+
+  it 'allows destroy during Puppet and refuses its late completion write' do
+    provider.run(request)
+    allow(runtime).to receive(:stream_service) do
+      expect(described_class.new(context: app.context, runner: app.runner, backend: runtime)
+                            .destroy(name: request.hostname).changed).to be(true)
+      Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: 0, timed_out: false)
+    end
+    expect { provider.puppet(name: request.hostname) }.to raise_error(Empeira::Infrastructure::Cancelled)
+    expect(store.load.fetch('nodes')).to be_empty
+    expect(provider.list).to be_empty
+    policy = JSON.parse(File.read(Empeira::ControlPlane::Files.new(context: app.context).path('gateway.json')))
+    expect(policy.fetch('blocked')).to be_empty
+  end
+
+  it 'allows workspace destroy during provisioning without later resource recreation' do
+    allow(provider).to receive(:apply_bootstrap) do
+      Empeira::Infrastructure::Cleanup.new(context: app.context, runner: app.runner, runtime: runtime).destroy
+    end
+    expect { provider.run(request) }.to raise_error(Empeira::Infrastructure::Cancelled)
+    expect(store.load).to be_nil
+    expect(runtime.services).to be_empty
+    expect(runtime.networks).to be_empty
   end
 
   it 'keeps failed Puppet results separate from running container state' do
@@ -489,7 +581,7 @@ RSpec.describe Empeira::Node::Container do
     record = store.load.fetch('nodes').fetch('test-node')
     expect(record).to include('ssh_host' => '127.0.0.1', 'ssh_port' => 22, 'ssh_transport' => 'tunnel')
     expect(record.fetch('definition').fetch('ports')).to be_empty
-    client = instance_double(Empeira::Node::UserSSH)
+    client = instance_double(Empeira::Node::UserSSH, prepare: nil)
     expect(Empeira::Node::UserSSH).to receive(:new).with(
       runner: app.runner, credentials: an_instance_of(Empeira::Node::SSHCredentials),
       home: app.context.locations.home,

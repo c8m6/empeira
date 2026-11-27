@@ -2,7 +2,7 @@
 
 module Empeira
   module Updates
-    # Caller owns the existing workspace lock. r10k updates the live module directory in place.
+    # Caller owns the module-tree update lock. r10k updates the live module directory in place.
     class Modules
       def initialize(context:, runtime:, runner:, progress: Progress.new)
         @context = context

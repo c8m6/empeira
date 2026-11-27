@@ -317,18 +317,17 @@ Empeira uses the private privileged VirtIO channel internally to install the VM 
 enroll certificates and run Puppet. User-facing SSH opens an ordinary interactive
 login without the internal provisioning command or automatic sudo.
 
-Container SSH and VM exec, shell, SSH and serial sessions release the workspace
-mutation lock after ownership and running-state checks. Parallel sessions and read-only status remain available. A
-shared instance guard prevents `node stop`, `node destroy` or restart from replacing
-that node instance while a session is attached; detach first and retry the conflicting operation.
-Other nodes and workspace commands can proceed. Instance lock files stay stable;
-their open descriptors are released on detach, disconnect, errors and signals.
-Container SSH preparation remains inside the workspace transaction and pins the
-observed container ID before releasing that lock. Concurrent SSH sessions to the
-same or different nodes are allowed. Container `exec` and `shell` retain their
-existing workspace transaction. Mutations still use the exclusive workspace lock;
-`down` continues to require node removal, and destroy retains attached instances
-for a retry after sessions detach.
+Independent nodes may provision, start, stop and execute concurrently. Multiple
+SSH, shell, exec and Puppet calls may target the same node. Puppet/OpenVox owns its
+agent-run coordination. Empeira pins the native container ID or VM instance token;
+SSH known-hosts files are specific to that instance.
+
+`node stop`, `node destroy` and workspace `destroy` remain available during user
+sessions, Puppet and provisioning. They interrupt the native instance. The old
+operation cannot recreate it, overwrite inventory or affect a new node with the
+same hostname. Hostname and IP reservations are released only after owned
+resources and DNS/proxy bindings are removed. Cleanup failures retain the records
+needed for a retry. `down` continues to require node removal.
 
 ## Root diagnostic commands and interactive shell
 
@@ -400,8 +399,8 @@ scans/adopts arbitrary containers by name, and native ownership checks still app
 Already absent resources succeed. A deletion failure retains its node/resource
 record and ownership evidence while other positively identified resources continue
 to be removed. Remaining resources are listed and incomplete cleanup returns nonzero.
-Foreign IDs/labels, unsafe paths, symlinks, unverifiable live QEMU processes and active
-VM session guards block their corresponding deletions. Unknown resource groups remain
+Foreign IDs/labels, unsafe paths, symlinks and unverifiable live QEMU processes
+block their corresponding deletions. Unknown resource groups remain
 recorded for investigation. Node destroy preserves other nodes and shared services,
 networks and volumes. Workspace destroy removes owned CA/database volumes and generated
 files, preserving the stable mutation-lock inode, control code, modules and shared caches.

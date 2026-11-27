@@ -67,6 +67,26 @@ RSpec.describe 'Production peer network contracts' do
     expect(definition.options.fetch('sysctls')).to include('net.ipv4.ip_forward' => '0')
   end
 
+  it 'keeps short status observations separate from authoritative SSH access validation' do
+    runner = instance_double(Empeira::Execution::Runner)
+    backend = Empeira::Network::Peer::LinuxPodman.new(context: app.context, runtime: nil, runner: runner, store: nil)
+    link = { 'ifname' => backend.tap(record), 'ifalias' => record.dig('peer', 'token'),
+             'master' => backend.bridge, 'flags' => ['UP'] }
+    allow(runner).to receive(:run) do |_, timeout:, **|
+      if timeout == 2
+        Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: nil, timed_out: true)
+      else
+        Empeira::Execution::Result.new(stdout: JSON.generate([link]), stderr: '', exit_status: 0, timed_out: false)
+      end
+    end
+    expect(backend.health([record])).to eq(record.fetch('hostname') => false)
+    expect(backend.healthy?(record)).to be(true)
+    allow(runner).to receive(:run).and_return(
+      Empeira::Execution::Result.new(stdout: '', stderr: '', exit_status: nil, timed_out: true)
+    )
+    expect { backend.healthy?(record) }.to raise_error(Empeira::Error, /timeout=true/)
+  end
+
   it 'keeps the rootless Podman system SSH client without capabilities, devices or external exposure' do
     backend = Empeira::Network::Peer::LinuxPodman.new(context: app.context, runtime: nil, runner: nil, store: nil)
     backend.instance_variable_set(:@image, Empeira::Network::Peer::AdapterImage.new(context: app.context))

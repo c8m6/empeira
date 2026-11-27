@@ -2,8 +2,8 @@
 
 module Empeira
   module ControlPlane
-    # Called under the infrastructure store's mutation lock.
-    # Keep one explicit transaction coordinator for the ordered service lifecycle.
+    # Dependency ordering belongs to the control-plane resource; native mutations
+    # use infrastructure phases and inventory publication uses brief transactions.
     # rubocop:disable-next Metrics/ClassLength
     class Controller
       def initialize(context:, runtime:, store:, runner: Execution::Runner.new, plan: nil, progress: Progress.new)
@@ -13,7 +13,7 @@ module Empeira
         @runtime = runtime
         @store = store
         @plan = plan || Plan.new(context: context)
-        @health = Health.new(runtime: runtime, plan: @plan)
+        @health = Health.new(runtime: runtime, plan: @plan, guard: -> { @store.operation&.check! })
         logger = @runner.method(:debug) if @runner.respond_to?(:debug)
         @direct_resolver = Network::DirectEgress::Resolver.new(logger: logger)
         @observed = {}
@@ -22,33 +22,37 @@ module Empeira
       # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength -- Dependency-ordered reconciliation shares one transaction.
       def up
         preflight unless @desired_images
-        load_state
-        check_network_architecture!
-        check_service_names!
-        @gateway_reconciling = true
-        capture_services
-        lockdown_existing_gateway
-        prepare_files
-        @progress.stage(20, 'Preparing persistent storage...')
-        prepare_storage
-        prepare_network_services
-        @plan.environment.prepare
+        critical do
+          load_state
+          check_network_architecture!
+          check_service_names!
+          @gateway_reconciling = true
+          capture_services
+          lockdown_existing_gateway
+          prepare_files
+          @progress.stage(20, 'Preparing persistent storage...')
+          prepare_storage
+          prepare_network_services
+          @plan.environment.prepare
+        end
         @progress.stage(45, 'Starting PostgreSQL...')
-        reconcile('postgres') if @plan.database?
+        critical { reconcile('postgres') } if @plan.database?
         @progress.stage(60, 'Starting configuration server...')
-        reconcile('server')
+        critical { reconcile('server') }
         prepare_postgres
         prepare_server
         prepare_puppetdb
-        @plan.additional_services.each_key { |key| reconcile(key) }
-        activate_dns
-        prepare_browser
-        refresh_redirects
+        @plan.additional_services.each_key { |key| critical { reconcile(key) } }
+        critical do
+          activate_dns
+          prepare_browser
+          refresh_redirects
+        end
         @progress.stage(95, 'Verifying control plane...')
         finish_reconciliation
         @changed
       rescue StandardError
-        lockdown_existing_gateway if @gateway_reconciling
+        critical { lockdown_existing_gateway } if @gateway_reconciling
         raise
       ensure
         @desired_images = nil
@@ -60,6 +64,7 @@ module Empeira
 
       # The browser lifecycle may change only the browser pair. Required workspace
       # services and networks are inspected without being started or reconciled.
+      # rubocop:disable-next Metrics/MethodLength -- Validate shared service ownership before the serialized browser resource reconciliation.
       def browser
         load_state
         require_initialized_browser_workspace!
@@ -69,9 +74,11 @@ module Empeira
         @dns = require_running_service!('dns')
         definitions = Browser.new(@plan).definitions(dns: @dns)
         check_images(definitions: definitions)
-        reconcile_browser('browser', definitions.fetch('browser'))
-        record_browser_address
-        reconcile_browser('browser-ui', definitions.fetch('browser-ui'))
+        critical do
+          reconcile_browser('browser', definitions.fetch('browser'))
+          record_browser_address
+          reconcile_browser('browser-ui', definitions.fetch('browser-ui'))
+        end
         browser_url
       ensure
         @desired_images = nil
@@ -120,15 +127,18 @@ module Empeira
         raise Error, 'DNS replacement would invalidate existing node resolver bindings; destroy nodes before empeira up'
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Quiesce creation before removing the dependent control-plane resources and retained state.
       def down
         load_state
         @progress.stage(25, 'Removing service containers...')
-        (@inventory.fetch('services').keys - %w[dns proxy gateway]).reverse_each { |key| remove(key) }
-        %w[proxy dns gateway].each { |key| remove(key) }
-        remove_workspace_bridge
-        remove_egress
-        @inventory['stopped'] = true
-        save if @state['control_plane']
+        (@inventory.fetch('services').keys - %w[dns proxy gateway]).reverse_each { |key| critical { remove(key) } }
+        %w[proxy dns gateway].each { |key| critical { remove(key) } }
+        critical do
+          remove_workspace_bridge
+          remove_egress
+          @inventory['stopped'] = true
+          save if @state['control_plane']
+        end
         @changed
       end
 
@@ -157,6 +167,12 @@ module Empeira
       end
 
       def preflight
+        validate
+        critical { lockdown_existing_gateway }
+        check_images
+      end
+
+      def validate
         load_state
         capture_dns_definition
         @plan.validate_server_mounts!
@@ -167,11 +183,17 @@ module Empeira
         validate_redirect_routes!
         @plan.module_request.warnings.each { |message| @progress.warning(message) }
         @plan.module_request.verify_available!
-        lockdown_existing_gateway
-        check_images
       end
 
       private
+
+      def critical(&)
+        if @store.operation
+          @store.operation.resource('infrastructure-phase', &)
+        else
+          yield
+        end
+      end
 
       def capture_dns_definition
         @plan.additional_resolver_key
@@ -243,7 +265,7 @@ module Empeira
                                                           end,
                                               redirects: resolved_redirects(existing_redirect_targets),
                                               **@dns_resolution)
-        @plan.files.write('gateway.json', JSON.generate(@gateway_plan))
+        write_gateway_plan
       end
 
       def existing_redirect_targets
@@ -263,9 +285,11 @@ module Empeira
         redirects = resolved_redirects(@observed)
         return if redirects == @gateway_plan.fetch('redirects')
 
-        @gateway_plan['redirects'] = redirects
-        @plan.files.write('gateway.json', JSON.generate(@gateway_plan))
-        apply_gateway_policy
+        @store.resource_lock('gateway-policy').synchronize do
+          @gateway_plan['redirects'] = redirects
+          write_gateway_plan
+          apply_gateway_policy
+        end
       end
 
       def resolve_direct_egress
@@ -301,12 +325,23 @@ module Empeira
         return 'unverified; gateway is not running' unless report['Gateway'] == 'running'
         return 'unverified; workspace bridge preparation not recorded' unless @inventory['bridge_prepared']
 
-        reconcile_bridge('check')
+        @store.resource_lock('bridge-policy').synchronize do
+          return 'unverified; infrastructure reconciliation in progress' unless current_policy_instance?
+
+          reconcile_bridge('check')
+        end
         result = @runtime.service_exec(@observed.fetch('gateway'), [Network::Gateway::EXECUTABLE, 'check',
                                                                     '/empeira-gateway/gateway.json'], timeout: 3)
         result.success? ? 'verified' : 'unverified; firewall/routing reconcile required'
       rescue Providers::ExecutionError
         'unverified; workspace bridge attachment reconcile required'
+      end
+
+      def current_policy_instance?
+        current = @store.load
+        current && !current['destroying'] && !current['stopping'] &&
+          current['generation'] == @state['generation'] &&
+          current.dig('resources', 'network', 'id') == @state.dig('resources', 'network', 'id')
       end
 
       def readiness(key, resource)
@@ -323,6 +358,7 @@ module Empeira
         @desired_images = {}
         @runtime.with_local_images do
           definitions.each_value do |definition|
+            @store.operation&.check!
             image = definition.options.fetch('image')
             @runtime.ensure_image(image, recipe: definition.options['recipe'],
                                          files: definition.options.fetch('build_files', {}))
@@ -354,15 +390,22 @@ module Empeira
           'fingerprint' => Digest::SHA256.file(@plan.files.path('database-setup.sql')).hexdigest }
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Host mount preparation is protected separately from server readiness waits.
       def prepare_server
-        refresh_eyaml_keys if @plan.eyaml_staged?
-        Runtime::MountProbe.new(runtime: @runtime).verify(@observed.fetch('server'),
-                                                          [@plan.repository_mounts, @plan.eyaml_mounts,
-                                                           @plan.project_server_mounts].flatten)
+        critical do
+          refresh_eyaml_keys if @plan.eyaml_staged?
+          Runtime::MountProbe.new(runtime: @runtime).verify(@observed.fetch('server'),
+                                                            [@plan.repository_mounts, @plan.eyaml_mounts,
+                                                             @plan.project_server_mounts].flatten)
+        end
         @health.wait('server', @observed)
         reconcile_server_environment
-        Server::RelayCertificate.new(context: @context).prepare(runtime: @runtime, server: @observed.fetch('server')) if
-          @plan.database?
+        critical do
+          if @plan.database?
+            Server::RelayCertificate.new(context: @context).prepare(runtime: @runtime,
+                                                                    server: @observed.fetch('server'))
+          end
+        end
       end
 
       def reconcile_server_environment
@@ -385,20 +428,22 @@ module Empeira
         return unless @plan.database?
 
         @progress.stage(85, 'Starting PuppetDB...')
-        reconcile('puppetdb-backend')
+        critical { reconcile('puppetdb-backend') }
         @health.wait('puppetdb-backend', @observed)
-        reconcile('puppetdb')
+        critical { reconcile('puppetdb') }
         @health.wait('puppetdb', @observed)
       end
 
       def finish_reconciliation
-        remove_disabled
+        critical { remove_disabled }
         @health.wait('dns', @observed)
         @health.wait('proxy', @observed) if @plan.proxy?
-        update_hosts(reload_proxy: true) if @plan.proxy?
-        @inventory['stopped'] = false
-        save
-        @plan.additional_configurations.prune
+        critical do
+          update_hosts(reload_proxy: true) if @plan.proxy?
+          @inventory['stopped'] = false
+          save
+          @plan.additional_configurations.prune
+        end
       end
 
       def load_state(state = @store.load)
@@ -548,7 +593,7 @@ module Empeira
 
       def update_hosts(reload_proxy: false)
         # A running container can still be initializing Squid. Defer HUP until its listener is ready.
-        changed = Discovery.new(plan: @plan, runtime: @runtime, state: @state).refresh(
+        changed = Discovery.new(plan: @plan, runtime: @runtime, state: @state, store: @store).refresh(
           services: @observed, node_resources: discovery_nodes, reload_proxy: reload_proxy,
           force_proxy_reload: @proxy_configuration_changed || @proxy_bindings_changed
         )
@@ -690,7 +735,7 @@ module Empeira
       def lockdown_gateway(resource)
         return if @gateway_locked_id == resource.fetch('id')
 
-        gateway_command(resource, 'lockdown')
+        @store.resource_lock('gateway-policy').synchronize { gateway_command(resource, 'lockdown') }
         @gateway_locked_id = resource.fetch('id')
       end
 
@@ -721,10 +766,23 @@ module Empeira
       end
 
       def apply_gateway_policy
-        # An uncertain apply must force fresh lockdown during failure recovery.
-        @gateway_locked_id = nil
-        gateway_command(@observed.fetch('gateway'), 'apply', '/empeira-gateway/gateway.json')
-        record_gateway_policy
+        @store.resource_lock('gateway-policy').synchronize do
+          @store.operation&.check!
+          write_gateway_plan
+          # An uncertain apply must force fresh lockdown during failure recovery.
+          @gateway_locked_id = nil
+          gateway_command(@observed.fetch('gateway'), 'apply', '/empeira-gateway/gateway.json')
+          record_gateway_policy
+        end
+      end
+
+      def write_gateway_plan
+        @store.resource_lock('gateway-policy').synchronize do
+          @store.operation&.check!
+          current = @store.load
+          @gateway_plan['blocked'] = Network::Gateway.blocked_addresses(current) if current
+          @plan.files.write('gateway.json', JSON.generate(@gateway_plan))
+        end
       end
 
       def record_gateway_policy

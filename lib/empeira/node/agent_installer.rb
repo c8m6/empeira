@@ -5,15 +5,18 @@ module Empeira
     module AgentInstaller
       module_function
 
-      def build(context:, runtime:, requirements:, execute:, copy:, progress: Progress.new)
+      # rubocop:disable-next Metrics/ParameterLists -- Pass lifecycle ownership explicitly alongside the existing installer transport callbacks.
+      def build(context:, runtime:, requirements:, execute:, copy:, progress: Progress.new, store: nil)
+        options = store ? { store: store } : {}
         AgentInstallation.new(context: context, runtime: runtime, requirements: requirements,
-                              execute: execute, copy: copy, progress: progress)
+                              execute: execute, copy: copy, progress: progress, **options)
       end
     end
 
     class AgentInstallation
-      def initialize(context:, runtime:, requirements:, execute:, copy:, progress:)
-        @acquisition = Agent::Acquisition.new(context: context, runtime: runtime, progress: progress)
+      # rubocop:disable-next Metrics/ParameterLists -- Keep the installer transport and optional lifecycle ownership explicit.
+      def initialize(context:, runtime:, requirements:, execute:, copy:, progress:, store: nil)
+        @acquisition = Agent::Acquisition.new(context: context, runtime: runtime, progress: progress, store: store)
         @requirements = requirements
         @execute = execute
         @copy = copy

@@ -45,8 +45,8 @@ module Empeira
         reap_stream(pid) if pid
       end
 
-      def console(path, input: $stdin, output: $stdout, guidance: nil)
-        Console.new.attach(path, input: input, output: output, guidance: guidance)
+      def console(path, input: $stdin, output: $stdout, guidance: nil, verify: nil)
+        Console.new.attach(path, input: input, output: output, guidance: guidance, verify: verify)
       end
 
       # A terminal-preserving handoff: signals, process identity and status belong

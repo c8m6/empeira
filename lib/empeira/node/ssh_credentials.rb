@@ -1,16 +1,18 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require 'digest'
 
 module Empeira
   module Node
     # Per-node credentials and known hosts stay in private workspace storage.
     class SSHCredentials
-      def initialize(context:, runner:, provider:, hostname:, purpose: nil)
+      def initialize(context:, runner:, provider:, hostname:, purpose: nil, instance: nil)
         @runner = runner
         raise ArgumentError, 'Unknown SSH credential scope' unless [nil, :system].include?(purpose)
 
         @purpose = purpose
+        @instance = instance
         parent = provider == 'vm' ? 'vms' : 'containers'
         @directory = context.locations.workspace(context.workspace).join(parent, hostname)
       end
@@ -26,7 +28,8 @@ module Empeira
       end
 
       def known_hosts
-        directory.join(@purpose ? "#{@purpose}_known_hosts" : 'known_hosts')
+        root = @instance ? directory.join('sessions', Digest::SHA256.hexdigest(@instance)) : directory
+        root.join(@purpose ? "#{@purpose}_known_hosts" : 'known_hosts')
       end
 
       def prepare
@@ -36,11 +39,13 @@ module Empeira
         public_path
       end
 
+      # rubocop:disable-next Metrics/AbcSize -- Validate both the private host directory and the instance-specific known-hosts path.
       def prepare_hosts
         raise Error, 'Managed SSH directory must not be a symlink' if directory.symlink?
 
         FileUtils.mkdir_p(directory, mode: 0o700)
         File.chmod(0o700, directory)
+        prepare_session_directory if known_hosts.dirname != directory
         raise Error, 'Managed SSH known_hosts is unsafe' if known_hosts.symlink? ||
                                                             (known_hosts.exist? && !known_hosts.file?)
       end
@@ -62,6 +67,14 @@ module Empeira
       end
 
       private
+
+      def prepare_session_directory
+        [directory.join('sessions'), known_hosts.dirname].each do |path|
+          raise Error, 'Managed SSH session directory must not be a symlink' if path.symlink?
+
+          FileUtils.mkdir_p(path, mode: 0o700)
+        end
+      end
 
       def safe_keys?
         [key_path, public_path].all? { |path| path.file? && !path.symlink? && path.readable? }

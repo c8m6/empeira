@@ -19,17 +19,16 @@ module Empeira
 
       def destroy
         transaction do
-          @state.fetch('nodes', {}).dup.each_key { |name| attempt("node #{name}") { remove_node(name) } }
-          remove_bootstrap
-          remove_services
-          remove_volumes
-          remove_networks
-          reject_unknown_resources
-          if @errors.empty?
-            cleanup_files
-            @store.clear
+          mark_workspace
+          @store.resource_lock('teardown').synchronize do
+            next unless @store.read_state
+
+            @state = @store.load
+            preempt_nodes
+            @state.fetch('nodes', {}).dup.each_key { |name| attempt("node #{name}") { remove_node(name) } }
+            remove_workspace
+            @store.with_lock { @store.clear }
           end
-          report_errors!
         end
       end
 
@@ -39,18 +38,49 @@ module Empeira
 
         transaction do
           attempt("node #{hostname}") { remove_node(hostname) }
-          attempt('node discovery records') { remove_dns(hostname) } unless @state.fetch('nodes', {}).key?(hostname)
           report_errors!
         end
       end
 
       private
 
+      def preempt_nodes
+        @state.fetch('nodes', {}).each do |name, record|
+          attempt("interrupt node #{name}") do
+            RecoveryInventory.node!(name, record)
+            preempt(record)
+          end
+        end
+      end
+
+      def mark_workspace
+        @store.resource_lock('bridge-policy').synchronize do
+          @store.with_lock do
+            @state = @store.load
+            @state['destroying'] = true
+            save
+          end
+        end
+      end
+
+      def remove_workspace
+        @store.operation.resource('infrastructure-phase') do
+          @state = @store.load
+          @store.resource_lock('bootstrap-proxy').synchronize { remove_bootstrap }
+          remove_services
+          remove_volumes
+          remove_networks
+          reject_unknown_resources
+          cleanup_files if @errors.empty?
+          report_errors!
+        end
+      end
+
       def transaction
         @errors.clear
         @failures.clear
         @changed = false
-        @store.with_lock do
+        @store.with_operation(destructive: true) do
           @state = @store.load
           next Providers::Result.new(resource: nil, changed: false) unless @state
 
@@ -85,31 +115,123 @@ module Empeira
       end
 
       def remove_node(name)
-        record = @state.fetch('nodes', {})[name]
+        record = mark_node(name)
         return unless record
 
-        RecoveryInventory.node!(name, record)
-        if record['provider'] == 'vm'
-          VM::Removal.new(context: @context, runner: @runner, runtime: @runtime, store: @store).remove(record, @state)
-        else
-          remove_container(record)
+        instance = Node::Inventory.instance(record)
+        preempt(record)
+        @store.operation.resource("node/#{name}") do
+          @state = @store.load
+          current = @state.fetch('nodes', {})[name]
+          next unless current && Node::Inventory.instance(current) == instance
+
+          finish_node(name, current)
         end
-        retire_certificate(record)
-        remove_session_lock(record) if record['provider'] == 'vm'
-        @state.fetch('nodes').delete(name)
+      end
+
+      def finish_node(name, current)
+        remove_helpers(current)
+        Network::BootstrapProxy.new(context: @context, runtime: @runtime, store: @store).cleanup(@state,
+                                                                                                 record: current)
+        remove_native_node(current)
+        retire_certificate(current)
+        remove_discovery(current)
         save
+        release_reservation(name, current)
         @changed = true
       end
 
-      def remove_session_lock(record)
-        path = @store.directory.join("vm-session-#{record.fetch('peer').fetch('token')}.lock")
-        OwnedFiles.remove(path, root: @store.directory)
+      def release_reservation(name, record)
+        @store.resource_lock('gateway-policy').synchronize do
+          @state = @store.load
+          release_gateway(record)
+          @state.fetch('nodes').delete(name)
+          save
+        end
       end
 
-      def remove_container(record)
-        return remove_container_instance(record) unless record['id']
+      # rubocop:disable-next Metrics/AbcSize -- Revoke native and generated bootstrap exclusions before releasing the IP lease.
+      def release_gateway(record)
+        ip = record.dig('peer', 'ip') || record.dig('definition', 'ip')
+        return unless ip
 
-        Node::SessionLock.new(context: @context, record: record).exclusive { remove_container_instance(record) }
+        IPAddr.new(ip)
+        files = ControlPlane::Files.new(context: @context)
+        path = Pathname(files.path('gateway.json'))
+        return unless OwnedFiles.verify_removable!(path, root: @store.directory)
+
+        policy = JSON.parse(path.read)
+        policy['blocked'] = policy.fetch('blocked') - [ip]
+        unblock_gateway(ip)
+        files.write('gateway.json', JSON.generate(policy))
+      rescue JSON::ParserError, IPAddr::InvalidAddressError
+        raise StateError, 'Gateway policy or node address is invalid; ownership retained for recovery', cause: nil
+      end
+
+      def unblock_gateway(ip)
+        id = @state.dig('control_plane', 'services', 'gateway', 'id')
+        return unless id
+
+        resource = @runtime.inspect_service(identity('gateway'), expected_id: id)
+        return unless resource && resource['state'] == 'running'
+
+        result = @runtime.service_exec(resource, [Network::Gateway::EXECUTABLE, 'unblock', ip])
+        return if result.success?
+
+        detail = Execution::Diagnostics.native(result, operation: 'Node gateway cleanup', tool: 'gateway')
+        raise Error, "Cannot revoke the removed node's gateway exclusion\n#{detail}"
+      end
+
+      def remove_native_node(record)
+        if record['provider'] == 'vm'
+          VM::Removal.new(context: @context, runner: @runner, runtime: @runtime, store: @store).remove(record, @state)
+        else
+          remove_container_instance(record)
+        end
+      end
+
+      def mark_node(name)
+        @store.with_lock do
+          @state = @store.load
+          entry = @state.fetch('nodes', {})[name]
+          next unless entry
+
+          RecoveryInventory.node!(name, entry)
+          entry['deleting'] = true
+          entry['lifecycle_revision'] = SecureRandom.hex(16)
+          save
+          entry
+        end
+      end
+
+      # rubocop:disable-next Metrics/AbcSize -- Verify paths and native ownership before interrupting the recorded provider instance.
+      def preempt(record)
+        directory = record['provider'] == 'vm' ? 'vms' : 'containers'
+        OwnedFiles.verify_removable!(@store.directory.join(directory, record.fetch('hostname')), root: @store.directory)
+        if record['provider'] == 'vm'
+          engine = VM.registry.build('qemu', context: @context, runner: @runner)
+          qemu = VM::QemuRuntime.new(engine: engine, runner: @runner, context: @context)
+          qemu.stop(record, immediate: true) if record['pid'] || qemu.running?(record)
+        elsif record['id']
+          definition = Node::Definition.new(hostname: record.fetch('hostname'), workspace: @context.workspace)
+          resource = @runtime.inspect_service(definition, expected_id: record.fetch('id'))
+          verify_container_network!(resource, record) if resource
+          remove_service(definition, record.fetch('id'))
+        end
+      end
+
+      def remove_helpers(record)
+        record.fetch('helpers', {}).dup.each do |key, entry|
+          unless key.match?(/\Aagent-[0-9a-f]{32}\z/)
+            raise StateError, 'Invalid agent helper identity; resources retained'
+          end
+
+          definition = identity(key)
+          resource = @runtime.inspect_service(definition, expected_id: entry.fetch('id'))
+          remove_service(definition, resource.fetch('id')) if resource
+          record.fetch('helpers').delete(key)
+          save
+        end
       end
 
       def remove_container_instance(record)
@@ -160,14 +282,46 @@ module Empeira
         @state.fetch('retired_certificates')[record.fetch('hostname')] = key
       end
 
-      def remove_dns(name)
-        files = ControlPlane::Files.new(context: @context)
-        path = Pathname(files.path('hosts'))
+      # Remove this lease before releasing its hostname/IP, without reinterpreting recovery configuration.
+      # rubocop:disable-next Metrics/AbcSize -- Revoke aliases and proxy grants before releasing this hostname and address.
+      def remove_discovery(record)
+        @store.resource_lock('discovery').synchronize do
+          files = ControlPlane::Files.new(context: @context)
+          name = record.fetch('hostname')
+          address = record.dig('peer', 'ip') || record.dig('definition', 'ip')
+          aliases = Network::Naming.new.aliases(name)
+          prune_file(files, 'hosts') { |lines| lines.reject { |line| line.split.drop(1).intersect?(aliases) } }
+          if address
+            prune_file(files, 'proxy-clients') { |lines| lines.reject { |line| line.strip == address } }
+            prune_proxy_rules(files, address)
+            reload_proxy
+          end
+        end
+      end
+
+      def prune_proxy_rules(files, address)
+        prune_file(files, 'proxy-rules.conf') do |lines|
+          labels = lines.filter_map do |line|
+            match = line.match(/\Aacl (node_\d+)_source src (\S+)\s*\z/)
+            match[1] if match && match[2] == address
+          end
+          lines.reject { |line| labels.any? { |label| line.match?(/\b#{Regexp.escape(label)}_/) } }
+        end
+      end
+
+      def prune_file(files, name)
+        path = Pathname(files.path(name))
         return unless OwnedFiles.verify_removable!(path, root: @store.directory)
 
-        aliases = Network::Naming.new.aliases(name)
-        content = path.readlines.reject { |line| line.split.drop(1).intersect?(aliases) }.join
-        @changed = files.write('hosts', content) || @changed
+        files.write(name, yield(path.readlines).join)
+      end
+
+      def reload_proxy
+        id = @state.dig('control_plane', 'services', 'proxy', 'id')
+        return unless id
+
+        resource = @runtime.inspect_service(identity('proxy'), expected_id: id)
+        @runtime.reload_service(resource) if resource && resource['state'] == 'running'
       end
 
       def remove_service(definition, id)
@@ -321,7 +475,8 @@ module Empeira
       end
 
       def cleanup_files
-        %w[containers vms services environments additional-configurations puppetdb-relay database.env].each do |name|
+        %w[containers vms services bootstrap-proxy environments additional-configurations puppetdb-relay
+           database.env].each do |name|
           OwnedFiles.remove(@store.directory.join(name), root: @store.directory, symlinks: name == 'environments')
         end
         locks = @store.directory.children.select do |path|
