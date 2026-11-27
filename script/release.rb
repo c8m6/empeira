@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'json'
 require 'time'
 require_relative 'release_support'
 
