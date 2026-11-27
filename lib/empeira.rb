@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require_relative 'empeira/compatibility/data'
 require_relative 'empeira/errors'
 
 # Register code without loading providers, networking or guest tooling for CLI help.

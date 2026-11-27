@@ -281,10 +281,12 @@ gates when capabilities exist. Report unavailable checks precisely; never claim
 unexecuted runtime, VM, remote CI or publishing checks as successful.
 
 Normal quality CI runs deterministic RSpec and official addon/Core acceptance on
-Ubuntu and macOS with Ruby 3.1, 3.2, 3.3, 3.4 and 4.0. Ruby 3.1 is the minimum.
+Ubuntu and macOS with Ruby 3.2, 3.3, 3.4 and 4.0. Ruby 3.2 is the minimum.
 RuboCop and both bundler-audit checks run only on Ubuntu with Ruby 3.4; release
 builds use Ruby 3.4.
-A focused Docker/OpenVox PR smoke runs the existing real node test on all five
+The module-worker acceptance gate uses its own locked helper bundle on Ruby 3.4
+on Ubuntu and macOS; helper dependencies must not constrain the CLI bundle.
+A focused Docker/OpenVox PR smoke runs the existing real node test on all four
 Ruby versions with at most two concurrent jobs. Broader runtime,
 browser, network and VM suites are manual; VM gates require capable self-hosted
 runners. Avoid automatic heavy matrices and schedules. Linux/macOS/WSL2 validation

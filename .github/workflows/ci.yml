@@ -26,7 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-15]
-        ruby: ['3.1', '3.2', '3.3', '3.4', '4.0']
+        ruby: ['3.2', '3.3', '3.4', '4.0']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,6 +46,17 @@ jobs:
         run: |
           ruby -e '(["empeira.gemspec", "bin/empeira"] + Dir["{lib,spec,script,resources}/**/*.rb"]).each { |path| RubyVM::InstructionSequence.compile_file(path) }'
       - run: bundle exec rspec --exclude-pattern 'spec/integration/**/*_spec.rb'
+      - name: Install the independent module-helper bundle
+        if: matrix.ruby == '3.4'
+        env:
+          BUNDLE_GEMFILE: resources/modules/Gemfile
+          BUNDLE_PATH: ${{ runner.temp }}/empeira-module-gems
+        run: bundle install
+      - name: Exercise the actual module worker with its own locked dependencies
+        if: matrix.ruby == '3.4'
+        env:
+          EMPEIRA_MODULE_BUNDLE_PATH: ${{ runner.temp }}/empeira-module-gems
+        run: bundle exec rspec spec/acceptance/modules.rb
       - if: matrix.os == 'ubuntu-24.04' && matrix.ruby == '3.4'
         run: bundle exec rubocop
       - if: matrix.os == 'ubuntu-24.04' && matrix.ruby == '3.4'

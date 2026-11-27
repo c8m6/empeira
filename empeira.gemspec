@@ -10,12 +10,13 @@ Gem::Specification.new do |spec|
   spec.description = 'Ephemeral Manifest Playground for Exploring Infrastructure, Roles & Automation.'
   spec.homepage = 'https://github.com/c8m6/empeira'
   spec.license = 'AGPL-3.0-or-later'
-  spec.required_ruby_version = '>= 3.1'
+  spec.required_ruby_version = '>= 3.2'
   spec.files = Dir['lib/**/*.rb', 'lib/empeira/build.json', 'config/*.yaml', 'resources/**/*', 'bin/*',
                    'docs/*.md', 'README.md', 'LICENSE']
   spec.bindir = 'bin'
   spec.executables = ['empeira']
   spec.require_paths = ['lib']
   spec.metadata['rubygems_mfa_required'] = 'true'
+  spec.add_dependency 'base64', '~> 0.3'
   spec.add_dependency 'thor', '~> 1.5'
 end

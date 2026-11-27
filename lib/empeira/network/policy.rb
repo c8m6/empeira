@@ -7,6 +7,12 @@ module Empeira
     class UnsupportedPolicy < Error; end
 
     Policy = Data.define do
+      def initialize
+        super
+        # Ruby 3.2 does not freeze memberless Data instances (Ruby bug #21819).
+        freeze
+      end
+
       def require_support!(isolated:, controlled_egress:)
         raise UnsupportedPolicy, 'Isolated networking is required' unless isolated == true
       end
