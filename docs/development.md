@@ -554,6 +554,9 @@ the release gem. Check upstream licensing and advisories before upgrades:
   [RuboCop](https://rubygems.org/gems/rubocop), [Rake](https://rubygems.org/gems/rake)
   and [Bundler](https://rubygems.org/gems/bundler): MIT.
 - [bundler-audit](https://github.com/rubysec/bundler-audit): GPL-3.0-or-later development tool.
+- [multi_json](https://rubygems.org/gems/multi_json/versions/1.21.2): MIT;
+  the helper's pinned 1.21.2 supports JSON 3 and retains r10k's legacy API.
+  Its Ruby >= 3.2 requirement is satisfied by the independent Ruby 3.4 helper.
 - [r10k](https://github.com/puppetlabs/r10k) and
   [puppet_forge](https://github.com/puppetlabs/forge-ruby): Apache-2.0; reviewed versions
   and checksums are in `resources/modules/Gemfile.lock`. Log4r's packaged
